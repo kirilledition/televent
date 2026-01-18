@@ -6,6 +6,7 @@
 //! - Authentication via Telegram OAuth and device passwords
 
 mod config;
+mod db;
 mod error;
 mod middleware;
 mod routes;
@@ -47,6 +48,7 @@ async fn main() -> Result<()> {
     // Build application router
     let app = Router::new()
         .nest("/", routes::health::routes())
+        .nest("/api", routes::events::routes())
         .with_state(pool);
 
     // Start server

@@ -44,3 +44,4 @@ icalendar.workspace = true
 # Utilities
 hex = "0.4"
 urlencoding = "2.1"
+base64 = "0.22"
