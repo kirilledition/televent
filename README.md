@@ -1,4 +1,208 @@
-# Televent: Master Plan
+# Televent 🗓️
+
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/kirilledition/televent/workflows/CI/badge.svg)](https://github.com/kirilledition/televent/actions)
+
+**Telegram-native calendar management with CalDAV sync** — No Google or Microsoft account required.
+
+Televent is a self-hosted calendar service that puts your data under your control. Manage events through Telegram, sync with any CalDAV-compatible client (Apple Calendar, Thunderbird, DAVx⁵), and keep your schedule private.
+
+## ✨ Features
+
+- 🤖 **Telegram Bot Interface**: Create and manage events through natural language
+- 📅 **CalDAV Support**: Sync with Apple Calendar, Thunderbird, and other standard clients
+- 🔐 **Privacy First**: Self-hosted, no third-party data sharing, GDPR compliant
+- 🔄 **Two-Way Sync**: Changes from bot or CalDAV client are instantly synchronized
+- 🔔 **Smart Reminders**: Get notifications before events start
+- 🌍 **Timezone Aware**: All events respect your local timezone
+- ♻️ **Recurring Events**: Full RFC 5545 recurrence rule support
+- 🚀 **Fast & Reliable**: Built with Rust for performance and safety
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Docker and Docker Compose
+- Rust 1.75+ (for development)
+- PostgreSQL 16 (provided via Docker)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/kirilledition/televent.git
+cd televent
+
+# Set up environment variables
+cp .env.example .env
+# Edit .env and add your Telegram bot token
+
+# Start services and initialize database
+just setup
+
+# Run the application
+just dev-api    # In one terminal
+just dev-bot    # In another terminal
+just dev-worker # In a third terminal
+```
+
+### Telegram Bot Setup
+
+1. Create a bot with [@BotFather](https://t.me/Botfather)
+2. Copy the bot token to `.env` as `TELEGRAM_BOT_TOKEN`
+3. Start chatting with your bot: `/start`
+
+### CalDAV Setup
+
+1. Generate a device password: Send `/device add MyDevice` to your bot
+2. Configure your CalDAV client:
+   - **Server**: `https://your-server.com/caldav/`
+   - **Username**: Your Telegram ID (bot will show this)
+   - **Password**: The generated device password
+
+## 🏗️ Architecture
+
+Televent follows a clean monorepo architecture with clear separation of concerns:
+
+```
+televent/
+├── crates/
+│   ├── core/      # Domain logic (pure Rust, no I/O)
+│   ├── api/       # Axum server (CalDAV + REST API)
+│   ├── bot/       # Telegram bot (Teloxide)
+│   ├── worker/    # Background job processor
+│   ├── mailer/    # Email notifications
+│   └── web/       # Web UI (Dioxus)
+├── migrations/    # Database migrations
+└── docs/          # Documentation
+```
+
+**Key Design Principles**:
+- 🛡️ **Type Safety**: Newtypes prevent ID confusion (UserId ≠ CalendarId)
+- 📝 **Structured Logging**: Tracing for production debugging
+- 🔒 **Secure by Default**: Argon2id passwords, no panics in prod code
+- ⚡ **Async Everything**: Tokio runtime throughout
+- 📊 **Observable**: Prometheus metrics, OpenTelemetry tracing
+
+## 📚 Documentation
+
+- [Master Plan (README.md)](README.md) - Complete architecture and roadmap
+- [Contributing Guide](CONTRIBUTING.md) - How to contribute
+- [Security Policy](SECURITY.md) - Security best practices
+- [CalDAV Compliance](docs/caldav_compliance.md) - RFC implementation status
+- [Bot Commands](docs/bot_commands.md) - Available bot commands
+- [GDPR Procedures](docs/gdpr_procedures.md) - Data privacy compliance
+
+## 🧪 Development
+
+### Running Tests
+
+```bash
+just test              # Run all tests
+just test-coverage     # With coverage report
+just test-caldav       # CalDAV compliance tests
+```
+
+### Code Quality
+
+```bash
+just fmt                    # Format code
+just lint                   # Run Clippy
+just quality                # Full quality check
+just check-antipatterns     # Check for unwrap/expect/println
+```
+
+### Database Migrations
+
+```bash
+just db-create-migration <name>  # Create new migration
+just db-migrate                   # Apply migrations
+just db-reset                     # Drop and recreate DB
+```
+
+## 🔐 Security
+
+Televent takes security seriously:
+
+- **Password Storage**: Argon2id with secure defaults
+- **Authentication**: Telegram OAuth + device-specific CalDAV passwords
+- **Input Validation**: All user input sanitized
+- **Audit Logging**: GDPR-compliant activity tracking
+- **No Secrets in Code**: Environment variables only
+
+See [SECURITY.md](SECURITY.md) for details and reporting vulnerabilities.
+
+## 📊 Tech Stack
+
+- **Backend**: Rust, Axum 0.7, SQLx, Teloxide
+- **Database**: PostgreSQL 16
+- **Frontend**: Dioxus, Tailwind CSS
+- **Standards**: CalDAV (RFC 4791), iCalendar (RFC 5545)
+- **Auth**: Telegram OAuth, HTTP Basic (CalDAV)
+- **Observability**: Tracing, Prometheus, OpenTelemetry
+
+## 🗓️ Roadmap
+
+### Phase 1: Foundation ✅
+- [x] Core domain models with type safety
+- [x] Database migrations
+- [x] Security module (Argon2id, HMAC-SHA256)
+- [x] Comprehensive documentation
+
+### Phase 2: Core Features 🚧
+- [ ] Telegram bot with command handlers
+- [ ] CalDAV server implementation
+- [ ] REST API endpoints
+- [ ] Background worker with outbox pattern
+
+### Phase 3: Enhanced Features 📋
+- [ ] Web UI with Telegram Login
+- [ ] Email notifications
+- [ ] Recurring event expansion
+- [ ] CalDAV compliance testing
+
+### Phase 4: Production Ready 🎯
+- [ ] Integration tests (80% coverage)
+- [ ] Performance optimization
+- [ ] CI/CD pipeline
+- [ ] Deployment automation
+
+## 🤝 Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+**Quick contribution checklist**:
+- ✅ No `unwrap()`, `expect()`, or `println!`
+- ✅ Use type-safe IDs (UserId, CalendarId, EventId)
+- ✅ Add tests for new features
+- ✅ Run `just quality` before submitting
+- ✅ Follow commit message conventions
+
+## 📄 License
+
+This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [Axum](https://github.com/tokio-rs/axum) - Web framework
+- [Teloxide](https://github.com/teloxide/teloxide) - Telegram bot framework
+- [SQLx](https://github.com/launchbadge/sqlx) - Async SQL toolkit
+- [Dioxus](https://dioxuslabs.com/) - Rust UI framework
+
+## 📞 Support
+
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/kirilledition/televent/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/kirilledition/televent/discussions)
+- 🔒 **Security**: security@televent.app (or private advisory)
+
+---
+
+**Master Plan**: This README provides a high-level overview. For the complete architecture, implementation details, and roadmap, see the sections below.
+
+---
+
+# Master Plan: Complete Architecture & Implementation Guide
 
 ## 1. Vision & Constraints
 

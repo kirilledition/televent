@@ -77,7 +77,7 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
     };
 
     let parsed_hash = PasswordHash::new(hash)
-        .context("Failed to parse password hash")?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse password hash: {}", e))?;
     
     let argon2 = Argon2::default();
     

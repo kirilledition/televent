@@ -10,15 +10,6 @@ license.workspace = true
 # Core
 tokio.workspace = true
 anyhow.workspace = true
-
-# Email
-lettre.workspace = true
-
-# Logging
-tracing.workspace = true
-# Core
-tokio.workspace = true
-anyhow.workspace = true
 thiserror.workspace = true
 
 # Email
