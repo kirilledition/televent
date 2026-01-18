@@ -13,7 +13,10 @@ use axum::{
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::db;
 use crate::error::ApiError;
+
+use super::caldav_xml;
 
 /// CalDAV OPTIONS handler
 ///
@@ -41,7 +44,7 @@ async fn caldav_options() -> Response {
 /// - Depth: 0 - Calendar metadata only
 /// - Depth: 1 - Calendar metadata + event list (hrefs)
 async fn caldav_propfind(
-    State(_pool): State<PgPool>,
+    State(pool): State<PgPool>,
     Path(user_id): Path<Uuid>,
     headers: HeaderMap,
     _body: Body,
@@ -54,13 +57,18 @@ async fn caldav_propfind(
 
     tracing::debug!("PROPFIND request for user {} with Depth: {}", user_id, depth);
 
-    // Parse XML body to determine which properties are requested
-    // For now, return a simple response
-    // TODO: Parse DAV:propfind XML request
-    // TODO: Query database for calendar and events
-    // TODO: Generate DAV:multistatus XML response
+    // Get or create calendar for user
+    let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;
 
-    let response_xml = generate_propfind_response(user_id, depth)?;
+    // Get events if depth is 1
+    let events = if depth == "1" {
+        db::events::list_events(&pool, calendar.id, None, None).await?
+    } else {
+        Vec::new()
+    };
+
+    // Generate XML response
+    let response_xml = caldav_xml::generate_propfind_multistatus(user_id, &calendar, &events, depth)?;
 
     Ok((
         StatusCode::MULTI_STATUS,
@@ -68,35 +76,6 @@ async fn caldav_propfind(
         response_xml,
     )
         .into_response())
-}
-
-/// Generate PROPFIND response (placeholder)
-fn generate_propfind_response(user_id: Uuid, _depth: &str) -> Result<String, ApiError> {
-    // Placeholder for now - will implement full XML generation
-    let response = format!(
-        r#"<?xml version="1.0" encoding="utf-8" ?>
-<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
-    <d:response>
-        <d:href>/caldav/{}/</d:href>
-        <d:propstat>
-            <d:prop>
-                <d:resourcetype>
-                    <d:collection/>
-                    <cal:calendar/>
-                </d:resourcetype>
-                <d:displayname>My Calendar</d:displayname>
-                <cal:supported-calendar-component-set>
-                    <cal:comp name="VEVENT"/>
-                </cal:supported-calendar-component-set>
-            </d:prop>
-            <d:status>HTTP/1.1 200 OK</d:status>
-        </d:propstat>
-    </d:response>
-</d:multistatus>"#,
-        user_id
-    );
-
-    Ok(response)
 }
 
 /// CalDAV GET handler
@@ -224,43 +203,5 @@ mod tests {
         assert!(allow_str.contains("GET"));
         assert!(allow_str.contains("PUT"));
         assert!(allow_str.contains("DELETE"));
-    }
-
-    #[test]
-    fn test_generate_propfind_response_depth_0() {
-        let user_id = Uuid::new_v4();
-        let response = generate_propfind_response(user_id, "0").unwrap();
-
-        assert!(response.contains("<?xml"));
-        assert!(response.contains("multistatus"));
-        assert!(response.contains(&user_id.to_string()));
-        assert!(response.contains("calendar"));
-        assert!(response.contains("VEVENT"));
-    }
-
-    #[test]
-    fn test_generate_propfind_response_has_required_elements() {
-        let user_id = Uuid::new_v4();
-        let response = generate_propfind_response(user_id, "0").unwrap();
-
-        // Check for required CalDAV elements
-        assert!(response.contains("d:resourcetype"));
-        assert!(response.contains("cal:calendar"));
-        assert!(response.contains("d:displayname"));
-        assert!(response.contains("cal:supported-calendar-component-set"));
-        assert!(response.contains("HTTP/1.1 200 OK"));
-    }
-
-    #[test]
-    fn test_generate_propfind_response_xml_structure() {
-        let user_id = Uuid::new_v4();
-        let response = generate_propfind_response(user_id, "0").unwrap();
-
-        // Basic XML structure validation
-        assert!(response.starts_with("<?xml"));
-        assert!(response.contains("<d:multistatus"));
-        assert!(response.contains("</d:multistatus>"));
-        assert!(response.contains("xmlns:d=\"DAV:\""));
-        assert!(response.contains("xmlns:cal=\"urn:ietf:params:xml:ns:caldav\""));
     }
 }
