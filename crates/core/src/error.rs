@@ -1,19 +1,19 @@
 //! Error types for Televent core domain logic
 
+use crate::types::{CalendarId, EventId, UserId};
 use thiserror::Error;
-use uuid::Uuid;
 
 /// Core calendar domain errors
 #[derive(Error, Debug)]
 pub enum CalendarError {
     #[error("Event not found: {0}")]
-    EventNotFound(Uuid),
+    EventNotFound(EventId),
 
     #[error("Calendar not found: {0}")]
-    CalendarNotFound(Uuid),
+    CalendarNotFound(CalendarId),
 
     #[error("User not found: {0}")]
-    UserNotFound(Uuid),
+    UserNotFound(UserId),
 
     #[error("Version conflict: expected {expected}, got {actual}")]
     VersionConflict { expected: i32, actual: i32 },

@@ -2,6 +2,7 @@
 //!
 //! These models represent the core business entities and map to database tables.
 
+use crate::types::{CalendarId, EventId, UserId};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -10,7 +11,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[derive(sqlx::FromRow)]
 pub struct User {
-    pub id: Uuid,
+    pub id: UserId,
     pub telegram_id: i64,
     pub telegram_username: Option<String>,
     pub timezone: String, // IANA timezone (e.g., "Asia/Singapore")
@@ -21,8 +22,8 @@ pub struct User {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[derive(sqlx::FromRow)]
 pub struct Calendar {
-    pub id: Uuid,
-    pub user_id: Uuid,
+    pub id: CalendarId,
+    pub user_id: UserId,
     pub name: String,
     pub color: String,      // Hex color for UI
     pub sync_token: String, // RFC 6578 sync token
@@ -33,8 +34,8 @@ pub struct Calendar {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[derive(sqlx::FromRow)]
 pub struct Event {
-    pub id: Uuid,
-    pub calendar_id: Uuid,
+    pub id: EventId,
+    pub calendar_id: CalendarId,
     pub uid: String,                 // iCalendar UID (stable across syncs)
     pub summary: String,
     pub description: Option<String>,
@@ -66,7 +67,7 @@ pub enum EventStatus {
 #[derive(sqlx::FromRow)]
 pub struct DevicePassword {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub user_id: UserId,
     pub hashed_password: String, // Argon2id hash
     pub name: String,            // User-friendly label (e.g., "iPhone")
     pub created_at: DateTime<Utc>,
@@ -103,7 +104,7 @@ pub enum OutboxStatus {
 #[derive(sqlx::FromRow)]
 pub struct AuditLog {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub user_id: UserId,
     pub action: String,     // "event_created" | "data_exported" | "account_deleted"
     pub entity_type: String,
     pub entity_id: Option<Uuid>,
