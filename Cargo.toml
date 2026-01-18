@@ -51,6 +51,7 @@ sha2 = "0.10"
 
 # iCalendar/CalDAV
 icalendar = "0.16"
+quick-xml = { version = "0.31", features = ["serialize"] }
 
 # Email
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "builder", "hostname", "smtp-transport"] }
