@@ -1,12 +1,13 @@
 {
-    "name": "Claude Code Sandbox",
+    "name": "Televent Rust Dev",
     "build": {
         "dockerfile": "Dockerfile",
         "args": {
             "TZ": "${localEnv:TZ:America/Los_Angeles}",
             "CLAUDE_CODE_VERSION": "latest",
             "GIT_DELTA_VERSION": "0.18.2",
-            "ZSH_IN_DOCKER_VERSION": "1.2.0"
+            "ZSH_IN_DOCKER_VERSION": "1.2.0",
+            "USERNAME": "rustdev"
         }
     },
     "runArgs": [
@@ -17,16 +18,24 @@
         "vscode": {
             "extensions": [
                 "anthropic.claude-code",
-                "dbaeumer.vscode-eslint",
-                "esbenp.prettier-vscode",
-                "eamodio.gitlens"
+                "rust-lang.rust-analyzer",
+                "tamasfe.even-better-toml",
+                "serayuzgur.crates",
+                "eamodio.gitlens",
+                "vadimcn.vscode-lldb"
             ],
             "settings": {
                 "editor.formatOnSave": true,
-                "editor.defaultFormatter": "esbenp.prettier-vscode",
-                "editor.codeActionsOnSave": {
-                    "source.fixAll.eslint": "explicit"
+                "editor.defaultFormatter": "rust-lang.rust-analyzer",
+                "[rust]": {
+                    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+                    "editor.formatOnSave": true
                 },
+                "[toml]": {
+                    "editor.defaultFormatter": "tamasfe.even-better-toml"
+                },
+                "rust-analyzer.checkOnSave.command": "clippy",
+                "rust-analyzer.cargo.features": "all",
                 "terminal.integrated.defaultProfile.linux": "zsh",
                 "terminal.integrated.profiles.linux": {
                     "bash": {
@@ -40,15 +49,18 @@
             }
         }
     },
-    "remoteUser": "node",
+    "remoteUser": "rustdev",
     "mounts": [
         "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
-        "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume"
+        "source=claude-code-config-${devcontainerId},target=/home/rustdev/.claude,type=volume",
+        "source=cargo-cache-${devcontainerId},target=/home/rustdev/.cargo/registry,type=volume",
+        "source=cargo-git-${devcontainerId},target=/home/rustdev/.cargo/git,type=volume"
     ],
     "containerEnv": {
-        "NODE_OPTIONS": "--max-old-space-size=4096",
-        "CLAUDE_CONFIG_DIR": "/home/node/.claude",
-        "POWERLEVEL9K_DISABLE_GITSTATUS": "true"
+        "RUST_LOG": "info",
+        "CLAUDE_CONFIG_DIR": "/home/rustdev/.claude",
+        "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
+        "DATABASE_URL": "postgresql://postgres:dev@localhost:5432/televent"
     },
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
     "workspaceFolder": "/workspace",

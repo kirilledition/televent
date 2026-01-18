@@ -72,18 +72,23 @@ for domain in \
     "statsig.com" \
     "marketplace.visualstudio.com" \
     "vscode.blob.core.windows.net" \
-    "update.code.visualstudio.com"; do
+    "update.code.visualstudio.com" \
+    "crates.io" \
+    "static.crates.io" \
+    "index.crates.io" \
+    "static.rust-lang.org" \
+    "doc.rust-lang.org"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
-        echo "ERROR: Failed to resolve $domain"
-        exit 1
+        echo "WARNING: Failed to resolve $domain, skipping..."
+        continue
     fi
-    
+
     while read -r ip; do
         if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            echo "ERROR: Invalid IP from DNS for $domain: $ip"
-            exit 1
+            echo "WARNING: Invalid IP from DNS for $domain: $ip, skipping..."
+            continue
         fi
         echo "Adding $ip for $domain"
         ipset add allowed-domains "$ip"
