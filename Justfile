@@ -115,3 +115,26 @@ ci:
 # Security audit
 audit:
     cargo audit
+
+# Code quality check (extended)
+quality:
+    @echo "Running comprehensive code quality checks..."
+    cargo fmt --check
+    cargo clippy --workspace -- -D warnings -W clippy::pedantic
+    cargo test --workspace
+    @echo "Checking for TODO/FIXME comments..."
+    @rg "TODO|FIXME" --type rust || echo "No TODOs found"
+    @echo "Quality checks complete!"
+
+# Check for common anti-patterns
+check-antipatterns:
+    @echo "Checking for unwrap() usage..."
+    @rg "\.unwrap\(\)" crates/ --type rust || echo "No unwrap() found ✓"
+    @echo "Checking for expect() usage..."
+    @rg "\.expect\(" crates/ --type rust || echo "No expect() found ✓"
+    @echo "Checking for println! usage..."
+    @rg "println!" crates/ --type rust || echo "No println! found ✓"
+    @echo "Checking for panic! usage..."
+    @rg "panic!" crates/ --type rust || echo "No panic! found ✓"
+    @echo "Anti-pattern checks complete!"
+

@@ -1,0 +1,36 @@
+# Clippy configuration for Televent
+# Run with: cargo clippy -- -W clippy::all -W clippy::pedantic
+
+# Pedantic lints to enable (these catch common mistakes)
+pedantic = "warn"
+
+# Nursery lints (experimental but useful)
+nursery = "warn"
+
+# Additional specific lints
+[[lints.clippy]]
+# Security
+expect_used = "deny"
+unwrap_used = "deny"
+panic = "deny"
+todo = "warn"
+unimplemented = "warn"
+
+# Performance
+inefficient_to_string = "warn"
+needless_pass_by_value = "warn"
+
+# Correctness
+exit = "deny"
+mem_forget = "deny"
+try_err = "deny"
+
+# Style
+print_stdout = "deny"
+print_stderr = "deny"
+dbg_macro = "deny"
+
+# Allow some pedantic lints that are too noisy
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
