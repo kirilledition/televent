@@ -5,9 +5,9 @@
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, HeaderMap, Method, StatusCode},
+    http::{header, HeaderMap, HeaderName, Method, StatusCode},
     response::{IntoResponse, Response},
-    routing::{any, get},
+    routing::any,
     Router,
 };
 use sqlx::PgPool;
@@ -25,11 +25,11 @@ async fn caldav_options() -> Response {
         StatusCode::OK,
         [
             // DAV compliance classes
-            (header::DAV, "1, calendar-access"),
+            (HeaderName::from_static("dav"), "1, calendar-access"),
             // Allowed HTTP methods
             (header::ALLOW, "OPTIONS, PROPFIND, REPORT, GET, PUT, DELETE"),
             // Calendar data types supported
-            ("Cal-Accessible", "calendar"),
+            (HeaderName::from_static("cal-accessible"), "calendar"),
         ],
     )
         .into_response()
@@ -41,10 +41,10 @@ async fn caldav_options() -> Response {
 /// - Depth: 0 - Calendar metadata only
 /// - Depth: 1 - Calendar metadata + event list (hrefs)
 async fn caldav_propfind(
-    State(pool): State<PgPool>,
+    State(_pool): State<PgPool>,
     Path(user_id): Path<Uuid>,
     headers: HeaderMap,
-    body: Body,
+    _body: Body,
 ) -> Result<Response, ApiError> {
     // Get Depth header (default to 0)
     let depth = headers
@@ -71,7 +71,7 @@ async fn caldav_propfind(
 }
 
 /// Generate PROPFIND response (placeholder)
-fn generate_propfind_response(user_id: Uuid, depth: &str) -> Result<String, ApiError> {
+fn generate_propfind_response(user_id: Uuid, _depth: &str) -> Result<String, ApiError> {
     // Placeholder for now - will implement full XML generation
     let response = format!(
         r#"<?xml version="1.0" encoding="utf-8" ?>
@@ -103,7 +103,7 @@ fn generate_propfind_response(user_id: Uuid, depth: &str) -> Result<String, ApiE
 ///
 /// Returns a single event in iCalendar format
 async fn caldav_get_event(
-    State(pool): State<PgPool>,
+    State(_pool): State<PgPool>,
     Path((user_id, event_uid)): Path<(Uuid, String)>,
 ) -> Result<Response, ApiError> {
     // TODO: Look up event by UID
@@ -119,9 +119,9 @@ async fn caldav_get_event(
 ///
 /// Creates or updates an event from iCalendar data
 async fn caldav_put_event(
-    State(pool): State<PgPool>,
+    State(_pool): State<PgPool>,
     Path((user_id, event_uid)): Path<(Uuid, String)>,
-    body: Body,
+    _body: Body,
 ) -> Result<Response, ApiError> {
     // TODO: Parse iCalendar from body
     // TODO: Create or update event in database
@@ -136,9 +136,9 @@ async fn caldav_put_event(
 ///
 /// Deletes an event
 async fn caldav_delete_event(
-    State(pool): State<PgPool>,
+    State(_pool): State<PgPool>,
     Path((user_id, event_uid)): Path<(Uuid, String)>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     // TODO: Check If-Match header for ETag
     // TODO: Delete event from database
@@ -166,15 +166,16 @@ async fn caldav_handler(
     method: Method,
     body: Body,
 ) -> Result<Response, ApiError> {
-    match method {
-        Method::OPTIONS => Ok(caldav_options().await),
-        Method::from_bytes(b"PROPFIND").ok().unwrap() => {
-            caldav_propfind(State(pool), Path(user_id), headers, body).await
-        }
-        _ => Err(ApiError::BadRequest(format!(
+    // Handle WebDAV methods
+    if method == Method::OPTIONS {
+        Ok(caldav_options().await)
+    } else if method.as_str() == "PROPFIND" {
+        caldav_propfind(State(pool), Path(user_id), headers, body).await
+    } else {
+        Err(ApiError::BadRequest(format!(
             "Method {} not supported for calendar collection",
             method
-        ))),
+        )))
     }
 }
 
@@ -211,7 +212,7 @@ mod tests {
         assert_eq!(parts.status, StatusCode::OK);
 
         // Check DAV header
-        let dav_header = parts.headers.get(header::DAV).unwrap();
+        let dav_header = parts.headers.get(&HeaderName::from_static("dav")).unwrap();
         assert_eq!(dav_header, "1, calendar-access");
 
         // Check ALLOW header
