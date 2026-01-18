@@ -111,3 +111,121 @@ pub struct AuditLog {
     pub user_agent: Option<String>,
     pub created_at: DateTime<Utc>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_user_serialization() {
+        let user = User {
+            id: Uuid::new_v4(),
+            telegram_id: 123456789,
+            telegram_username: Some("testuser".to_string()),
+            timezone: "America/New_York".to_string(),
+            created_at: Utc::now(),
+        };
+
+        // Test JSON serialization
+        let json = serde_json::to_string(&user).unwrap();
+        let deserialized: User = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(user.telegram_id, deserialized.telegram_id);
+        assert_eq!(user.telegram_username, deserialized.telegram_username);
+        assert_eq!(user.timezone, deserialized.timezone);
+    }
+
+    #[test]
+    fn test_event_status_serialization() {
+        let confirmed = EventStatus::Confirmed;
+        let tentative = EventStatus::Tentative;
+        let cancelled = EventStatus::Cancelled;
+
+        // Test JSON serialization
+        let confirmed_json = serde_json::to_string(&confirmed).unwrap();
+        let tentative_json = serde_json::to_string(&tentative).unwrap();
+        let cancelled_json = serde_json::to_string(&cancelled).unwrap();
+
+        assert_eq!(confirmed_json, r#""Confirmed""#);
+        assert_eq!(tentative_json, r#""Tentative""#);
+        assert_eq!(cancelled_json, r#""Cancelled""#);
+
+        // Test deserialization
+        let confirmed_de: EventStatus = serde_json::from_str(&confirmed_json).unwrap();
+        let tentative_de: EventStatus = serde_json::from_str(&tentative_json).unwrap();
+        let cancelled_de: EventStatus = serde_json::from_str(&cancelled_json).unwrap();
+
+        assert_eq!(confirmed, confirmed_de);
+        assert_eq!(tentative, tentative_de);
+        assert_eq!(cancelled, cancelled_de);
+    }
+
+    #[test]
+    fn test_outbox_status_serialization() {
+        let pending = OutboxStatus::Pending;
+        let processing = OutboxStatus::Processing;
+        let completed = OutboxStatus::Completed;
+        let failed = OutboxStatus::Failed;
+
+        // Test JSON serialization
+        assert_eq!(serde_json::to_string(&pending).unwrap(), r#""Pending""#);
+        assert_eq!(serde_json::to_string(&processing).unwrap(), r#""Processing""#);
+        assert_eq!(serde_json::to_string(&completed).unwrap(), r#""Completed""#);
+        assert_eq!(serde_json::to_string(&failed).unwrap(), r#""Failed""#);
+    }
+
+    #[test]
+    fn test_event_serialization() {
+        let event = Event {
+            id: Uuid::new_v4(),
+            calendar_id: Uuid::new_v4(),
+            uid: "test-event-uid".to_string(),
+            summary: "Team Meeting".to_string(),
+            description: Some("Weekly sync".to_string()),
+            location: Some("Conference Room A".to_string()),
+            start: Utc::now(),
+            end: Utc::now(),
+            is_all_day: false,
+            status: EventStatus::Confirmed,
+            rrule: None,
+            timezone: "UTC".to_string(),
+            version: 1,
+            etag: "abc123".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        // Test JSON serialization
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: Event = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(event.uid, deserialized.uid);
+        assert_eq!(event.summary, deserialized.summary);
+        assert_eq!(event.status, deserialized.status);
+        assert_eq!(event.version, deserialized.version);
+    }
+
+    #[test]
+    fn test_outbox_message_payload() {
+        use serde_json::json;
+
+        let payload = json!({
+            "telegram_id": 123456789,
+            "message": "Test notification"
+        });
+
+        let outbox = OutboxMessage {
+            id: Uuid::new_v4(),
+            message_type: "telegram_notification".to_string(),
+            payload: payload.clone(),
+            status: OutboxStatus::Pending,
+            retry_count: 0,
+            scheduled_at: Utc::now(),
+            processed_at: None,
+        };
+
+        // Test that payload is preserved
+        assert_eq!(outbox.payload["telegram_id"], 123456789);
+        assert_eq!(outbox.payload["message"], "Test notification");
+    }
+}

@@ -40,3 +40,9 @@ tracing-subscriber.workspace = true
 
 # CalDAV/iCalendar
 icalendar.workspace = true
+quick-xml.workspace = true
+
+# Utilities
+hex = "0.4"
+urlencoding = "2.1"
+base64 = "0.22"
