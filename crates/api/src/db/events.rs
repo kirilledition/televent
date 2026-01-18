@@ -70,6 +70,38 @@ pub async fn get_event(pool: &PgPool, event_id: Uuid) -> Result<Event, ApiError>
     Ok(event)
 }
 
+/// Get event by UID and calendar ID
+pub async fn get_event_by_uid(
+    pool: &PgPool,
+    calendar_id: Uuid,
+    uid: &str,
+) -> Result<Option<Event>, ApiError> {
+    let event = sqlx::query_as::<_, Event>(
+        "SELECT * FROM events WHERE calendar_id = $1 AND uid = $2",
+    )
+    .bind(calendar_id)
+    .bind(uid)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(event)
+}
+
+/// Delete event by UID
+pub async fn delete_event_by_uid(
+    pool: &PgPool,
+    calendar_id: Uuid,
+    uid: &str,
+) -> Result<bool, ApiError> {
+    let result = sqlx::query("DELETE FROM events WHERE calendar_id = $1 AND uid = $2")
+        .bind(calendar_id)
+        .bind(uid)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 /// List events for a calendar within a time range
 pub async fn list_events(
     pool: &PgPool,

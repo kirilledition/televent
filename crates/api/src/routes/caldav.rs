@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::db;
 use crate::error::ApiError;
 
-use super::caldav_xml;
+use super::{caldav_xml, ical};
 
 /// CalDAV OPTIONS handler
 ///
@@ -82,50 +82,160 @@ async fn caldav_propfind(
 ///
 /// Returns a single event in iCalendar format
 async fn caldav_get_event(
-    State(_pool): State<PgPool>,
+    State(pool): State<PgPool>,
     Path((user_id, event_uid)): Path<(Uuid, String)>,
 ) -> Result<Response, ApiError> {
-    // TODO: Look up event by UID
-    // TODO: Convert to iCalendar format
-    // TODO: Return with Content-Type: text/calendar
-
     tracing::debug!("GET event {} for user {}", event_uid, user_id);
 
-    Err(ApiError::NotFound("Event not found".to_string()))
+    // Get calendar for user
+    let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;
+
+    // Look up event by UID
+    let event = db::events::get_event_by_uid(&pool, calendar.id, &event_uid)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Event not found: {}", event_uid)))?;
+
+    // Convert to iCalendar format
+    let ical = ical::event_to_ical(&event)?;
+
+    // Return with proper headers
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/calendar; charset=utf-8"),
+            (header::ETAG, &format!("\"{}\"", event.etag)),
+        ],
+        ical,
+    )
+        .into_response())
 }
 
 /// CalDAV PUT handler
 ///
 /// Creates or updates an event from iCalendar data
 async fn caldav_put_event(
-    State(_pool): State<PgPool>,
+    State(pool): State<PgPool>,
     Path((user_id, event_uid)): Path<(Uuid, String)>,
-    _body: Body,
+    body: Body,
 ) -> Result<Response, ApiError> {
-    // TODO: Parse iCalendar from body
-    // TODO: Create or update event in database
-    // TODO: Return appropriate status code (201 Created or 204 No Content)
-
     tracing::debug!("PUT event {} for user {}", event_uid, user_id);
 
-    Ok((StatusCode::NOT_IMPLEMENTED, "Not implemented yet").into_response())
+    // Get calendar for user
+    let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;
+
+    // Read body as string
+    let body_bytes = axum::body::to_bytes(body, usize::MAX)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to read body: {}", e)))?;
+    let ical_str = String::from_utf8(body_bytes.to_vec())
+        .map_err(|e| ApiError::BadRequest(format!("Invalid UTF-8: {}", e)))?;
+
+    // Parse iCalendar
+    let (uid, summary, description, location, start, end, is_all_day, rrule, status) =
+        ical::ical_to_event_data(&ical_str)?;
+
+    // Check if UID matches the URL
+    if uid != event_uid {
+        return Err(ApiError::BadRequest(format!(
+            "UID mismatch: {} != {}",
+            uid, event_uid
+        )));
+    }
+
+    // Check if event already exists
+    let existing = db::events::get_event_by_uid(&pool, calendar.id, &uid).await?;
+
+    let (status_code, etag) = if let Some(existing_event) = existing {
+        // Update existing event
+        let updated = db::events::update_event(
+            &pool,
+            existing_event.id,
+            Some(summary),
+            description,
+            location,
+            Some(start),
+            Some(end),
+            Some(is_all_day),
+            Some(status),
+            rrule,
+        )
+        .await?;
+        (StatusCode::NO_CONTENT, updated.etag)
+    } else {
+        // Create new event
+        let created = db::events::create_event(
+            &pool,
+            calendar.id,
+            uid,
+            summary,
+            description,
+            location,
+            start,
+            end,
+            is_all_day,
+            "UTC".to_string(), // Default timezone
+            rrule,
+        )
+        .await?;
+        (StatusCode::CREATED, created.etag)
+    };
+
+    // Increment sync token
+    let _new_sync_token = db::calendars::increment_sync_token(&pool, calendar.id).await?;
+
+    Ok((
+        status_code,
+        [(header::ETAG, format!("\"{}\"", etag))],
+        "",
+    )
+        .into_response())
 }
 
 /// CalDAV DELETE handler
 ///
 /// Deletes an event
 async fn caldav_delete_event(
-    State(_pool): State<PgPool>,
+    State(pool): State<PgPool>,
     Path((user_id, event_uid)): Path<(Uuid, String)>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    // TODO: Check If-Match header for ETag
-    // TODO: Delete event from database
-    // TODO: Return 204 No Content on success
-
     tracing::debug!("DELETE event {} for user {}", event_uid, user_id);
 
-    Ok((StatusCode::NOT_IMPLEMENTED, "Not implemented yet").into_response())
+    // Get calendar for user
+    let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;
+
+    // Check If-Match header for ETag (optional but recommended)
+    if let Some(if_match) = headers.get(header::IF_MATCH) {
+        let requested_etag = if_match
+            .to_str()
+            .map_err(|_| ApiError::BadRequest("Invalid If-Match header".to_string()))?;
+
+        // Get current event to check ETag
+        if let Some(event) = db::events::get_event_by_uid(&pool, calendar.id, &event_uid).await? {
+            let current_etag = format!("\"{}\"", event.etag);
+            if requested_etag != current_etag && requested_etag != "*" {
+                return Err(ApiError::Conflict(format!(
+                    "ETag mismatch: {} != {}",
+                    requested_etag, current_etag
+                )));
+            }
+        }
+    }
+
+    // Delete event
+    let deleted = db::events::delete_event_by_uid(&pool, calendar.id, &event_uid).await?;
+
+    if !deleted {
+        return Err(ApiError::NotFound(format!(
+            "Event not found: {}",
+            event_uid
+        )));
+    }
+
+    // Increment sync token
+    let _new_sync_token = db::calendars::increment_sync_token(&pool, calendar.id).await?;
+
+    Ok((StatusCode::NO_CONTENT, "").into_response())
 }
 
 /// CalDAV routes
