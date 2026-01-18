@@ -1,0 +1,5 @@
+{
+  "db": "PostgreSQL",
+  "migrations": "./migrations",
+  "offline_dir": "./.sqlx"
+}

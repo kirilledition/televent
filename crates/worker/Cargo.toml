@@ -1,0 +1,32 @@
+[package]
+name = "worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Internal
+televent-core = { path = "../core" }
+mailer = { path = "../mailer" }
+
+# Core
+tokio.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+# Database
+sqlx.workspace = true
+
+# Telegram bot (for notifications)
+teloxide.workspace = true
+
+# Date/Time
+chrono.workspace = true
+
+# Logging
+tracing.workspace = true
+tracing-subscriber.workspace = true

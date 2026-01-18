@@ -1,0 +1,10 @@
+[package]
+name = "web"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dioxus.workspace = true
+dioxus-web.workspace = true
+serde.workspace = true
+serde_json.workspace = true
