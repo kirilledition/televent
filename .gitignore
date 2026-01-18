@@ -19,3 +19,27 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# SQLx
+.sqlx/
+
+# Dioxus
+dist/
+crates/web/.dioxus/
+
+# Coverage reports
+coverage/
+tarpaulin-report.html
+
+# macOS
+.DS_Store
+
+# Testing
+*.db
+*.db-shm
+*.db-wal

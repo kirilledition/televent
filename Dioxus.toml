@@ -1,0 +1,37 @@
+[application]
+# App name
+name = "Televent"
+
+# App default platform
+# platform = "web"
+default_platform = "web"
+
+# `build` & `serve` dist path
+out_dir = "dist"
+
+# Resource (public) file folder
+asset_dir = "public"
+
+[web.app]
+# HTML title tag content
+title = "Televent - Telegram Calendar"
+
+[web.watcher]
+# Watch for changes in the project
+watch_path = ["crates/web/src", "public"]
+
+# Include all assets
+reload_html = true
+index_on_404 = true
+
+[web.resource]
+# CSS style file
+style = ["tailwind.css"]
+
+[web.resource.dev]
+# Javascript code file
+# script = []
+
+[web.resource.prod]
+# Javascript code file
+# script = []
