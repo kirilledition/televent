@@ -110,12 +110,16 @@ async fn caldav_get_event(
         .into_response())
 }
 
+/// Maximum allowed body size for CalDAV requests (1 MB)
+const MAX_CALDAV_BODY_SIZE: usize = 1024 * 1024;
+
 /// CalDAV PUT handler
 ///
 /// Creates or updates an event from iCalendar data
 async fn caldav_put_event(
     State(pool): State<PgPool>,
     Path((user_id, event_uid)): Path<(Uuid, String)>,
+    headers: HeaderMap,
     body: Body,
 ) -> Result<Response, ApiError> {
     tracing::debug!("PUT event {} for user {}", event_uid, user_id);
@@ -123,15 +127,15 @@ async fn caldav_put_event(
     // Get calendar for user
     let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;
 
-    // Read body as string
-    let body_bytes = axum::body::to_bytes(body, usize::MAX)
+    // Read body as string with size limit to prevent DoS
+    let body_bytes = axum::body::to_bytes(body, MAX_CALDAV_BODY_SIZE)
         .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to read body: {}", e)))?;
     let ical_str = String::from_utf8(body_bytes.to_vec())
         .map_err(|e| ApiError::BadRequest(format!("Invalid UTF-8: {}", e)))?;
 
     // Parse iCalendar
-    let (uid, summary, description, location, start, end, is_all_day, rrule, status) =
+    let (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone) =
         ical::ical_to_event_data(&ical_str)?;
 
     // Check if UID matches the URL
@@ -146,6 +150,20 @@ async fn caldav_put_event(
     let existing = db::events::get_event_by_uid(&pool, calendar.id, &uid).await?;
 
     let (status_code, etag) = if let Some(existing_event) = existing {
+        // Check If-Match header for optimistic locking (RFC 4791)
+        if let Some(if_match) = headers.get(header::IF_MATCH) {
+            let requested_etag = if_match
+                .to_str()
+                .map_err(|_| ApiError::BadRequest("Invalid If-Match header".to_string()))?;
+            let current_etag = format!("\"{}\"", existing_event.etag);
+            if requested_etag != current_etag && requested_etag != "*" {
+                return Err(ApiError::Conflict(format!(
+                    "ETag mismatch: {} != {}",
+                    requested_etag, current_etag
+                )));
+            }
+        }
+
         // Update existing event
         let updated = db::events::update_event(
             &pool,
@@ -173,7 +191,7 @@ async fn caldav_put_event(
             start,
             end,
             is_all_day,
-            "UTC".to_string(), // Default timezone
+            timezone,
             rrule,
         )
         .await?;
@@ -242,9 +260,9 @@ async fn caldav_delete_event(
 pub fn routes() -> Router<PgPool> {
     Router::new()
         // Calendar collection endpoints
-        .route("/caldav/:user_id/", any(caldav_handler))
+        .route("/:user_id/", any(caldav_handler))
         // Event resource endpoints
-        .route("/caldav/:user_id/:event_uid.ics", any(event_handler))
+        .route("/:user_id/:event_uid.ics", any(event_handler))
 }
 
 /// Main CalDAV collection handler
@@ -278,7 +296,9 @@ async fn event_handler(
 ) -> Result<Response, ApiError> {
     match method {
         Method::GET => caldav_get_event(State(pool), Path((user_id, event_uid))).await,
-        Method::PUT => caldav_put_event(State(pool), Path((user_id, event_uid)), body).await,
+        Method::PUT => {
+            caldav_put_event(State(pool), Path((user_id, event_uid)), headers, body).await
+        }
         Method::DELETE => {
             caldav_delete_event(State(pool), Path((user_id, event_uid)), headers).await
         }

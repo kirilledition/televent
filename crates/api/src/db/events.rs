@@ -28,8 +28,20 @@ pub async fn create_event(
         ));
     }
 
+    let status = EventStatus::Confirmed;
+
     // Generate ETag (SHA256 of event data)
-    let etag = generate_etag(&uid, &summary, &start, &end);
+    let etag = generate_etag(
+        &uid,
+        &summary,
+        description.as_deref(),
+        location.as_deref(),
+        &start,
+        &end,
+        is_all_day,
+        &status,
+        rrule.as_deref(),
+    );
 
     let event = sqlx::query_as::<_, Event>(
         r#"
@@ -44,14 +56,14 @@ pub async fn create_event(
     .bind(calendar_id)
     .bind(&uid)
     .bind(&summary)
-    .bind(description)
-    .bind(location)
+    .bind(&description)
+    .bind(&location)
     .bind(start)
     .bind(end)
     .bind(is_all_day)
-    .bind(EventStatus::Confirmed)
+    .bind(status)
     .bind(&timezone)
-    .bind(rrule)
+    .bind(&rrule)
     .bind(&etag)
     .fetch_one(pool)
     .await?;
@@ -152,73 +164,36 @@ pub async fn update_event(
     status: Option<EventStatus>,
     rrule: Option<String>,
 ) -> Result<Event, ApiError> {
-    // Get current event to check version
+    // Get current event to compute new ETag with merged fields
     let current = get_event(pool, event_id).await?;
 
-    // Build update query dynamically based on provided fields
-    let mut query = String::from("UPDATE events SET version = version + 1");
-    let mut params: Vec<String> = vec![];
-    let mut param_count = 1;
-
-    if let Some(ref s) = summary {
-        query.push_str(&format!(", summary = ${}", param_count));
-        params.push(s.clone());
-        param_count += 1;
-    }
-
-    if description.is_some() {
-        query.push_str(&format!(", description = ${}", param_count));
-        params.push(description.clone().unwrap_or_default());
-        param_count += 1;
-    }
-
-    if location.is_some() {
-        query.push_str(&format!(", location = ${}", param_count));
-        params.push(location.clone().unwrap_or_default());
-        param_count += 1;
-    }
-
-    if let Some(s) = start {
-        query.push_str(&format!(", start = ${}", param_count));
-        params.push(s.to_rfc3339());
-        param_count += 1;
-    }
-
-    if let Some(e) = end {
-        query.push_str(&format!(r#", "end" = ${}"#, param_count));
-        params.push(e.to_rfc3339());
-        param_count += 1;
-    }
-
-    if let Some(a) = is_all_day {
-        query.push_str(&format!(", is_all_day = ${}", param_count));
-        params.push(a.to_string());
-        param_count += 1;
-    }
-
-    if let Some(ref st) = status {
-        query.push_str(&format!(", status = ${}", param_count));
-        params.push(format!("{:?}", st).to_uppercase());
-        param_count += 1;
-    }
-
-    if rrule.is_some() {
-        query.push_str(&format!(", rrule = ${}", param_count));
-        params.push(rrule.clone().unwrap_or_default());
-        param_count += 1;
-    }
-
-    // Generate new ETag
-    let new_summary = summary.clone().unwrap_or(current.summary);
+    // Compute new field values for ETag generation
+    let new_summary = summary.clone().unwrap_or_else(|| current.summary.clone());
+    let new_description = description.clone().or_else(|| current.description.clone());
+    let new_location = location.clone().or_else(|| current.location.clone());
     let new_start = start.unwrap_or(current.start);
     let new_end = end.unwrap_or(current.end);
-    let new_etag = generate_etag(&current.uid, &new_summary, &new_start, &new_end);
+    let new_is_all_day = is_all_day.unwrap_or(current.is_all_day);
+    let new_status = status.clone().unwrap_or(current.status);
+    let new_rrule = if rrule.is_some() {
+        rrule.clone()
+    } else {
+        current.rrule.clone()
+    };
 
-    query.push_str(&format!(", etag = ${}", param_count));
-    query.push_str(&format!(", updated_at = NOW() WHERE id = ${}", param_count + 1));
-    query.push_str(" RETURNING *");
+    // Generate new ETag with all fields
+    let new_etag = generate_etag(
+        &current.uid,
+        &new_summary,
+        new_description.as_deref(),
+        new_location.as_deref(),
+        &new_start,
+        &new_end,
+        new_is_all_day,
+        &new_status,
+        new_rrule.as_deref(),
+    );
 
-    // For simplicity, we'll use a simpler approach with explicit fields
     let event = sqlx::query_as::<_, Event>(
         r#"
         UPDATE events
@@ -272,13 +247,31 @@ pub async fn delete_event(pool: &PgPool, event_id: Uuid) -> Result<(), ApiError>
 }
 
 /// Generate ETag for an event (SHA256 hash)
+///
+/// Includes all mutable fields to ensure ETag changes when any field changes
 fn generate_etag(
     uid: &str,
     summary: &str,
+    description: Option<&str>,
+    location: Option<&str>,
     start: &DateTime<Utc>,
     end: &DateTime<Utc>,
+    is_all_day: bool,
+    status: &EventStatus,
+    rrule: Option<&str>,
 ) -> String {
-    let data = format!("{}|{}|{}|{}", uid, summary, start.to_rfc3339(), end.to_rfc3339());
+    let data = format!(
+        "{}|{}|{}|{}|{}|{}|{}|{:?}|{}",
+        uid,
+        summary,
+        description.unwrap_or(""),
+        location.unwrap_or(""),
+        start.to_rfc3339(),
+        end.to_rfc3339(),
+        is_all_day,
+        status,
+        rrule.unwrap_or("")
+    );
     let hash = Sha256::digest(data.as_bytes());
     format!("{:x}", hash)
 }
@@ -293,9 +286,10 @@ mod tests {
         let summary = "Test Event";
         let start = "2026-01-18T10:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let end = "2026-01-18T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let status = EventStatus::Confirmed;
 
-        let etag1 = generate_etag(uid, summary, &start, &end);
-        let etag2 = generate_etag(uid, summary, &start, &end);
+        let etag1 = generate_etag(uid, summary, None, None, &start, &end, false, &status, None);
+        let etag2 = generate_etag(uid, summary, None, None, &start, &end, false, &status, None);
 
         assert_eq!(etag1, etag2);
         assert_eq!(etag1.len(), 64); // SHA256 produces 64 hex characters
@@ -308,9 +302,10 @@ mod tests {
         let summary2 = "Test Event 2";
         let start = "2026-01-18T10:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let end = "2026-01-18T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let status = EventStatus::Confirmed;
 
-        let etag1 = generate_etag(uid, summary1, &start, &end);
-        let etag2 = generate_etag(uid, summary2, &start, &end);
+        let etag1 = generate_etag(uid, summary1, None, None, &start, &end, false, &status, None);
+        let etag2 = generate_etag(uid, summary2, None, None, &start, &end, false, &status, None);
 
         assert_ne!(etag1, etag2);
     }
@@ -322,9 +317,37 @@ mod tests {
         let start1 = "2026-01-18T10:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let start2 = "2026-01-18T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let end = "2026-01-18T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let status = EventStatus::Confirmed;
 
-        let etag1 = generate_etag(uid, summary, &start1, &end);
-        let etag2 = generate_etag(uid, summary, &start2, &end);
+        let etag1 = generate_etag(uid, summary, None, None, &start1, &end, false, &status, None);
+        let etag2 = generate_etag(uid, summary, None, None, &start2, &end, false, &status, None);
+
+        assert_ne!(etag1, etag2);
+    }
+
+    #[test]
+    fn test_generate_etag_changes_with_description() {
+        let uid = "test-uid-123";
+        let summary = "Test Event";
+        let start = "2026-01-18T10:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let end = "2026-01-18T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let status = EventStatus::Confirmed;
+
+        let etag1 = generate_etag(uid, summary, None, None, &start, &end, false, &status, None);
+        let etag2 = generate_etag(uid, summary, Some("Description"), None, &start, &end, false, &status, None);
+
+        assert_ne!(etag1, etag2);
+    }
+
+    #[test]
+    fn test_generate_etag_changes_with_status() {
+        let uid = "test-uid-123";
+        let summary = "Test Event";
+        let start = "2026-01-18T10:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let end = "2026-01-18T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
+
+        let etag1 = generate_etag(uid, summary, None, None, &start, &end, false, &EventStatus::Confirmed, None);
+        let etag2 = generate_etag(uid, summary, None, None, &start, &end, false, &EventStatus::Cancelled, None);
 
         assert_ne!(etag1, etag2);
     }

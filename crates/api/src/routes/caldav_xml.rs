@@ -263,6 +263,7 @@ mod tests {
     #[test]
     fn test_generate_propfind_depth_0() {
         let user_id = Uuid::new_v4();
+        let now = Utc::now();
         let calendar = Calendar {
             id: Uuid::new_v4(),
             user_id,
@@ -270,6 +271,8 @@ mod tests {
             color: "#ff0000".to_string(),
             sync_token: "1".to_string(),
             ctag: "123456".to_string(),
+            created_at: now,
+            updated_at: now,
         };
 
         let xml = generate_propfind_multistatus(user_id, &calendar, &[], "0").unwrap();
@@ -286,6 +289,7 @@ mod tests {
     #[test]
     fn test_generate_propfind_depth_1() {
         let user_id = Uuid::new_v4();
+        let now = Utc::now();
         let calendar = Calendar {
             id: Uuid::new_v4(),
             user_id,
@@ -293,6 +297,8 @@ mod tests {
             color: "#ff0000".to_string(),
             sync_token: "1".to_string(),
             ctag: "123456".to_string(),
+            created_at: now,
+            updated_at: now,
         };
 
         let now = Utc::now();
@@ -329,6 +335,7 @@ mod tests {
     #[test]
     fn test_xml_structure_valid() {
         let user_id = Uuid::new_v4();
+        let now = Utc::now();
         let calendar = Calendar {
             id: Uuid::new_v4(),
             user_id,
@@ -336,6 +343,8 @@ mod tests {
             color: "#000000".to_string(),
             sync_token: "0".to_string(),
             ctag: "0".to_string(),
+            created_at: now,
+            updated_at: now,
         };
 
         let xml = generate_propfind_multistatus(user_id, &calendar, &[], "0").unwrap();

@@ -27,6 +27,8 @@ pub struct Calendar {
     pub color: String,      // Hex color for UI
     pub sync_token: String, // RFC 6578 sync token
     pub ctag: String,       // Collection tag for change detection
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 /// Event entity
