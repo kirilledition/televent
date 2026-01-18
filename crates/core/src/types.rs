@@ -160,8 +160,8 @@ mod tests {
     #[test]
     fn test_event_id_serialization() {
         let id = EventId::new();
-        let json = serde_json::to_string(&id).expect("Failed to serialize");
-        let deserialized: EventId = serde_json::from_str(&json).expect("Failed to deserialize");
+        let json = serde_json::to_string(&id).unwrap();
+        let deserialized: EventId = serde_json::from_str(&json).unwrap();
         assert_eq!(id, deserialized);
     }
 }

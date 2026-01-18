@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn test_password_hashing() {
         let password = "secure_password_123";
-        let hash = hash_password(password).expect("Failed to hash password");
+        let hash = hash_password(password).unwrap();
         
         // Hash should not be empty
         assert!(!hash.is_empty());
@@ -183,23 +183,23 @@ mod tests {
         assert!(hash.starts_with("$argon2"));
         
         // Verification should succeed with correct password
-        assert!(verify_password(password, &hash).expect("Verification failed"));
+        assert!(verify_password(password, &hash).unwrap());
         
         // Verification should fail with wrong password
-        assert!(!verify_password("wrong_password", &hash).expect("Verification failed"));
+        assert!(!verify_password("wrong_password", &hash).unwrap());
     }
 
     #[test]
     fn test_password_hashing_different_salts() {
         let password = "test123";
-        let hash1 = hash_password(password).expect("Failed to hash password");
-        let hash2 = hash_password(password).expect("Failed to hash password");
+        let hash1 = hash_password(password).unwrap();
+        let hash2 = hash_password(password).unwrap();
         
         // Same password should produce different hashes (different salts)
         assert_ne!(hash1, hash2);
         
         // Both hashes should verify correctly
-        assert!(verify_password(password, &hash1).expect("Verification failed"));
-        assert!(verify_password(password, &hash2).expect("Verification failed"));
+        assert!(verify_password(password, &hash1).unwrap());
+        assert!(verify_password(password, &hash2).unwrap());
     }
 }

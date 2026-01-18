@@ -36,8 +36,8 @@ mod tests {
             created_at: Utc::now(),
         };
 
-        let json = serde_json::to_string(&user).expect("Failed to serialize user");
-        let deserialized: User = serde_json::from_str(&json).expect("Failed to deserialize user");
+        let json = serde_json::to_string(&user).unwrap();
+        let deserialized: User = serde_json::from_str(&json).unwrap();
         
         assert_eq!(user.telegram_id, deserialized.telegram_id);
         assert_eq!(user.timezone, deserialized.timezone);
@@ -46,10 +46,10 @@ mod tests {
     #[test]
     fn test_event_status_serialization() {
         let status = EventStatus::Confirmed;
-        let json = serde_json::to_string(&status).expect("Failed to serialize status");
+        let json = serde_json::to_string(&status).unwrap();
         assert_eq!(json, r#""Confirmed""#);
         
-        let deserialized: EventStatus = serde_json::from_str(&json).expect("Failed to deserialize status");
+        let deserialized: EventStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(status, deserialized);
     }
 
