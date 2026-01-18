@@ -54,6 +54,7 @@ dependencies = [
  "axum",
  "chrono",
  "chrono-tz",
+ "hex",
  "hmac",
  "icalendar",
  "serde",
@@ -66,6 +67,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "urlencoding",
  "uuid",
 ]
 
