@@ -9,11 +9,3 @@ pub mod timezone;
 
 pub use error::CalendarError;
 pub use timezone::{parse_timezone, to_timezone, to_utc, validate_timezone};
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}

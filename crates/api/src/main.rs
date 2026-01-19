@@ -49,6 +49,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .nest("/", routes::health::routes())
         .nest("/api", routes::events::routes())
+        .nest("/api", routes::devices::routes())
         .nest("/caldav", routes::caldav::routes())
         .with_state(pool);
 

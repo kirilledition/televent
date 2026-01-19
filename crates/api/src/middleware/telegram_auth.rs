@@ -81,8 +81,10 @@ fn verify_telegram_hash(init_data: &str, bot_token: &str) -> bool {
         .join("\n");
 
     // Compute secret_key = HMAC-SHA256("WebAppData", bot_token)
-    let mut secret_key_mac = HmacSha256::new_from_slice(b"WebAppData")
-        .expect("HMAC can take key of any size");
+    let mut secret_key_mac = match HmacSha256::new_from_slice(b"WebAppData") {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
     secret_key_mac.update(bot_token.as_bytes());
     let secret_key = secret_key_mac.finalize().into_bytes();
 

@@ -66,7 +66,7 @@ pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
 
 /// Parse iCalendar format into event data (simple string-based parser)
 ///
-/// Returns (uid, summary, description, location, start, end, is_all_day, rrule, status)
+/// Returns (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone)
 pub fn ical_to_event_data(
     ical_str: &str,
 ) -> Result<
@@ -80,6 +80,7 @@ pub fn ical_to_event_data(
         bool,
         Option<String>,
         EventStatus,
+        String,
     ),
     ApiError,
 > {
@@ -94,6 +95,7 @@ pub fn ical_to_event_data(
     let mut is_all_day = false;
     let mut rrule = None;
     let mut status = EventStatus::Confirmed;
+    let mut timezone = "UTC".to_string();
 
     for line in ical_str.lines() {
         let line = line.trim();
@@ -129,6 +131,14 @@ pub fn ical_to_event_data(
                     is_all_day = params
                         .map(|p| p.contains("VALUE=DATE") && !p.contains("VALUE=DATE-TIME"))
                         .unwrap_or(false);
+                    // Extract timezone from TZID parameter if present
+                    if let Some(params_str) = params {
+                        if let Some(tzid_start) = params_str.find("TZID=") {
+                            let tz_part = &params_str[tzid_start + 5..];
+                            let tz_end = tz_part.find(';').unwrap_or(tz_part.len());
+                            timezone = tz_part[..tz_end].to_string();
+                        }
+                    }
                     dtstart = Some(value.to_string());
                 }
                 "DTEND" => {
@@ -173,6 +183,7 @@ pub fn ical_to_event_data(
         is_all_day,
         rrule,
         status,
+        timezone,
     ))
 }
 
@@ -182,7 +193,10 @@ fn parse_datetime(value: &str, is_all_day: bool) -> Result<DateTime<Utc>, ApiErr
         // DATE format: YYYYMMDD
         let date = chrono::NaiveDate::parse_from_str(value, "%Y%m%d")
             .map_err(|e| ApiError::BadRequest(format!("Invalid DATE format: {}", e)))?;
-        Ok(date.and_hms_opt(0, 0, 0).unwrap().and_utc())
+        let datetime = date
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| ApiError::BadRequest("Invalid time components".to_string()))?;
+        Ok(datetime.and_utc())
     } else {
         // DATE-TIME format: YYYYMMDDTHHmmssZ or YYYYMMDDTHHmmss
         if value.ends_with('Z') {
@@ -294,7 +308,7 @@ STATUS:CONFIRMED
 END:VEVENT
 END:VCALENDAR"#;
 
-        let (uid, summary, description, location, start, end, is_all_day, rrule, status) =
+        let (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone) =
             ical_to_event_data(ical).unwrap();
 
         assert_eq!(uid, "test-123");
@@ -304,6 +318,7 @@ END:VCALENDAR"#;
         assert!(!is_all_day);
         assert_eq!(rrule, None);
         assert_eq!(status, EventStatus::Confirmed);
+        assert_eq!(timezone, "UTC");
         assert!(end > start);
     }
 
@@ -317,7 +332,7 @@ DTSTART:20240101T100000Z
 END:VEVENT
 END:VCALENDAR"#;
 
-        let (uid, summary, _, _, _, _, _, _, _) = ical_to_event_data(ical).unwrap();
+        let (uid, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(ical).unwrap();
 
         assert_eq!(uid, "minimal-event");
         assert_eq!(summary, "Untitled Event"); // Default summary
@@ -335,7 +350,7 @@ DTEND;VALUE=DATE:20240102
 END:VEVENT
 END:VCALENDAR"#;
 
-        let (_, _, _, _, start, end, is_all_day, _, _) = ical_to_event_data(ical).unwrap();
+        let (_, _, _, _, start, end, is_all_day, _, _, _) = ical_to_event_data(ical).unwrap();
 
         assert!(is_all_day);
         assert_eq!(start.format("%Y%m%d").to_string(), "20240101");
@@ -355,7 +370,7 @@ RRULE:FREQ=WEEKLY;BYDAY=MO
 END:VEVENT
 END:VCALENDAR"#;
 
-        let (_, _, _, _, _, _, _, rrule, _) = ical_to_event_data(ical).unwrap();
+        let (_, _, _, _, _, _, _, rrule, _, _) = ical_to_event_data(ical).unwrap();
 
         assert_eq!(rrule, Some("FREQ=WEEKLY;BYDAY=MO".to_string()));
     }
@@ -366,7 +381,7 @@ END:VCALENDAR"#;
         let ical = event_to_ical(&event).unwrap();
 
         // Parse it back
-        let (uid, summary, description, location, _, _, _, _, status) =
+        let (uid, summary, description, location, _, _, _, _, status, _) =
             ical_to_event_data(&ical).unwrap();
 
         assert_eq!(uid, event.uid);
@@ -374,5 +389,22 @@ END:VCALENDAR"#;
         assert_eq!(description, event.description);
         assert_eq!(location, event.location);
         assert_eq!(status, event.status);
+    }
+
+    #[test]
+    fn test_ical_to_event_data_with_timezone() {
+        let ical = r#"BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:tz-event
+SUMMARY:Timezone Event
+DTSTART;TZID=America/New_York:20240101T100000
+DTEND;TZID=America/New_York:20240101T110000
+END:VEVENT
+END:VCALENDAR"#;
+
+        let (_, _, _, _, _, _, _, _, _, timezone) = ical_to_event_data(ical).unwrap();
+
+        assert_eq!(timezone, "America/New_York");
     }
 }

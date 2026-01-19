@@ -59,6 +59,7 @@ dependencies = [
  "hmac",
  "icalendar",
  "quick-xml",
+ "rand",
  "serde",
  "serde_json",
  "sha2",

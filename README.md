@@ -426,9 +426,26 @@ pub fn init_telemetry() {
 
 ## 11. Implementation Roadmap
 
-### **Phase 0: Project Setup**
+### Progress Overview
 
-**Task 0.1**: Initialize workspace
+| Phase | Status | Progress |
+|-------|--------|----------|
+| Phase 0: Project Setup | ✅ Complete | 100% |
+| Phase 1: Core Domain | ✅ Complete | 100% |
+| Phase 2: Backend API | 🔄 In Progress | 80% |
+| Phase 3: CalDAV Server | 🔄 In Progress | 80% |
+| Phase 4: Telegram Bot | ⏳ Pending | 0% |
+| Phase 5: Worker Process | ⏳ Pending | 0% |
+| Phase 6: Frontend (Dioxus) | ⏳ Pending | 0% |
+| Phase 7: GDPR Compliance | ⏳ Pending | 0% |
+| Phase 8: Observability | ⏳ Pending | 0% |
+| Phase 9: Deployment | ⏳ Pending | 0% |
+
+---
+
+### **Phase 0: Project Setup** ✅
+
+**Task 0.1**: Initialize workspace ✅
 ```bash
 cargo new --lib crates/core
 cargo new --bin crates/api
@@ -438,9 +455,9 @@ cargo new --lib crates/mailer
 dx new crates/web
 ```
 
-**Validation**: `cargo build --workspace` succeeds
+**Validation**: `cargo build --workspace` succeeds ✅
 
-**Task 0.2**: Docker Compose
+**Task 0.2**: Docker Compose ✅
 ```yaml
 # docker-compose.yml
 services:
@@ -470,9 +487,9 @@ volumes:
   pgdata:
 ```
 
-**Validation**: `docker-compose up -d && docker ps` shows 3 running containers
+**Validation**: `docker-compose up -d && docker ps` shows 3 running containers ✅
 
-**Task 0.3**: Justfile commands
+**Task 0.3**: Justfile commands ✅
 ```makefile
 # Justfile
 setup:
@@ -502,20 +519,20 @@ dev-web:
     dx serve --hot-reload
 ```
 
-**Validation**: `just setup && just test` passes
+**Validation**: `just setup && just test` passes ✅
 
 ---
 
-### **Phase 1: Core Domain**
+### **Phase 1: Core Domain** ✅
 
-**Task 1.1**: Define models
+**Task 1.1**: Define models ✅
 - Create `crates/core/src/models.rs` with structs from Section 3
 - Add derives: `FromRow`, `Serialize`, `Deserialize`
 - Create custom types: `UserId(Uuid)`, `CalendarId(Uuid)`, `EventId(Uuid)`
 
-**Validation**: `cargo test -p core` (unit test serialization)
+**Validation**: `cargo test -p core` (unit test serialization) ✅
 
-**Task 1.2**: Database migrations
+**Task 1.2**: Database migrations ✅
 ```bash
 sqlx migrate add create_users
 sqlx migrate add create_calendars
@@ -526,9 +543,9 @@ sqlx migrate add create_audit_log
 sqlx migrate add add_indexes
 ```
 
-**Validation**: `cargo sqlx prepare --check` succeeds
+**Validation**: `cargo sqlx prepare --check` succeeds ✅
 
-**Task 1.3**: Error types
+**Task 1.3**: Error types ✅
 ```rust
 // crates/core/src/error.rs
 use thiserror::Error;
@@ -546,40 +563,40 @@ pub enum CalendarError {
 }
 ```
 
-**Validation**: Error conversion tests
+**Validation**: Error conversion tests ✅
 
-**Task 1.4**: Timezone handling
+**Task 1.4**: Timezone handling ✅
 - Add `chrono-tz` dependency
 - Create `parse_user_timezone(tz: &str) -> Result<Tz>`
 - Store `timezone` in User table
 - Use in event creation/display
 
-**Validation**: Unit test UTC ↔ Singapore conversion
+**Validation**: Unit test UTC ↔ Singapore conversion ✅
 
 ---
 
-### **Phase 2: Backend API**
+### **Phase 2: Backend API** 🔄
 
-**Task 2.1**: Axum setup
+**Task 2.1**: Axum setup ✅
 ```rust
 // crates/api/src/main.rs
 #[tokio::main]
 async fn main() {
     let pool = PgPool::connect(&env::var("DATABASE_URL")?).await?;
-    
+
     let app = Router::new()
         .route("/health", get(health_check))
         .layer(Extension(pool));
-    
+
     axum::Server::bind(&"0.0.0.0:3000".parse()?)
         .serve(app.into_make_service())
         .await?;
 }
 ```
 
-**Validation**: `curl localhost:3000/health` returns 200
+**Validation**: `curl localhost:3000/health` returns 200 ✅
 
-**Task 2.2**: Telegram auth middleware
+**Task 2.2**: Telegram auth middleware ✅
 ```rust
 // crates/api/src/middleware/telegram_auth.rs
 use hmac::{Hmac, Mac};
@@ -606,9 +623,9 @@ pub async fn validate_telegram_init_data(
 }
 ```
 
-**Validation**: Unit test with valid/invalid HMAC
+**Validation**: Unit test with valid/invalid HMAC ✅
 
-**Task 2.3**: Device password auth
+**Task 2.3**: Device password auth ✅
 ```rust
 // crates/api/src/middleware/caldav_auth.rs
 pub async fn caldav_basic_auth(
@@ -644,9 +661,9 @@ pub async fn caldav_basic_auth(
 }
 ```
 
-**Validation**: Integration test with valid/invalid credentials
+**Validation**: Integration test with valid/invalid credentials ✅
 
-**Task 2.4**: Rate limiting
+**Task 2.4**: Rate limiting ⏳
 ```rust
 // Apply to router
 .layer(caldav_rate_limiter())
@@ -654,21 +671,22 @@ pub async fn caldav_basic_auth(
 
 **Validation**: Test 101st request returns 429
 
-**Task 2.5**: REST API endpoints
-- `POST /api/events` - Create event
-- `GET /api/events?start=<ts>&end=<ts>` - List events
-- `PUT /api/events/:id` - Update event
-- `DELETE /api/events/:id` - Delete event
-- `POST /api/device-passwords` - Generate device password
-- `GET /api/device-passwords` - List device passwords
+**Task 2.5**: REST API endpoints ✅
+- `POST /api/events` - Create event ✅
+- `GET /api/events?start=<ts>&end=<ts>` - List events ✅
+- `PUT /api/events/:id` - Update event ✅
+- `DELETE /api/events/:id` - Delete event ✅
+- `POST /api/users/:user_id/devices` - Generate device password ✅
+- `GET /api/users/:user_id/devices` - List device passwords ✅
+- `DELETE /api/users/:user_id/devices/:device_id` - Revoke device password ✅
 
-**Validation**: Integration tests for each endpoint
+**Validation**: Integration tests for each endpoint ✅
 
 ---
 
-### **Phase 3: CalDAV Server**
+### **Phase 3: CalDAV Server** 🔄
 
-**Task 3.1**: OPTIONS handler
+**Task 3.1**: OPTIONS handler ✅
 ```rust
 async fn caldav_options() -> impl IntoResponse {
     (
@@ -681,64 +699,64 @@ async fn caldav_options() -> impl IntoResponse {
 }
 ```
 
-**Validation**: `curl -X OPTIONS localhost:3000/caldav/` returns DAV header
+**Validation**: `curl -X OPTIONS localhost:3000/caldav/` returns DAV header ✅
 
-**Task 3.2**: PROPFIND (calendar metadata)
+**Task 3.2**: PROPFIND (calendar metadata) ✅
 ```rust
 // Parse XML body, check Depth header (0 or 1)
 // Return calendar properties: displayname, ctag, supported-calendar-component-set
 ```
 
-**Validation**: Test with `curl -X PROPFIND -H "Depth: 0"`
+**Validation**: Test with `curl -X PROPFIND -H "Depth: 0"` ✅
 
-**Task 3.3**: PROPFIND (event listing)
+**Task 3.3**: PROPFIND (event listing) ✅
 ```rust
 // Return list of event hrefs with etags
 ```
 
-**Validation**: Python caldav client fetches event list
+**Validation**: Python caldav client fetches event list ✅
 
-**Task 3.4**: REPORT calendar-query
+**Task 3.4**: REPORT calendar-query ✅
 ```rust
 // Parse <calendar-query> XML with <time-range> filter
 // Return matching events as iCalendar data
 ```
 
-**Validation**: Query events between two dates
+**Validation**: Query events between two dates ✅
 
-**Task 3.5**: REPORT sync-collection
+**Task 3.5**: REPORT sync-collection ✅
 ```rust
 // Client sends sync-token, return changes since token
 // Increment sync_token on calendar after changes
 ```
 
-**Validation**: Create event, sync, verify delta response
+**Validation**: Create event, sync, verify delta response ✅
 
-**Task 3.6**: GET single event
+**Task 3.6**: GET single event ✅
 ```rust
 // Serialize Event to iCalendar format with icalendar crate
 ```
 
-**Validation**: Fetch event, parse with Python icalendar library
+**Validation**: Fetch event, parse with Python icalendar library ✅
 
-**Task 3.7**: PUT create/update
+**Task 3.7**: PUT create/update ✅
 ```rust
 // Parse iCalendar from request body
 // Check If-Match header for optimistic locking
 // Update event.version, event.etag, calendar.ctag
 ```
 
-**Validation**: Conflict test (two clients update same event)
+**Validation**: Conflict test (two clients update same event) ✅
 
-**Task 3.8**: DELETE
+**Task 3.8**: DELETE ✅
 ```rust
 // Check If-Match header
 // Soft delete (set status = CANCELLED) or hard delete
 ```
 
-**Validation**: Delete event, verify 404 on GET
+**Validation**: Delete event, verify 404 on GET ✅
 
-**Task 3.9**: Recurrence expansion
+**Task 3.9**: Recurrence expansion ⏳
 ```rust
 // Use rrule crate to expand RRULE into instances
 // Handle exceptions (EXDATE)
@@ -746,7 +764,7 @@ async fn caldav_options() -> impl IntoResponse {
 
 **Validation**: Create weekly recurring event, query range includes 4 instances
 
-**Task 3.10**: Full compliance test
+**Task 3.10**: Full compliance test ⏳
 ```bash
 just test-caldav  # Runs caldav-tester suite
 ```
@@ -755,7 +773,7 @@ just test-caldav  # Runs caldav-tester suite
 
 ---
 
-### **Phase 4: Telegram Bot**
+### **Phase 4: Telegram Bot** ⏳
 
 **Task 4.1**: Teloxide setup
 ```rust
