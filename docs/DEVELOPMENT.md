@@ -560,3 +560,78 @@ just fmt             # Auto-format code
 
 *Last Updated: 2026-01-18*
 *Next Review: After Phase 3 completion*
+
+---
+
+### Dependency Updates and Feature Development ✅ (2026-01-19)
+
+**What We Accomplished:**
+
+#### Dependency Upgrades
+- Updated all workspace dependencies to latest compatible versions:
+  - `tokio`: 1.35 → 1.49
+  - `uuid`: 1.6 → 1.19
+  - `thiserror`: 1.0 → 2.0
+  - `sqlx`: 0.7 → 0.8
+  - `axum`: 0.7 → 0.8
+  - `tower`: 0.4 → 0.5
+  - `tower-http`: 0.5 → 0.6
+  - `teloxide`: 0.12 → 0.13
+  - `chrono-tz`: 0.8 → 0.10
+  - `rand`: 0.8 → 0.9
+  - `icalendar`: 0.16 → 0.17
+  - `quick-xml`: 0.31 → 0.39
+  - `dioxus-web`: 0.5 → 0.7
+
+**Breaking Changes Fixed:**
+1. **rand 0.9**: `gen_range()` renamed to `random_range()`, `thread_rng()` renamed to `rng()`
+2. **quick-xml 0.39**: Removed `trim_text()` method (now trimmed by default), changed `unescape()` API
+3. **argon2**: Fixed compatibility with `rand_core` by using `argon2::password_hash::rand_core::OsRng`
+
+#### Rate Limiting (Placeholder)
+- Created `middleware/rate_limit.rs` module structure
+- Documented target rates: 100 req/min for CalDAV, 300 req/min for REST API
+- Note: `tower_governor` 0.4 API requires additional configuration work
+- Full implementation deferred to future update
+
+#### Recurrence Validation (Basic Implementation)
+- Added `rrule` dependency (0.13) for RFC 5545 recurrence rule handling
+- Implemented `core/src/recurrence.rs` with:
+  - `validate_rrule()`: Basic RRULE validation (checks FREQ parameter)
+  - Placeholder functions for future expansion: `expand_rrule()`, `next_occurrences()`
+- 4 passing unit tests for RRULE validation
+- Note: Full recurrence expansion requires additional `rrule` crate integration
+
+**Key Decisions:**
+
+1. **Pragmatic Approach to Dependencies:**
+   - Updated to latest compatible versions using `cargo-edit`
+   - Fixed breaking changes incrementally
+   - Documented TODOs where full implementation is deferred
+
+2. **Rate Limiting Strategy:**
+   - Deferred full implementation due to tower_governor API complexity
+   - Alternative options: custom implementation with tokio rate limiting primitives
+
+3. **Recurrence Handling:**
+   - Basic RRULE validation implemented
+   - Full expansion deferred - requires careful type conversions with `rrule` crate
+   - RRULE strings stored in database, expansion happens at query time
+
+**Lessons Learned:**
+- Major dependency updates require careful attention to breaking changes
+- Some crates (like `tower_governor`) have complex generic APIs that need deeper integration work
+- It's better to document TODOs clearly than to ship incomplete implementations
+- Using `cargo upgrade --incompatible` helps identify major version upgrades
+
+**Testing Status:**
+- All core crate tests passing (16 tests)
+- Workspace builds successfully with no errors
+- Only warnings about unused functions (expected for unfinished features)
+
+**Next Priorities:**
+1. Complete rate limiting implementation with proper tower_governor configuration
+2. Complete recurrence expansion with rrule crate type conversions
+3. Add integration tests for recurring events
+4. Continue with Phase 4: Telegram Bot implementation
+

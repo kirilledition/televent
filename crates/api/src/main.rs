@@ -46,6 +46,7 @@ async fn main() -> Result<()> {
     tracing::info!("Database migrations completed");
 
     // Build application router
+    // TODO: Add rate limiting middleware once implemented
     let app = Router::new()
         .nest("/", routes::health::routes())
         .nest("/api", routes::events::routes())

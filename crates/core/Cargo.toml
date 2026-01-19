@@ -17,3 +17,6 @@ thiserror.workspace = true
 
 # Database
 sqlx.workspace = true
+
+# iCalendar/Recurrence
+rrule.workspace = true

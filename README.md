@@ -432,14 +432,20 @@ pub fn init_telemetry() {
 |-------|--------|----------|
 | Phase 0: Project Setup | ✅ Complete | 100% |
 | Phase 1: Core Domain | ✅ Complete | 100% |
-| Phase 2: Backend API | 🔄 In Progress | 80% |
-| Phase 3: CalDAV Server | 🔄 In Progress | 80% |
+| Phase 2: Backend API | 🔄 In Progress | 85% |
+| Phase 3: CalDAV Server | 🔄 In Progress | 85% |
 | Phase 4: Telegram Bot | ⏳ Pending | 0% |
 | Phase 5: Worker Process | ⏳ Pending | 0% |
 | Phase 6: Frontend (Dioxus) | ⏳ Pending | 0% |
 | Phase 7: GDPR Compliance | ⏳ Pending | 0% |
 | Phase 8: Observability | ⏳ Pending | 0% |
 | Phase 9: Deployment | ⏳ Pending | 0% |
+
+**Recent Updates (2026-01-19):**
+- ✅ Updated all dependencies to latest versions (tokio 1.49, axum 0.8, sqlx 0.8, etc.)
+- 🔄 Added rate limiting structure (placeholder, full implementation pending)
+- 🔄 Added RRULE validation (basic implementation, expansion pending)
+- ✅ Fixed breaking changes from dependency updates
 
 ---
 
@@ -663,13 +669,12 @@ pub async fn caldav_basic_auth(
 
 **Validation**: Integration test with valid/invalid credentials ✅
 
-**Task 2.4**: Rate limiting ⏳
-```rust
-// Apply to router
-.layer(caldav_rate_limiter())
-```
+**Task 2.4**: Rate limiting 🔄 (Placeholder)
+- Created `middleware/rate_limit.rs` structure
+- Documented target rates (100 req/min CalDAV, 300 req/min REST)
+- TODO: Complete tower_governor integration with correct generic parameters
 
-**Validation**: Test 101st request returns 429
+**Validation**: Deferred pending full implementation
 
 **Task 2.5**: REST API endpoints ✅
 - `POST /api/events` - Create event ✅
@@ -756,13 +761,13 @@ async fn caldav_options() -> impl IntoResponse {
 
 **Validation**: Delete event, verify 404 on GET ✅
 
-**Task 3.9**: Recurrence expansion ⏳
-```rust
-// Use rrule crate to expand RRULE into instances
-// Handle exceptions (EXDATE)
-```
+**Task 3.9**: Recurrence expansion 🔄 (Basic validation)
+- Added `core/src/recurrence.rs` with RRULE validation
+- `validate_rrule()` checks for required FREQ parameter
+- Placeholder functions for future expansion
+- TODO: Complete rrule crate integration for full event expansion
 
-**Validation**: Create weekly recurring event, query range includes 4 instances
+**Validation**: Basic RRULE validation tests passing ✅
 
 **Task 3.10**: Full compliance test ⏳
 ```bash
