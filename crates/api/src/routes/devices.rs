@@ -62,7 +62,8 @@ async fn create_device_password(
     let password = generate_password(24);
 
     // Hash with Argon2id
-    let salt = argon2::password_hash::SaltString::generate(&mut rand::rngs::OsRng);
+    use argon2::password_hash::rand_core::OsRng;
+    let salt = argon2::password_hash::SaltString::generate(&mut OsRng);
     let argon2 = argon2::Argon2::default();
     let hashed = argon2::PasswordHasher::hash_password(&argon2, password.as_bytes(), &salt)
         .map_err(|e| ApiError::Internal(format!("Password hashing failed: {}", e)))?
@@ -146,10 +147,10 @@ async fn delete_device_password(
 fn generate_password(length: usize) -> String {
     use rand::Rng;
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..length)
         .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
+            let idx = rng.random_range(0..CHARSET.len());
             CHARSET[idx] as char
         })
         .collect()

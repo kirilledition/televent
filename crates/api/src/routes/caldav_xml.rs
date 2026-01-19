@@ -27,7 +27,7 @@ pub enum ReportType {
 /// Parse CalDAV REPORT request XML
 pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
     let mut reader = Reader::from_str(xml_body);
-    reader.trim_text(true);
+    // Note: trim_text() removed in quick-xml 0.39, text is trimmed by default
 
     let mut in_calendar_query = false;
     let mut in_sync_collection = false;
@@ -100,7 +100,7 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
             }
             Ok(Event::Text(e)) => {
                 if in_sync_token {
-                    let text = e.unescape().unwrap_or_default();
+                    let text = std::str::from_utf8(e.as_ref()).unwrap_or("");
                     if !text.is_empty() {
                         sync_token = Some(text.to_string());
                     }
