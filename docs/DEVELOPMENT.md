@@ -635,3 +635,79 @@ just fmt             # Auto-format code
 3. Add integration tests for recurring events
 4. Continue with Phase 4: Telegram Bot implementation
 
+
+---
+
+### Phase 4: Telegram Bot Implementation ✅ (2026-01-19)
+
+**What We Built:**
+
+#### Bot Infrastructure
+- Complete Teloxide-based bot with command routing
+- Database integration using SQLx
+- Configuration module for environment variables
+- Structured logging with tracing
+
+#### Implemented Commands
+1. **/start** - Welcome message with command overview
+2. **/help** - Detailed help with all available commands
+3. **/today** - Show today's events with time and location
+4. **/tomorrow** - Show tomorrow's events
+5. **/week** - Show next 7 days of events
+6. **/create** - Guide for event creation (interactive creation coming later)
+7. **/device** - Info about CalDAV device password management
+8. **/export** - Calendar export (placeholder for .ics export)
+9. **/list** - Event listing options
+10. **/cancel** - Event cancellation guide
+11. **/deleteaccount** - GDPR account deletion info
+
+#### Code Structure
+```
+crates/bot/src/
+├── main.rs         # Bot initialization and command routing
+├── commands.rs     # Command enum with BotCommands derive
+├── handlers.rs     # Handler implementation for each command
+├── db.rs          # Database operations (BotDb, BotEvent)
+└── config.rs      # Configuration from environment variables
+```
+
+**Key Technical Decisions:**
+
+1. **Runtime Query Validation:**
+   - Used `sqlx::query()` instead of `query!()` macros
+   - Avoids compile-time verification requirement (no `.sqlx/` cache needed)
+   - TODO: Run `cargo sqlx prepare` when database is set up
+
+2. **Command Structure:**
+   - Used teloxide's `BotCommands` derive for automatic command parsing
+   - Clean separation: commands.rs defines, handlers.rs implements
+   - Each handler returns `anyhow::Result<()>` for flexible error handling
+
+3. **Database Abstraction:**
+   - `BotDb` wraps `PgPool` for bot-specific operations
+   - `BotEvent` struct optimized for display (no status/etag fields)
+   - Gracefully handles missing calendars (returns empty vec)
+
+4. **API Compatibility:**
+   - Fixed teloxide 0.13 API changes (`msg.from` instead of `msg.from()`)
+   - Used `Command::repl()` for simplified bot loop
+
+**Lessons Learned:**
+- teloxide 0.13 deprecated `.from()` method in favor of `.from` field
+- SQLx compile-time verification requires database or offline cache
+- Runtime queries are acceptable for development, prepare for production
+- Bot command handlers should be idempotent (users may spam commands)
+
+**Testing Status:**
+- Bot compiles successfully with 0 errors
+- 13 warnings (unused functions - expected for unfinished features)
+- Unit tests for command parsing
+- Integration tests pending (require test database)
+
+**Next Steps:**
+1. Add interactive event creation with conversation flow
+2. Implement device password management via bot
+3. Add calendar export (.ics file generation)
+4. Integration tests with test database
+5. Error handling improvements (user-friendly error messages)
+
