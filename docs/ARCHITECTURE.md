@@ -165,6 +165,96 @@ sequenceDiagram
     API-->>CAL: 204 No Content
 ```
 
+## CalDAV REPORT Method Flow
+
+```mermaid
+sequenceDiagram
+    participant CAL as Calendar Client
+    participant API as CalDAV Endpoint
+    participant DB as Database
+
+    Note over CAL,DB: Calendar Query (time-range filter)
+    CAL->>API: REPORT /caldav/{user_id}/<br/>calendar-query XML
+    API->>API: Parse time-range filter
+    API->>DB: SELECT events WHERE start BETWEEN...
+    DB-->>API: Matching events
+    API->>API: Serialize to iCalendar
+    API-->>CAL: 207 Multi-Status<br/>calendar-data for each event
+
+    Note over CAL,DB: Sync Collection (incremental sync)
+    CAL->>API: REPORT /caldav/{user_id}/<br/>sync-collection XML<br/>sync-token: "42"
+    API->>API: Parse sync-token
+    API->>DB: SELECT events WHERE sync_version > 42
+    DB-->>API: Changed/new events
+    API->>DB: Get current sync_token
+    API-->>CAL: 207 Multi-Status<br/>changed events + new sync-token
+```
+
+## REST API Endpoints
+
+```mermaid
+flowchart LR
+    subgraph "Events API"
+        E1[POST /api/events]
+        E2[GET /api/events]
+        E3[GET /api/events/:id]
+        E4[PUT /api/events/:id]
+        E5[DELETE /api/events/:id]
+    end
+
+    subgraph "Device Passwords API"
+        D1[POST /api/users/:user_id/devices]
+        D2[GET /api/users/:user_id/devices]
+        D3[DELETE /api/users/:user_id/devices/:device_id]
+    end
+
+    subgraph "Health API"
+        H1[GET /health]
+        H2[GET /health/ready]
+    end
+
+    subgraph "CalDAV Endpoints"
+        C1[OPTIONS /caldav/]
+        C2[PROPFIND /caldav/:user_id/]
+        C3[REPORT /caldav/:user_id/]
+        C4[GET /caldav/:user_id/:uid.ics]
+        C5[PUT /caldav/:user_id/:uid.ics]
+        C6[DELETE /caldav/:user_id/:uid.ics]
+    end
+```
+
+## Device Password Management Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as REST API
+    participant DB as Database
+    participant CAL as Calendar Client
+
+    Note over User,CAL: Create Device Password
+    User->>API: POST /api/users/:id/devices<br/>{"name": "iPhone"}
+    API->>API: Generate random password
+    API->>API: Hash with Argon2id
+    API->>DB: INSERT device_passwords
+    DB-->>API: Device record
+    API-->>User: 201 Created<br/>{"password": "abc123..."}
+
+    Note over User,CAL: Use Device Password
+    CAL->>API: CalDAV request<br/>Authorization: Basic base64(telegram_id:password)
+    API->>API: Decode Basic Auth
+    API->>DB: SELECT hashed_password WHERE user_id
+    DB-->>API: Hash list
+    API->>API: Argon2id.verify(password, hash)
+    API->>DB: UPDATE last_used_at
+    API-->>CAL: 200 OK (proceed with CalDAV)
+
+    Note over User,CAL: Revoke Device Password
+    User->>API: DELETE /api/users/:id/devices/:device_id
+    API->>DB: DELETE device_passwords
+    API-->>User: 204 No Content
+```
+
 ## Database Schema
 
 ```mermaid

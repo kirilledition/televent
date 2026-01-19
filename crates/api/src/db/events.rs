@@ -151,6 +151,32 @@ pub async fn list_events(
     Ok(events)
 }
 
+/// List events modified since a specific sync token
+///
+/// Used for CalDAV sync-collection REPORT
+pub async fn list_events_since_sync(
+    pool: &PgPool,
+    calendar_id: Uuid,
+    sync_token: i64,
+) -> Result<Vec<Event>, ApiError> {
+    // We use the calendar's sync_token as a version number
+    // Events with version > sync_token have been modified since
+    let events = sqlx::query_as::<_, Event>(
+        r#"
+        SELECT * FROM events
+        WHERE calendar_id = $1
+        AND version > $2
+        ORDER BY updated_at ASC
+        "#,
+    )
+    .bind(calendar_id)
+    .bind(sync_token as i32)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(events)
+}
+
 /// Update an existing event
 pub async fn update_event(
     pool: &PgPool,
