@@ -71,6 +71,18 @@ Create a **Telegram-first calendar** that:
 **Goal**: Validate the entire stack on a production-like database (Supabase) before spending money on Railway.  
 **Duration**: 1 week
 
+### crap i personally want to fix when everything working
+- dont use tg_ prefix for internal adresses
+- when local send logs to jsonl file
+- when deployed send logs to logs management
+- add descriptions to commands inside bot
+- add template message for event creation
+- better names for commands
+- name televent lowercase everywhere
+- versioning rules
+- minimize emojis in docs
+- concatenate docs to one readme
+
 ### **3.1 Supabase Setup**
 
 * **Action**: Create a free Supabase project.  
