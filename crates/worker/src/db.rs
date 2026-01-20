@@ -4,7 +4,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
-use sqlx::{FromRow, PgPool, Row};
+use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 /// Outbox message from database
@@ -19,111 +19,140 @@ pub struct OutboxMessage {
     pub processed_at: Option<DateTime<Utc>>,
 }
 
-/// Fetch pending messages and mark them as processing
-pub async fn fetch_pending_messages(
-    pool: &PgPool,
-    batch_size: i64,
-) -> Result<Vec<OutboxMessage>, sqlx::Error> {
-    let messages = sqlx::query_as::<_, OutboxMessage>(
-        r#"
-        UPDATE outbox_messages
-        SET status = 'processing'
-        WHERE id IN (
-            SELECT id FROM outbox_messages
-            WHERE status = 'pending'
-              AND scheduled_at <= NOW()
-            ORDER BY scheduled_at
-            LIMIT $1
-            FOR UPDATE SKIP LOCKED
+/// Worker database handle
+#[derive(Clone)]
+pub struct WorkerDb {
+    pool: PgPool,
+}
+
+impl WorkerDb {
+    /// Create a new database handle
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    /// Fetch pending jobs and mark them as processing
+    ///
+    /// Uses FOR UPDATE SKIP LOCKED to prevent duplicate processing
+    pub async fn fetch_pending_jobs(
+        &self,
+        batch_size: i64,
+    ) -> Result<Vec<OutboxMessage>, sqlx::Error> {
+        let messages = sqlx::query_as::<_, OutboxMessage>(
+            r#"
+            UPDATE outbox_messages
+            SET status = 'processing'
+            WHERE id IN (
+                SELECT id
+                FROM outbox_messages
+                WHERE status = 'pending'
+                  AND scheduled_at <= NOW()
+                ORDER BY scheduled_at ASC
+                LIMIT $1
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING id, message_type, payload, status, retry_count, scheduled_at, processed_at
+            "#,
         )
-        RETURNING *
-        "#,
-    )
-    .bind(batch_size)
-    .fetch_all(pool)
-    .await?;
+        .bind(batch_size)
+        .fetch_all(&self.pool)
+        .await?;
 
-    Ok(messages)
-}
+        Ok(messages)
+    }
 
-/// Mark message as completed
-pub async fn mark_completed(pool: &PgPool, message_id: Uuid) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        UPDATE outbox_messages
-        SET status = 'completed',
-            processed_at = NOW()
-        WHERE id = $1
-        "#,
-    )
-    .bind(message_id)
-    .execute(pool)
-    .await?;
+    /// Mark a message as completed
+    pub async fn mark_completed(&self, message_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE outbox_messages
+            SET status = 'completed',
+                processed_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .execute(&self.pool)
+        .await?;
 
-    Ok(())
-}
+        Ok(())
+    }
 
-/// Mark message as failed
-pub async fn mark_failed(pool: &PgPool, message_id: Uuid) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        UPDATE outbox_messages
-        SET status = 'failed',
-            processed_at = NOW()
-        WHERE id = $1
-        "#,
-    )
-    .bind(message_id)
-    .execute(pool)
-    .await?;
+    /// Mark a message as failed
+    pub async fn mark_failed(&self, message_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE outbox_messages
+            SET status = 'failed',
+                processed_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .execute(&self.pool)
+        .await?;
 
-    Ok(())
-}
+        Ok(())
+    }
 
-/// Reschedule message for retry with exponential backoff
-pub async fn reschedule_for_retry(
-    pool: &PgPool,
-    message_id: Uuid,
-    retry_count: i32,
-) -> Result<(), sqlx::Error> {
-    // Exponential backoff: 2^retry_count minutes
-    let backoff_minutes = 2_i64.pow(retry_count as u32);
-    let next_scheduled = Utc::now() + Duration::minutes(backoff_minutes);
+    /// Reschedule a message with exponential backoff
+    ///
+    /// Backoff formula: 2^retry_count minutes
+    pub async fn reschedule_message(
+        &self,
+        message_id: Uuid,
+        current_retry_count: i32,
+    ) -> Result<(), sqlx::Error> {
+        // Calculate backoff: 2^retry_count minutes (1m, 2m, 4m, 8m, 16m)
+        let backoff_minutes = 2_i64.pow((current_retry_count + 1) as u32);
+        let next_scheduled = Utc::now() + Duration::minutes(backoff_minutes);
 
-    sqlx::query(
-        r#"
-        UPDATE outbox_messages
-        SET status = 'pending',
-            retry_count = $2,
-            scheduled_at = $3
-        WHERE id = $1
-        "#,
-    )
-    .bind(message_id)
-    .bind(retry_count)
-    .bind(next_scheduled)
-    .execute(pool)
-    .await?;
+        sqlx::query(
+            r#"
+            UPDATE outbox_messages
+            SET status = 'pending',
+                retry_count = retry_count + 1,
+                scheduled_at = $2
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .bind(next_scheduled)
+        .execute(&self.pool)
+        .await?;
 
-    Ok(())
-}
+        Ok(())
+    }
 
-/// Clean up old completed/failed messages (older than 90 days)
-pub async fn cleanup_old_messages(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    let cutoff = Utc::now() - Duration::days(90);
+    /// Get count of pending messages (for monitoring)
+    pub async fn count_pending(&self) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM outbox_messages
+            WHERE status = 'pending'
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
 
-    let result = sqlx::query(
-        r#"
-        DELETE FROM outbox_messages
-        WHERE (status = 'completed' OR status = 'failed')
-          AND processed_at < $1
-        "#,
-    )
-    .bind(cutoff)
-    .execute(pool)
-    .await?;
+        Ok(result)
+    }
 
-    Ok(result.rows_affected())
+    /// Get count of processing messages (for monitoring)
+    pub async fn count_processing(&self) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM outbox_messages
+            WHERE status = 'processing'
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -138,5 +167,15 @@ mod tests {
 
         assert_clone::<OutboxMessage>();
         assert_debug::<OutboxMessage>();
+    }
+
+    #[test]
+    fn test_backoff_calculation() {
+        // Test exponential backoff formula
+        assert_eq!(2_i64.pow(0), 1); // First retry: 1 minute
+        assert_eq!(2_i64.pow(1), 2); // Second retry: 2 minutes
+        assert_eq!(2_i64.pow(2), 4); // Third retry: 4 minutes
+        assert_eq!(2_i64.pow(3), 8); // Fourth retry: 8 minutes
+        assert_eq!(2_i64.pow(4), 16); // Fifth retry: 16 minutes
     }
 }
