@@ -106,6 +106,45 @@ pub struct AuditLog {
     pub created_at: DateTime<Utc>,
 }
 
+/// Event attendee with RSVP status
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct EventAttendee {
+    pub id: Uuid,
+    pub event_id: Uuid,
+    pub email: String, // tg_123@televent.internal or external
+    pub telegram_id: Option<i64>, // Populated for internal users
+    pub role: AttendeeRole,
+    pub status: ParticipationStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Attendee role (RFC 5545 ROLE parameter)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "attendee_role", rename_all = "UPPERCASE")]
+pub enum AttendeeRole {
+    Organizer,
+    Attendee,
+}
+
+/// Participation status (RFC 5545 PARTSTAT parameter)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "participation_status")]
+pub enum ParticipationStatus {
+    #[sqlx(rename = "NEEDS-ACTION")]
+    #[serde(rename = "NeedsAction")]
+    NeedsAction,
+    #[sqlx(rename = "ACCEPTED")]
+    #[serde(rename = "Accepted")]
+    Accepted,
+    #[sqlx(rename = "DECLINED")]
+    #[serde(rename = "Declined")]
+    Declined,
+    #[sqlx(rename = "TENTATIVE")]
+    #[serde(rename = "Tentative")]
+    Tentative,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,5 +263,79 @@ mod tests {
         // Test that payload is preserved
         assert_eq!(outbox.payload["telegram_id"], 123456789);
         assert_eq!(outbox.payload["message"], "Test notification");
+    }
+
+    #[test]
+    fn test_participation_status_serialization() {
+        let needs_action = ParticipationStatus::NeedsAction;
+        let accepted = ParticipationStatus::Accepted;
+        let declined = ParticipationStatus::Declined;
+        let tentative = ParticipationStatus::Tentative;
+
+        // Test JSON serialization
+        assert_eq!(
+            serde_json::to_string(&needs_action).unwrap(),
+            r#""NeedsAction""#
+        );
+        assert_eq!(serde_json::to_string(&accepted).unwrap(), r#""Accepted""#);
+        assert_eq!(serde_json::to_string(&declined).unwrap(), r#""Declined""#);
+        assert_eq!(
+            serde_json::to_string(&tentative).unwrap(),
+            r#""Tentative""#
+        );
+
+        // Test deserialization
+        let needs_action_de: ParticipationStatus =
+            serde_json::from_str(r#""NeedsAction""#).unwrap();
+        let accepted_de: ParticipationStatus = serde_json::from_str(r#""Accepted""#).unwrap();
+        let declined_de: ParticipationStatus = serde_json::from_str(r#""Declined""#).unwrap();
+        let tentative_de: ParticipationStatus = serde_json::from_str(r#""Tentative""#).unwrap();
+
+        assert_eq!(needs_action, needs_action_de);
+        assert_eq!(accepted, accepted_de);
+        assert_eq!(declined, declined_de);
+        assert_eq!(tentative, tentative_de);
+    }
+
+    #[test]
+    fn test_attendee_role_serialization() {
+        let organizer = AttendeeRole::Organizer;
+        let attendee = AttendeeRole::Attendee;
+
+        // Test JSON serialization
+        assert_eq!(
+            serde_json::to_string(&organizer).unwrap(),
+            r#""Organizer""#
+        );
+        assert_eq!(serde_json::to_string(&attendee).unwrap(), r#""Attendee""#);
+
+        // Test deserialization
+        let organizer_de: AttendeeRole = serde_json::from_str(r#""Organizer""#).unwrap();
+        let attendee_de: AttendeeRole = serde_json::from_str(r#""Attendee""#).unwrap();
+
+        assert_eq!(organizer, organizer_de);
+        assert_eq!(attendee, attendee_de);
+    }
+
+    #[test]
+    fn test_event_attendee_structure() {
+        let attendee = EventAttendee {
+            id: Uuid::new_v4(),
+            event_id: Uuid::new_v4(),
+            email: "tg_123456789@televent.internal".to_string(),
+            telegram_id: Some(123456789),
+            role: AttendeeRole::Attendee,
+            status: ParticipationStatus::NeedsAction,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        // Verify it serializes
+        let json = serde_json::to_string(&attendee).unwrap();
+        let deserialized: EventAttendee = serde_json::from_str(&json).unwrap();
+        assert_eq!(attendee.email, deserialized.email);
+        assert_eq!(attendee.telegram_id, deserialized.telegram_id);
+        assert_eq!(attendee.role, deserialized.role);
+        assert_eq!(attendee.status, deserialized.status);
     }
 }

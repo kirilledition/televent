@@ -38,6 +38,12 @@ pub enum Command {
     #[command(description = "Export calendar as .ics file")]
     Export,
 
+    #[command(description = "Invite someone to an event")]
+    Invite,
+
+    #[command(description = "Respond to event invitations")]
+    Rsvp,
+
     #[command(description = "Show help message")]
     Help,
 

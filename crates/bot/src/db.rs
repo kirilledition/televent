@@ -47,6 +47,54 @@ pub struct BotEvent {
     pub description: Option<String>,
 }
 
+/// Device password information for display
+#[derive(Debug, Clone, FromRow)]
+pub struct DevicePasswordInfo {
+    pub id: Uuid,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+}
+
+/// User information for lookups
+#[derive(Debug, Clone, FromRow)]
+pub struct UserInfo {
+    pub id: Uuid,
+    pub telegram_id: i64,
+    pub telegram_username: Option<String>,
+}
+
+/// Event information with ownership check
+#[derive(Debug, Clone, FromRow)]
+pub struct EventInfo {
+    pub id: Uuid,
+    pub summary: String,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub location: Option<String>,
+    pub user_id: Uuid,
+}
+
+/// Pending invite information
+#[derive(Debug, Clone, FromRow)]
+pub struct PendingInvite {
+    pub event_id: Uuid,
+    pub summary: String,
+    pub start: DateTime<Utc>,
+    pub location: Option<String>,
+    pub organizer_username: Option<String>,
+}
+
+/// Attendee information for display
+#[derive(Debug, Clone, FromRow)]
+pub struct AttendeeInfo {
+    pub email: String,
+    pub telegram_id: Option<i64>,
+    pub role: String,
+    pub status: String,
+    pub telegram_username: Option<String>,
+}
+
 impl BotDb {
     /// Create a new database handle
     pub fn new(pool: PgPool) -> Self {
@@ -237,15 +285,238 @@ impl BotDb {
 
         Ok(result.rows_affected() > 0)
     }
-}
 
-/// Device password information for display
-#[derive(Debug, Clone, FromRow)]
-pub struct DevicePasswordInfo {
-    pub id: Uuid,
-    pub name: String,
-    pub created_at: DateTime<Utc>,
-    pub last_used_at: Option<DateTime<Utc>>,
+    /// Find user by Telegram username
+    pub async fn find_user_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Option<UserInfo>, sqlx::Error> {
+        let user = sqlx::query_as::<_, UserInfo>(
+            r#"
+            SELECT id, telegram_id, telegram_username
+            FROM users
+            WHERE telegram_username = $1
+            "#,
+        )
+        .bind(username.trim_start_matches('@'))
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(user)
+    }
+
+    /// Get event info and verify ownership
+    pub async fn get_event_info(
+        &self,
+        event_id: Uuid,
+        telegram_id: i64,
+    ) -> Result<Option<EventInfo>, sqlx::Error> {
+        let event = sqlx::query_as::<_, EventInfo>(
+            r#"
+            SELECT e.id, e.summary, e.start, e."end", e.location, c.user_id
+            FROM events e
+            JOIN calendars c ON e.calendar_id = c.id
+            JOIN users u ON c.user_id = u.id
+            WHERE e.id = $1 AND u.telegram_id = $2
+            "#,
+        )
+        .bind(event_id)
+        .bind(telegram_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(event)
+    }
+
+    /// Invite attendee to an event
+    pub async fn invite_attendee(
+        &self,
+        event_id: Uuid,
+        email: &str,
+        telegram_id: Option<i64>,
+        role: &str,
+    ) -> Result<Uuid, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO event_attendees (id, event_id, email, telegram_id, role, status)
+            VALUES (gen_random_uuid(), $1, $2, $3, $4::attendee_role, 'NEEDS-ACTION')
+            ON CONFLICT (event_id, email) DO NOTHING
+            RETURNING id
+            "#,
+        )
+        .bind(event_id)
+        .bind(email)
+        .bind(telegram_id)
+        .bind(role)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match row {
+            Some(r) => Ok(r.try_get("id")?),
+            None => Err(sqlx::Error::RowNotFound), // Duplicate invite
+        }
+    }
+
+    /// Update RSVP status for an attendee
+    pub async fn update_rsvp_status(
+        &self,
+        event_id: Uuid,
+        telegram_id: i64,
+        status: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            UPDATE event_attendees
+            SET status = $3::participation_status, updated_at = NOW()
+            WHERE event_id = $1 AND telegram_id = $2
+            "#,
+        )
+        .bind(event_id)
+        .bind(telegram_id)
+        .bind(status)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Get pending invites for a user
+    pub async fn get_pending_invites(
+        &self,
+        telegram_id: i64,
+    ) -> Result<Vec<PendingInvite>, sqlx::Error> {
+        let invites = sqlx::query_as::<_, PendingInvite>(
+            r#"
+            SELECT e.id AS event_id, e.summary, e.start, e.location,
+                   u.telegram_username AS organizer_username
+            FROM event_attendees ea
+            JOIN events e ON ea.event_id = e.id
+            JOIN calendars c ON e.calendar_id = c.id
+            JOIN users u ON c.user_id = u.id
+            WHERE ea.telegram_id = $1
+              AND ea.status = 'NEEDS-ACTION'
+            ORDER BY e.start ASC
+            "#,
+        )
+        .bind(telegram_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(invites)
+    }
+
+    /// Get all attendees for an event
+    pub async fn get_event_attendees(
+        &self,
+        event_id: Uuid,
+    ) -> Result<Vec<AttendeeInfo>, sqlx::Error> {
+        let attendees = sqlx::query_as::<_, AttendeeInfo>(
+            r#"
+            SELECT ea.email, ea.telegram_id, ea.role::text, ea.status::text,
+                   u.telegram_username
+            FROM event_attendees ea
+            LEFT JOIN users u ON ea.telegram_id = u.telegram_id
+            WHERE ea.event_id = $1
+            ORDER BY
+                CASE ea.role::text
+                    WHEN 'ORGANIZER' THEN 0
+                    ELSE 1
+                END,
+                ea.created_at ASC
+            "#,
+        )
+        .bind(event_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(attendees)
+    }
+
+    /// Get event organizer's telegram_id
+    pub async fn get_event_organizer(
+        &self,
+        event_id: Uuid,
+    ) -> Result<Option<i64>, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT u.telegram_id
+            FROM events e
+            JOIN calendars c ON e.calendar_id = c.id
+            JOIN users u ON c.user_id = u.id
+            WHERE e.id = $1
+            "#,
+        )
+        .bind(event_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match row {
+            Some(r) => Ok(Some(r.try_get("telegram_id")?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Queue calendar invite message for processing
+    pub async fn queue_calendar_invite(
+        &self,
+        recipient_email: &str,
+        recipient_telegram_id: Option<i64>,
+        event_summary: &str,
+        event_start: DateTime<Utc>,
+        event_location: Option<&str>,
+    ) -> Result<Uuid, sqlx::Error> {
+        use serde_json::json;
+
+        let payload = json!({
+            "recipient_email": recipient_email,
+            "recipient_telegram_id": recipient_telegram_id,
+            "event_summary": event_summary,
+            "event_start": event_start.to_rfc3339(),
+            "event_location": event_location,
+        });
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at)
+            VALUES (gen_random_uuid(), 'calendar_invite', $1, 'pending', 0, NOW())
+            RETURNING id
+            "#,
+        )
+        .bind(payload)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.try_get("id")?)
+    }
+
+    /// Queue RSVP notification to event organizer
+    pub async fn queue_rsvp_notification(
+        &self,
+        organizer_telegram_id: i64,
+        attendee_name: &str,
+        event_summary: &str,
+        rsvp_status: &str,
+    ) -> Result<Uuid, sqlx::Error> {
+        use serde_json::json;
+
+        let payload = json!({
+            "telegram_id": organizer_telegram_id,
+            "message": format!("📅 {} {} your invite to: {}", attendee_name, rsvp_status, event_summary),
+        });
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at)
+            VALUES (gen_random_uuid(), 'telegram_notification', $1, 'pending', 0, NOW())
+            RETURNING id
+            "#,
+        )
+        .bind(payload)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.try_get("id")?)
+    }
 }
 
 #[cfg(test)]

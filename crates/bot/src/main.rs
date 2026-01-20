@@ -81,6 +81,8 @@ async fn handle_command(bot: Bot, msg: Message, cmd: Command, db: BotDb) -> Resu
         Command::Cancel => handlers::handle_cancel(bot, msg).await?,
         Command::Device => handlers::handle_device(bot, msg, db).await?,
         Command::Export => handlers::handle_export(bot, msg, db).await?,
+        Command::Invite => handlers::handle_invite(bot, msg, db).await?,
+        Command::Rsvp => handlers::handle_rsvp(bot, msg, db).await?,
         Command::DeleteAccount => handlers::handle_delete_account(bot, msg).await?,
     }
 
