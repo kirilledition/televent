@@ -25,7 +25,6 @@ graph TB
 
         subgraph "Shared Libraries"
             CORE[Core Domain<br/>crates/core]
-            MAILER[Email Service<br/>crates/mailer]
         end
 
         subgraph "Data Layer"
@@ -50,8 +49,8 @@ graph TB
     BOT --> PG
     WORKER --> CORE
     WORKER --> PG
-    WORKER --> MAILER
-    MAILER --> SMTP
+    WORKER --> TGAPI
+    WORKER --> SMTP
 
     BOT --> TGAPI
 ```
@@ -69,7 +68,6 @@ graph BT
 
     subgraph "Libraries"
         CORE[televent-core]
-        MAILER[mailer]
     end
 
     subgraph "External Crates"
@@ -78,6 +76,7 @@ graph BT
         TELOXIDE[teloxide]
         DIOXUS[dioxus]
         TOKIO[tokio]
+        LETTRE[lettre]
     end
 
     API --> CORE
@@ -91,13 +90,15 @@ graph BT
     BOT --> TOKIO
 
     WORKER --> CORE
-    WORKER --> MAILER
+    WORKER --> TELOXIDE
+    WORKER --> LETTRE
     WORKER --> SQLX
     WORKER --> TOKIO
 
     WEB --> DIOXUS
 
-    MAILER --> TOKIO
+    CORE --> SQLX
+    CORE --> TOKIO
 ```
 
 ## API Request Flow
@@ -115,11 +116,10 @@ sequenceDiagram
     Router->>MW: Route Matching
 
     alt CalDAV Request
-        MW->>MW: Basic Auth Validation
+        MW->>MW: Basic Auth Validation (caldav_auth)
         MW->>PG: Verify Device Password (Argon2id)
-    else Web Request
-        MW->>MW: Telegram InitData Validation
-        MW->>MW: HMAC-SHA256 Verification
+    else API Request
+        Note over MW: Currently passing IDs in path/query<br/>(Auth middleware planned)
     end
 
     MW->>Handler: Authenticated Request
@@ -165,31 +165,6 @@ sequenceDiagram
     API-->>CAL: 204 No Content
 ```
 
-## CalDAV REPORT Method Flow
-
-```mermaid
-sequenceDiagram
-    participant CAL as Calendar Client
-    participant API as CalDAV Endpoint
-    participant DB as Database
-
-    Note over CAL,DB: Calendar Query (time-range filter)
-    CAL->>API: REPORT /caldav/{user_id}/<br/>calendar-query XML
-    API->>API: Parse time-range filter
-    API->>DB: SELECT events WHERE start BETWEEN...
-    DB-->>API: Matching events
-    API->>API: Serialize to iCalendar
-    API-->>CAL: 207 Multi-Status<br/>calendar-data for each event
-
-    Note over CAL,DB: Sync Collection (incremental sync)
-    CAL->>API: REPORT /caldav/{user_id}/<br/>sync-collection XML<br/>sync-token: "42"
-    API->>API: Parse sync-token
-    API->>DB: SELECT events WHERE sync_version > 42
-    DB-->>API: Changed/new events
-    API->>DB: Get current sync_token
-    API-->>CAL: 207 Multi-Status<br/>changed events + new sync-token
-```
-
 ## REST API Endpoints
 
 ```mermaid
@@ -210,7 +185,6 @@ flowchart LR
 
     subgraph "Health API"
         H1[GET /health]
-        H2[GET /health/ready]
     end
 
     subgraph "CalDAV Endpoints"
@@ -223,38 +197,6 @@ flowchart LR
     end
 ```
 
-## Device Password Management Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant API as REST API
-    participant DB as Database
-    participant CAL as Calendar Client
-
-    Note over User,CAL: Create Device Password
-    User->>API: POST /api/users/:id/devices<br/>{"name": "iPhone"}
-    API->>API: Generate random password
-    API->>API: Hash with Argon2id
-    API->>DB: INSERT device_passwords
-    DB-->>API: Device record
-    API-->>User: 201 Created<br/>{"password": "abc123..."}
-
-    Note over User,CAL: Use Device Password
-    CAL->>API: CalDAV request<br/>Authorization: Basic base64(telegram_id:password)
-    API->>API: Decode Basic Auth
-    API->>DB: SELECT hashed_password WHERE user_id
-    DB-->>API: Hash list
-    API->>API: Argon2id.verify(password, hash)
-    API->>DB: UPDATE last_used_at
-    API-->>CAL: 200 OK (proceed with CalDAV)
-
-    Note over User,CAL: Revoke Device Password
-    User->>API: DELETE /api/users/:id/devices/:device_id
-    API->>DB: DELETE device_passwords
-    API-->>User: 204 No Content
-```
-
 ## Database Schema
 
 ```mermaid
@@ -264,6 +206,7 @@ erDiagram
     users ||--o| user_preferences : "has one"
     users ||--o{ audit_log : "has many"
     calendars ||--o{ events : "contains"
+    events ||--o{ event_attendees : "has many"
 
     users {
         uuid id PK
@@ -293,11 +236,22 @@ erDiagram
         timestamp start
         timestamp end
         boolean is_all_day
-        enum status
+        event_status status
         string rrule
         string timezone
         int version
         string etag
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    event_attendees {
+        uuid id PK
+        uuid event_id FK
+        string email
+        bigint telegram_id
+        attendee_role role
+        participation_status status
         timestamp created_at
         timestamp updated_at
     }
@@ -320,7 +274,7 @@ erDiagram
 
     outbox_messages {
         uuid id PK
-        enum status
+        outbox_status status
         string message_type
         jsonb payload
         int retry_count
@@ -341,76 +295,6 @@ erDiagram
     }
 ```
 
-## Authentication Flows
-
-### Web UI Authentication (Telegram Login Widget)
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Browser
-    participant API
-    participant Telegram
-
-    User->>Browser: Click "Login with Telegram"
-    Browser->>Telegram: Open Telegram OAuth
-    Telegram->>User: Authorize request
-    User->>Telegram: Approve
-    Telegram->>Browser: Return initData<br/>(user, auth_date, hash)
-    Browser->>API: Request with X-Telegram-Init-Data
-
-    API->>API: Parse initData params
-    API->>API: Sort params alphabetically
-    API->>API: Build data-check-string
-    API->>API: secret = HMAC-SHA256("WebAppData", bot_token)
-    API->>API: computed_hash = HMAC-SHA256(secret, data-check-string)
-    API->>API: Compare computed_hash with provided hash
-
-    alt Valid Signature
-        API->>API: Extract user_id from initData
-        API->>API: Generate JWT (24h expiry)
-        API-->>Browser: Set-Cookie: jwt=...
-    else Invalid Signature
-        API-->>Browser: 401 Unauthorized
-    end
-```
-
-### CalDAV Authentication (HTTP Basic Auth)
-
-```mermaid
-sequenceDiagram
-    participant Client as Calendar Client
-    participant API as CalDAV Endpoint
-    participant DB as PostgreSQL
-
-    Client->>API: Request without auth
-    API-->>Client: 401 WWW-Authenticate: Basic
-
-    Client->>API: Authorization: Basic base64(telegram_id:password)
-    API->>API: Decode base64
-    API->>API: Split telegram_id:password
-
-    API->>DB: SELECT id FROM users WHERE telegram_id = ?
-    DB-->>API: user_id
-
-    API->>DB: SELECT hashed_password FROM device_passwords WHERE user_id = ?
-    DB-->>API: List of hashed passwords
-
-    loop Each device password
-        API->>API: Argon2id.verify(password, hash)
-        alt Match found
-            API->>DB: UPDATE device_passwords SET last_used_at = NOW()
-            API->>API: Attach user_id to request
-        end
-    end
-
-    alt Verified
-        API-->>Client: 200 OK (with response)
-    else Not Verified
-        API-->>Client: 401 Unauthorized
-    end
-```
-
 ## Worker Message Processing (Outbox Pattern)
 
 ```mermaid
@@ -418,9 +302,10 @@ sequenceDiagram
     participant API as API Server
     participant DB as PostgreSQL
     participant Worker as Background Worker
-    participant External as External Service<br/>(Email/Telegram)
+    participant TG as Telegram Bot API
+    participant SMTP as SMTP Server
 
-    Note over API,External: Event Creation triggers notification
+    Note over API,SMTP: Event Creation triggers notification
 
     API->>DB: INSERT event
     API->>DB: INSERT outbox_message<br/>(status=PENDING, payload=...)
@@ -433,7 +318,16 @@ sequenceDiagram
 
         loop Each message
             Worker->>DB: UPDATE status = 'PROCESSING'
-            Worker->>External: Send notification
+            
+            alt Message Type: telegram_notification
+                Worker->>TG: Send message
+            else Message Type: calendar_invite (The Interceptor)
+                alt recipient is internal (@televent.internal)
+                    Worker->>TG: Send Telegram Invite
+                else recipient is external
+                    Worker->>SMTP: Send Email (Planned)
+                end
+            end
 
             alt Success
                 Worker->>DB: UPDATE status = 'COMPLETED'
@@ -442,43 +336,6 @@ sequenceDiagram
             end
         end
     end
-```
-
-## ETag Generation
-
-```mermaid
-flowchart LR
-    subgraph "Event Fields"
-        UID[uid]
-        SUM[summary]
-        DESC[description]
-        LOC[location]
-        START[start]
-        END[end]
-        ALLDAY[is_all_day]
-        STATUS[status]
-        RRULE[rrule]
-    end
-
-    subgraph "Process"
-        CONCAT[Concatenate with '|' separator]
-        SHA[SHA-256 Hash]
-        HEX[Hex Encode]
-    end
-
-    UID --> CONCAT
-    SUM --> CONCAT
-    DESC --> CONCAT
-    LOC --> CONCAT
-    START --> CONCAT
-    END --> CONCAT
-    ALLDAY --> CONCAT
-    STATUS --> CONCAT
-    RRULE --> CONCAT
-
-    CONCAT --> SHA
-    SHA --> HEX
-    HEX --> ETAG[ETag]
 ```
 
 ## Directory Structure
@@ -494,33 +351,42 @@ televent/
 │   │       ├── routes/      # HTTP handlers
 │   │       │   ├── caldav.rs      # CalDAV protocol
 │   │       │   ├── caldav_xml.rs  # XML generation
-│   │       │   ├── events.rs      # REST API
+│   │       │   ├── devices.rs     # Device passwords REST
+│   │       │   ├── events.rs      # Events REST API
 │   │       │   ├── health.rs      # Health check
 │   │       │   └── ical.rs        # iCal serialization
 │   │       ├── middleware/  # Auth middleware
 │   │       │   ├── caldav_auth.rs    # Basic Auth
-│   │       │   └── telegram_auth.rs  # Telegram OAuth
-│   │       └── db/          # Database layer
+│   │       │   └── rate_limit.rs     # Rate limiting
+│   │       └── db/          # Database layer (db-specific logic)
 │   │           ├── calendars.rs
 │   │           └── events.rs
 │   │
-│   ├── bot/                 # Telegram bot
-│   │   └── src/main.rs
+│   ├── bot/                 # Telegram bot (Teloxide)
+│   │   └── src/
+│   │       ├── main.rs      # Bot entry point
+│   │       ├── commands.rs  # Command definitions
+│   │       ├── handlers.rs  # Update handlers
+│   │       └── db.rs        # Bot-specific DB helpers
 │   │
 │   ├── core/                # Shared domain logic
 │   │   └── src/
-│   │       ├── models.rs    # Domain entities
+│   │       ├── lib.rs       # Crate entry
+│   │       ├── models.rs    # Domain entities (Shared)
 │   │       ├── error.rs     # Domain errors
+│   │       ├── attendee.rs  # Attendee utilities (The Interceptor)
+│   │       ├── recurrence.rs # Recurrence logic
 │   │       └── timezone.rs  # TZ utilities
-│   │
-│   ├── mailer/              # Email service
-│   │   └── src/lib.rs
 │   │
 │   ├── web/                 # Dioxus frontend
 │   │   └── src/main.rs
 │   │
 │   └── worker/              # Background jobs
-│       └── src/main.rs
+│       └── src/
+│           ├── main.rs      # Worker entry point
+│           ├── processors.rs # Message processing logic
+│           ├── mailer.rs    # Integrated email service
+│           └── db.rs        # Worker-specific DB helpers
 │
 ├── migrations/              # SQLx migrations
 ├── docs/                    # Documentation
@@ -534,31 +400,12 @@ televent/
 
 | Decision | Rationale |
 |----------|-----------|
+| **The Interceptor Pattern** | Internal invites (@televent.internal) are routed to Telegram, avoiding paid SMTP for MVP. |
 | **ETag = SHA256(all fields)** | Clock-skew resistant. Avoids false conflicts from timestamp differences. |
 | **Sync token = atomic counter** | `UPDATE ... RETURNING` ensures concurrent syncs never see same token. |
 | **One calendar per user** | Simplifies CalDAV implementation. Enforced by unique index. |
 | **Argon2id for passwords** | Memory-hard algorithm resistant to GPU attacks. |
 | **Outbox pattern for notifications** | Ensures at-least-once delivery. Survives server crashes. |
 | **`FOR UPDATE SKIP LOCKED`** | Prevents duplicate job processing in worker. |
-| **No `unwrap()`/`expect()`** | Calendar data loss from panics is unacceptable. |
+| **No `unwrap()`/`expect()`** | Calendar data loss from panics is unacceptable. (Enforced by Clippy) |
 | **Newtypes for IDs** | Prevents mixing `UserId` with `CalendarId` at compile time. |
-
-## Performance Indices
-
-```sql
--- Fast event queries by calendar and time range
-CREATE INDEX idx_events_calendar_start ON events(calendar_id, start);
-
--- Sync queries for modified events
-CREATE INDEX idx_events_calendar_updated ON events(calendar_id, updated_at);
-
--- CalDAV UID lookups (unique per calendar)
-CREATE UNIQUE INDEX idx_events_calendar_uid ON events(calendar_id, uid);
-
--- Worker polling for pending messages
-CREATE INDEX idx_outbox_pending ON outbox_messages(status, scheduled_at)
-    WHERE status = 'PENDING';
-
--- Audit log queries
-CREATE INDEX idx_audit_user_time ON audit_log(user_id, created_at DESC);
-```

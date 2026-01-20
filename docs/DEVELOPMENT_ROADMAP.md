@@ -105,6 +105,11 @@ Pre-requisite: Phase 3 passed 100%.
 * **Bot Responsiveness**: Ensure webhooks/polling work without lag.  
 * **Worker Reliability**: Check logs to ensure the "Interceptor" is firing correctly in the cloud environment.
 
+### **4.3 GDPR**
+
+* **GDPR Complience**: All base principles of GDPR must be implemented
+
+
 ## **Phase 5: Visual Interface (Mini App) 🔵 FUTURE**
 
 **Goal**: Add the Dioxus-based calendar grid.  
@@ -122,10 +127,3 @@ Pre-requisite: Phase 3 passed 100%.
 * **SMTP**: Integrate Postmark/SendGrid.  
 * **Logic**: Update Interceptor to pass non-internal emails to the SMTP transport.  
 * **Inbound**: Implement inbound email parsing for replies.
-
-## **💡 Strategic Summary**
-
-1. **Build the Real Logic Now**: We are building the real invite system (DB, Models, State), just faking the *delivery*.  
-2. **Verify on Supabase**: We use the free tier to prove database stability before paying for compute.  
-3. **Deploy to Railway**: We ship the "Interceptor" version as the MVP.  
-4. **Iterate**: We add the Mini App and Real SMTP only after the base system is live and proven.

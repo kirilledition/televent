@@ -15,7 +15,7 @@ chrono.workspace = true
 chrono-tz.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
-dotenvy = "0.15.7"
+dotenvy.workspace = true
 tracing.workspace = true
 
 # Database

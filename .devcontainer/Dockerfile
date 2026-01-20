@@ -1,8 +1,5 @@
 FROM rust:1.92-bookworm
 
-ARG TZ
-ENV TZ="$TZ"
-
 # Install basic development tools, PostgreSQL client, Node.js for Tailwind
 RUN apt-get update && apt-get install -y --no-install-recommends \
     less \
@@ -21,11 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js 20 for Tailwind CSS (minimal installation)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for development
 ARG USERNAME=rustdev
@@ -65,7 +57,6 @@ RUN rustup component add rustfmt clippy rust-analyzer
 # Install Rust development tools
 RUN cargo install sqlx-cli --no-default-features --features postgres,rustls && \
     cargo install cargo-watch && \
-    cargo install dioxus-cli && \
     cargo install just
 
 # Set the default shell to zsh
@@ -80,5 +71,6 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
     -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
     -x
 
-# Install Claude Code CLI and Tailwind CSS
-RUN npm install -g @anthropic-ai/claude-code@latest tailwindcss
+# Install Claude Code CLI and gemini cli
+RUN npm install -g @anthropic-ai/claude-code@latest
+RUN npm install -g @google/gemini-cli
