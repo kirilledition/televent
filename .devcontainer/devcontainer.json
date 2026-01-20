@@ -3,26 +3,17 @@
     "build": {
         "dockerfile": "Dockerfile",
         "args": {
-            "TZ": "${localEnv:TZ:America/Los_Angeles}",
             "CLAUDE_CODE_VERSION": "latest",
-            "GIT_DELTA_VERSION": "0.18.2",
             "ZSH_IN_DOCKER_VERSION": "1.2.0",
             "USERNAME": "rustdev"
         }
     },
-    "runArgs": [
-        "--cap-add=NET_ADMIN",
-        "--cap-add=NET_RAW"
-    ],
     "customizations": {
         "vscode": {
             "extensions": [
                 "anthropic.claude-code",
                 "rust-lang.rust-analyzer",
-                "tamasfe.even-better-toml",
-                "serayuzgur.crates",
-                "eamodio.gitlens",
-                "vadimcn.vscode-lldb"
+                "tamasfe.even-better-toml"
             ],
             "settings": {
                 "editor.formatOnSave": true,
@@ -59,11 +50,10 @@
     "containerEnv": {
         "RUST_LOG": "info",
         "CLAUDE_CONFIG_DIR": "/home/rustdev/.claude",
-        "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
-        "DATABASE_URL": "postgresql://postgres:dev@localhost:5432/televent"
+        "POWERLEVEL9K_DISABLE_GITSTATUS": "true"
     },
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
     "workspaceFolder": "/workspace",
-    "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
-    "waitFor": "postStartCommand"
+    "postCreateCommand": "bash .devcontainer/setup.sh",
+    "postStartCommand": "sudo service postgresql start"
 }

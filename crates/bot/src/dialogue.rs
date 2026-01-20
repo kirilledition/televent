@@ -79,12 +79,12 @@ pub fn parse_duration(input: &str) -> Result<i64> {
 pub async fn start_create_dialogue(bot: Bot, msg: Message) -> Result<()> {
     bot.send_message(
         msg.chat.id,
-        "🎯 *Create New Event*\n\n\
+        "🎯 <b>Create New Event</b>\n\n\
          Let's create a new event! I'll guide you through the process.\n\n\
          First, what's the event title?\n\n\
          Type /cancel to cancel at any time."
     )
-    .parse_mode(ParseMode::Markdown)
+    .parse_mode(ParseMode::Html)
     .await?;
 
     Ok(())
@@ -108,7 +108,7 @@ pub async fn handle_title_input(
     bot.send_message(
         msg.chat.id,
         format!(
-            "✅ Title: *{}*\n\n\
+            "✅ Title: <b>{}</b>\n\n\
              When should this event start?\n\n\
              You can use natural language like:\n\
              • tomorrow at 3pm\n\
@@ -118,7 +118,7 @@ pub async fn handle_title_input(
             title
         )
     )
-    .parse_mode(ParseMode::Markdown)
+    .parse_mode(ParseMode::Html)
     .await?;
 
     Ok(CreateEventState::AwaitingTime { title })
@@ -148,7 +148,7 @@ pub async fn handle_time_input(
                     formatted_time
                 )
             )
-            .parse_mode(ParseMode::Markdown)
+            .parse_mode(ParseMode::Html)
             .await?;
 
             Ok(CreateEventState::AwaitingDuration { title, start })
@@ -281,7 +281,7 @@ pub async fn handle_location_input(
     match create_event_in_db(&db, telegram_id, &title, start, end, description.as_deref(), location.as_deref()).await {
         Ok(event_id) => {
             let mut response = format!(
-                "✅ *Event Created!*\n\n\
+                "✅ <b>Event Created!</b>\n\n\
                  📌 {}\n\
                  📅 {}\n\
                  🕐 {} - {}\n",
@@ -299,10 +299,10 @@ pub async fn handle_location_input(
                 response.push_str(&format!("📍 {}\n", loc));
             }
 
-            response.push_str(&format!("\n🆔 Event ID: `{}`", event_id));
+            response.push_str(&format!("\n🆔 Event ID: <code>{}</code>", event_id));
 
             bot.send_message(msg.chat.id, response)
-                .parse_mode(ParseMode::Markdown)
+                .parse_mode(ParseMode::Html)
                 .await?;
 
             tracing::info!("Event created for user {}: {}", telegram_id, event_id);

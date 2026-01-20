@@ -12,8 +12,8 @@ CREATE TABLE deleted_users (
 );
 
 -- Index for finding users ready for permanent deletion
-CREATE INDEX idx_deleted_users_purge ON deleted_users(permanent_deletion_at)
-    WHERE permanent_deletion_at < NOW();
+-- Note: We index all rows, then filter with WHERE clause in queries
+CREATE INDEX idx_deleted_users_purge ON deleted_users(permanent_deletion_at);
 
 -- Index for finding users by telegram_id (for recovery)
 CREATE INDEX idx_deleted_users_telegram_id ON deleted_users(telegram_id);

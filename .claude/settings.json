@@ -1,10 +1,27 @@
 {
   "enabledPlugins": {
-    "github@claude-plugins-official": true,
     "feature-dev@claude-plugins-official": true,
-    "commit-commands@claude-plugins-official": true,
     "ralph-loop@claude-plugins-official": true,
-    "security-guidance@claude-plugins-official": true,
-    "rust-analyzer-lsp@claude-plugins-official": true
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "context7@claude-plugins-official": true
+  },
+    "permissions": {
+      "allow": [
+        "Bash(cargo:*)",
+        "Bash(just:*)",
+        "Bash(cat:*)",
+        "Bash(test:*)",
+        "Bash(ls:*)",
+        "Bash(chmod:*)",
+        "Bash(pg_isready:*)",
+        "Bash(psql:*)",
+        "Bash(sqlx:*)",
+        "Bash(tee:*)",
+        "Bash(grep:*)",
+        "Bash(export:*)",
+        "Bash(source:*)",
+        "Bash(echo:*)",
+        "mcp__serena"
+      ]
   }
 }

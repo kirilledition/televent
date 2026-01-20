@@ -1,9 +1,7 @@
-FROM rust:1.75-bookworm
+FROM rust:1.92-bookworm
 
 ARG TZ
 ENV TZ="$TZ"
-
-ARG CLAUDE_CODE_VERSION=latest
 
 # Install basic development tools, PostgreSQL client, Node.js for Tailwind
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -11,21 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     procps \
     sudo \
-    fzf \
     zsh \
-    man-db \
     unzip \
-    gnupg2 \
-    gh \
-    iptables \
-    ipset \
-    iproute2 \
-    dnsutils \
-    aggregate \
     jq \
-    nano \
-    vim \
     postgresql-client \
+    postgresql \
+    postgresql-contrib \
+    htop \
     libssl-dev \
     pkg-config \
     curl \
@@ -60,12 +50,6 @@ RUN mkdir -p /workspace /home/${USERNAME}/.claude /home/${USERNAME}/.cargo && \
 
 WORKDIR /workspace
 
-ARG GIT_DELTA_VERSION=0.18.2
-RUN ARCH=$(dpkg --print-architecture) && \
-    wget "https://github.com/dandavison/delta/releases/download/${GIT_DELTA_VERSION}/git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
-    dpkg -i "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
-    rm "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb"
-
 # Switch to non-root user for tool installation
 USER ${USERNAME}
 
@@ -90,24 +74,11 @@ ENV EDITOR=nano
 ENV VISUAL=nano
 
 # Install zsh with powerline10k theme
-ARG ZSH_IN_DOCKER_VERSION=1.2.0
+ARG ZSH_IN_DOCKER_VERSION=1.2.1
 RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v${ZSH_IN_DOCKER_VERSION}/zsh-in-docker.sh)" -- \
     -p git \
-    -p fzf \
-    -p rust \
-    -a "source /usr/share/doc/fzf/examples/key-bindings.zsh" \
-    -a "source /usr/share/doc/fzf/examples/completion.zsh" \
     -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
     -x
 
 # Install Claude Code CLI and Tailwind CSS
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} tailwindcss
-
-# Copy and set up firewall script
-USER root
-COPY init-firewall.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/init-firewall.sh && \
-    echo "${USERNAME} ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/${USERNAME}-firewall && \
-    chmod 0440 /etc/sudoers.d/${USERNAME}-firewall
-
-USER ${USERNAME}
+RUN npm install -g @anthropic-ai/claude-code@latest tailwindcss

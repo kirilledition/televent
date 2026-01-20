@@ -2,7 +2,6 @@
 //!
 //! Implementation of all bot command handlers
 
-use crate::commands::Command;
 use crate::db::BotDb;
 use anyhow::Result;
 use chrono::{Duration, Utc};
@@ -24,9 +23,9 @@ pub async fn handle_start(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
     }
 
     let welcome_text = format!(
-        "👋 *Welcome to Televent!*\n\n\
+        "👋 <b>Welcome to Televent!</b>\n\n\
          Your Telegram-native calendar with CalDAV sync.\n\n\
-         *Quick Commands:*\n\
+         <b>Quick Commands:</b>\n\
          /today - View today's events\n\
          /tomorrow - View tomorrow's events\n\
          /week - View this week's events\n\
@@ -37,7 +36,7 @@ pub async fn handle_start(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
     );
 
     bot.send_message(msg.chat.id, welcome_text)
-        .parse_mode(ParseMode::Markdown)
+        .parse_mode(ParseMode::Html)
         .await?;
 
     tracing::info!("User {} started the bot", telegram_id);
@@ -48,24 +47,24 @@ pub async fn handle_start(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
 /// Handle the /help command
 pub async fn handle_help(bot: Bot, msg: Message) -> Result<()> {
     let help_text = format!(
-        "*Televent Commands*\n\n\
-         *Event Management:*\n\
+        "<b>Televent Commands</b>\n\n\
+         <b>Event Management:</b>\n\
          /today - Show today's events\n\
          /tomorrow - Show tomorrow's events\n\
          /week - Show this week's events\n\
          /create - Create a new event\n\
          /cancel - Cancel an event\n\
          /list - List events in a date range\n\n\
-         *CalDAV Sync:*\n\
+         <b>CalDAV Sync:</b>\n\
          /device - Manage device passwords for CalDAV clients\n\
          /export - Export calendar as .ics file\n\n\
-         *Account:*\n\
+         <b>Account:</b>\n\
          /deleteaccount - Delete your account and all data\n\n\
          For detailed help, visit: https://github.com/kirilledition/televent"
     );
 
     bot.send_message(msg.chat.id, help_text)
-        .parse_mode(ParseMode::Markdown)
+        .parse_mode(ParseMode::Html)
         .await?;
 
     Ok(())
@@ -90,11 +89,11 @@ pub async fn handle_today(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         bot.send_message(msg.chat.id, "📅 No events today. Enjoy your free time!")
             .await?;
     } else {
-        let mut response = format!("📅 *Today's Events* ({})\n\n", events.len());
+        let mut response = format!("📅 <b>Today's Events</b> ({})\n\n", events.len());
 
         for (idx, event) in events.iter().enumerate() {
             response.push_str(&format!(
-                "{}. *{}*\n   🕐 {}\n",
+                "{}. <b>{}</b>\n   🕐 {}\n",
                 idx + 1,
                 event.title,
                 event.start.format("%H:%M")
@@ -108,7 +107,7 @@ pub async fn handle_today(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         }
 
         bot.send_message(msg.chat.id, response)
-            .parse_mode(ParseMode::Markdown)
+            .parse_mode(ParseMode::Html)
             .await?;
     }
 
@@ -136,11 +135,11 @@ pub async fn handle_tomorrow(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         bot.send_message(msg.chat.id, "📅 No events tomorrow.")
             .await?;
     } else {
-        let mut response = format!("📅 *Tomorrow's Events* ({})\n\n", events.len());
+        let mut response = format!("📅 <b>Tomorrow's Events</b> ({})\n\n", events.len());
 
         for (idx, event) in events.iter().enumerate() {
             response.push_str(&format!(
-                "{}. *{}*\n   🕐 {}\n",
+                "{}. <b>{}</b>\n   🕐 {}\n",
                 idx + 1,
                 event.title,
                 event.start.format("%H:%M")
@@ -154,7 +153,7 @@ pub async fn handle_tomorrow(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         }
 
         bot.send_message(msg.chat.id, response)
-            .parse_mode(ParseMode::Markdown)
+            .parse_mode(ParseMode::Html)
             .await?;
     }
 
@@ -182,11 +181,11 @@ pub async fn handle_week(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         bot.send_message(msg.chat.id, "📅 No events this week.")
             .await?;
     } else {
-        let mut response = format!("📅 *This Week's Events* ({})\n\n", events.len());
+        let mut response = format!("📅 <b>This Week's Events</b> ({})\n\n", events.len());
 
         for (idx, event) in events.iter().enumerate() {
             response.push_str(&format!(
-                "{}. *{}*\n   📆 {}\n   🕐 {}\n",
+                "{}. <b>{}</b>\n   📆 {}\n   🕐 {}\n",
                 idx + 1,
                 event.title,
                 event.start.format("%a, %b %d"),
@@ -201,7 +200,7 @@ pub async fn handle_week(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         }
 
         bot.send_message(msg.chat.id, response)
-            .parse_mode(ParseMode::Markdown)
+            .parse_mode(ParseMode::Html)
             .await?;
     }
 
@@ -212,13 +211,13 @@ pub async fn handle_week(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
 
 /// Handle the /create command
 pub async fn handle_create(bot: Bot, msg: Message) -> Result<()> {
-    let response = "🎯 *Create New Event*\n\n\
+    let response = "🎯 <b>Create New Event</b>\n\n\
                     To create an event, send a message in this format:\n\n\
-                    `Event Title`\n\
-                    `YYYY-MM-DD HH:MM`\n\
-                    `Duration in minutes (optional)`\n\
-                    `Location (optional)`\n\n\
-                    *Example:*\n\
+                    <code>Event Title</code>\n\
+                    <code>YYYY-MM-DD HH:MM</code>\n\
+                    <code>Duration in minutes (optional)</code>\n\
+                    <code>Location (optional)</code>\n\n\
+                    <b>Example:</b>\n\
                     Team Meeting\n\
                     2026-01-20 14:00\n\
                     60\n\
@@ -226,7 +225,7 @@ pub async fn handle_create(bot: Bot, msg: Message) -> Result<()> {
                     Or use the web UI for a better experience!";
 
     bot.send_message(msg.chat.id, response)
-        .parse_mode(ParseMode::Markdown)
+        .parse_mode(ParseMode::Html)
         .await?;
 
     Ok(())
@@ -248,14 +247,14 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             match db.generate_device_password(telegram_id, &device_name).await {
                 Ok(password) => {
                     let response = format!(
-                        "✅ *Device Password Created!*\n\n\
+                        "✅ <b>Device Password Created!</b>\n\n\
                          🏷️ Device: {}\n\
-                         🔑 Password: `{}`\n\n\
-                         *CalDAV Setup:*\n\
-                         Server: `https://your-domain.com/caldav`\n\
-                         Username: `{}`\n\
+                         🔑 Password: <code>{}</code>\n\n\
+                         <b>CalDAV Setup:</b>\n\
+                         Server: <code>https://your-domain.com/caldav</code>\n\
+                         Username: <code>{}</code>\n\
                          Password: Use the password above\n\n\
-                         ⚠️ *Important:* Save this password securely! \
+                         ⚠️ <b>Important:</b> Save this password securely! \
                          You won't be able to see it again.",
                         device_name,
                         password,
@@ -263,7 +262,7 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                     );
 
                     bot.send_message(msg.chat.id, response)
-                        .parse_mode(ParseMode::Markdown)
+                        .parse_mode(ParseMode::Html)
                         .await?;
 
                     tracing::info!("Device password created for user {}: {}", telegram_id, device_name);
@@ -283,17 +282,17 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                     bot.send_message(
                         msg.chat.id,
                         "📱 You don't have any device passwords yet.\n\n\
-                         Create one with: `/device add Device Name`"
+                         Create one with: <code>/device add Device Name</code>"
                     )
-                    .parse_mode(ParseMode::Markdown)
+                    .parse_mode(ParseMode::Html)
                     .await?;
                 }
                 Ok(devices) => {
-                    let mut response = format!("📱 *Your Devices* ({})\n\n", devices.len());
+                    let mut response = format!("📱 <b>Your Devices</b> ({})\n\n", devices.len());
 
                     for (idx, device) in devices.iter().enumerate() {
                         response.push_str(&format!(
-                            "{}. *{}*\n   🆔 `{}`\n   📅 Created: {}\n",
+                            "{}. <b>{}</b>\n   🆔 <code>{}</code>\n   📅 Created: {}\n",
                             idx + 1,
                             device.name,
                             device.id,
@@ -307,10 +306,10 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                         response.push('\n');
                     }
 
-                    response.push_str("To revoke a device: `/device revoke <ID>`");
+                    response.push_str("To revoke a device: <code>/device revoke &lt;ID&gt;</code>");
 
                     bot.send_message(msg.chat.id, response)
-                        .parse_mode(ParseMode::Markdown)
+                        .parse_mode(ParseMode::Html)
                         .await?;
                 }
                 Err(e) => {
@@ -363,27 +362,27 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             } else {
                 bot.send_message(
                     msg.chat.id,
-                    "❌ Please provide a device ID: `/device revoke <ID>`"
+                    "❌ Please provide a device ID: <code>/device revoke &lt;ID&gt;</code>"
                 )
-                .parse_mode(ParseMode::Markdown)
+                .parse_mode(ParseMode::Html)
                 .await?;
             }
         }
         _ => {
-            let response = "🔐 *CalDAV Device Management*\n\n\
+            let response = "🔐 <b>CalDAV Device Management</b>\n\n\
                             Device passwords allow you to sync your calendar with CalDAV clients.\n\n\
-                            *Commands:*\n\
-                            `/device add [name]` - Create a new device password\n\
-                            `/device list` - List all your devices\n\
-                            `/device revoke <id>` - Revoke a device password\n\n\
-                            *Supported Clients:*\n\
+                            <b>Commands:</b>\n\
+                            <code>/device add [name]</code> - Create a new device password\n\
+                            <code>/device list</code> - List all your devices\n\
+                            <code>/device revoke &lt;id&gt;</code> - Revoke a device password\n\n\
+                            <b>Supported Clients:</b>\n\
                             • Apple Calendar (iOS, macOS)\n\
                             • Thunderbird\n\
                             • DAVx⁵ (Android)\n\
                             • Any CalDAV-compatible client";
 
             bot.send_message(msg.chat.id, response)
-                .parse_mode(ParseMode::Markdown)
+                .parse_mode(ParseMode::Html)
                 .await?;
         }
     }
@@ -410,7 +409,7 @@ pub async fn handle_export(bot: Bot, msg: Message, _db: BotDb) -> Result<()> {
 
 /// Handle the /deleteaccount command
 pub async fn handle_delete_account(bot: Bot, msg: Message) -> Result<()> {
-    let response = "⚠️ *Delete Account*\n\n\
+    let response = "⚠️ <b>Delete Account</b>\n\n\
                     This will permanently delete:\n\
                     • All your events\n\
                     • Your calendar\n\
@@ -420,7 +419,7 @@ pub async fn handle_delete_account(bot: Bot, msg: Message) -> Result<()> {
                     To confirm deletion, use the web UI and follow the GDPR deletion process.";
 
     bot.send_message(msg.chat.id, response)
-        .parse_mode(ParseMode::Markdown)
+        .parse_mode(ParseMode::Html)
         .await?;
 
     Ok(())
@@ -428,7 +427,7 @@ pub async fn handle_delete_account(bot: Bot, msg: Message) -> Result<()> {
 
 /// Handle the /list command
 pub async fn handle_list(bot: Bot, msg: Message) -> Result<()> {
-    let response = "📋 *List Events*\n\n\
+    let response = "📋 <b>List Events</b>\n\n\
                     Use these commands for quick lists:\n\
                     /today - Today's events\n\
                     /tomorrow - Tomorrow's events\n\
@@ -436,7 +435,7 @@ pub async fn handle_list(bot: Bot, msg: Message) -> Result<()> {
                     For custom date ranges, use the web UI.";
 
     bot.send_message(msg.chat.id, response)
-        .parse_mode(ParseMode::Markdown)
+        .parse_mode(ParseMode::Html)
         .await?;
 
     Ok(())
@@ -444,14 +443,14 @@ pub async fn handle_list(bot: Bot, msg: Message) -> Result<()> {
 
 /// Handle the /cancel command
 pub async fn handle_cancel(bot: Bot, msg: Message) -> Result<()> {
-    let response = "❌ *Cancel Event*\n\n\
+    let response = "❌ <b>Cancel Event</b>\n\n\
                     To cancel an event, use the web UI where you can:\n\
                     • View all your events\n\
                     • Select events to cancel\n\
                     • See event details before deletion";
 
     bot.send_message(msg.chat.id, response)
-        .parse_mode(ParseMode::Markdown)
+        .parse_mode(ParseMode::Html)
         .await?;
 
     Ok(())
@@ -459,13 +458,15 @@ pub async fn handle_cancel(bot: Bot, msg: Message) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::commands::Command;
+    use teloxide::utils::command::BotCommands;
 
     #[test]
     fn test_command_descriptions() {
         // Verify commands can be parsed
         let cmds = Command::descriptions();
-        assert!(cmds.to_string().contains("Start"));
-        assert!(cmds.to_string().contains("Today"));
+        let cmds_str = cmds.to_string();
+        assert!(cmds_str.contains("start"), "Should contain /start command");
+        assert!(cmds_str.contains("today"), "Should contain /today command");
     }
 }
