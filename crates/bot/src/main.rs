@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
     let bot_db = BotDb::new(pool);
 
     // Initialize bot
-    let bot = Bot::new(&config.bot_token);
+    let bot = Bot::new(&config.telegram_bot_token);
     tracing::info!("Bot initialized, starting command handler");
 
     // Set up command handler

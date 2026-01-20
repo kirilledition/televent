@@ -8,6 +8,7 @@ use teloxide::prelude::*;
 use tracing::{error, info};
 
 use crate::db::OutboxMessage;
+use crate::mailer;
 
 /// Process a single outbox message
 pub async fn process_message(

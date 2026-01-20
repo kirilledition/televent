@@ -1,13 +1,13 @@
 //! Health check endpoint
 
 use axum::{
-    extract::State,
+    extract::{FromRef, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 /// Health check response
@@ -50,7 +50,11 @@ async fn health_check(State(pool): State<PgPool>) -> Response {
 }
 
 /// Health check routes
-pub fn routes() -> Router<PgPool> {
+pub fn routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    PgPool: FromRef<S>,
+{
     Router::new().route("/health", get(health_check))
 }
 

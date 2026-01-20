@@ -55,7 +55,7 @@ pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
 
     // Created and last modified timestamps
     ical_event.timestamp(event.created_at);
-    ical_event.add_property("LAST-MODIFIED", &event.updated_at.to_rfc3339());
+    ical_event.add_property("LAST-MODIFIED", event.updated_at.to_rfc3339());
 
     // Build calendar container
     let mut calendar = Calendar::new();
@@ -67,6 +67,7 @@ pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
 /// Parse iCalendar format into event data (simple string-based parser)
 ///
 /// Returns (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone)
+#[allow(clippy::type_complexity)]
 pub fn ical_to_event_data(
     ical_str: &str,
 ) -> Result<
@@ -132,6 +133,7 @@ pub fn ical_to_event_data(
                         .map(|p| p.contains("VALUE=DATE") && !p.contains("VALUE=DATE-TIME"))
                         .unwrap_or(false);
                     // Extract timezone from TZID parameter if present
+                    #[allow(clippy::collapsible_if)]
                     if let Some(params_str) = params {
                         if let Some(tzid_start) = params_str.find("TZID=") {
                             let tz_part = &params_str[tzid_start + 5..];

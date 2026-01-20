@@ -5,6 +5,7 @@
 use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 use sqlx::{FromRow, PgPool};
+use televent_core::models::OutboxStatus;
 use uuid::Uuid;
 
 /// Outbox message from database
@@ -13,7 +14,7 @@ pub struct OutboxMessage {
     pub id: Uuid,
     pub message_type: String,
     pub payload: Value,
-    pub status: String,
+    pub status: OutboxStatus,
     pub retry_count: i32,
     pub scheduled_at: DateTime<Utc>,
     pub processed_at: Option<DateTime<Utc>>,

@@ -1,19 +1,8 @@
-//! Televent API Server
-//!
-//! Axum-based web server providing:
-//! - CalDAV endpoints for calendar sync
-//! - REST API for event management
-//! - Authentication via Telegram OAuth and device passwords
-
-mod config;
-mod db;
-mod error;
-mod middleware;
-mod routes;
-
 use anyhow::Result;
-use axum::Router;
+use api::{create_router, AppState};
+use moka::future::Cache;
 use sqlx::PgPool;
+use std::time::Duration;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -33,7 +22,7 @@ async fn main() -> Result<()> {
     tracing::info!("Starting Televent API server");
 
     // Load configuration
-    let config = config::Config::from_env()?;
+    let config = api::config::Config::from_env()?;
     tracing::info!(
         "Server configuration loaded: {}:{}",
         config.host,
@@ -48,14 +37,15 @@ async fn main() -> Result<()> {
     sqlx::migrate!("../../migrations").run(&pool).await?;
     tracing::info!("Database migrations completed");
 
+    // Initialize Auth Cache (TTL: 5 minutes)
+    let auth_cache = Cache::builder()
+        .time_to_live(Duration::from_secs(300))
+        .build();
+
+    let state = AppState { pool, auth_cache };
+
     // Build application router
-    // TODO: Add rate limiting middleware once implemented
-    let app = Router::new()
-        .nest("/", routes::health::routes())
-        .nest("/api", routes::events::routes())
-        .nest("/api", routes::devices::routes())
-        .nest("/caldav", routes::caldav::routes())
-        .with_state(pool);
+    let app = create_router(state, &config.cors_allowed_origin);
 
     // Start server
     let addr = format!("{}:{}", config.host, config.port);

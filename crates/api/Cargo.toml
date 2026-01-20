@@ -43,9 +43,14 @@ tracing-subscriber.workspace = true
 # CalDAV/iCalendar
 icalendar.workspace = true
 quick-xml.workspace = true
+moka = { version = "0.12", features = ["future"] }
 
 # Utilities
 hex = "0.4"
 urlencoding = "2.1"
 base64 = "0.22"
 dotenvy = "0.15.7"
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+

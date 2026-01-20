@@ -3,7 +3,7 @@
 //! Provides REST API for managing CalDAV device passwords
 
 use axum::{
-    extract::{Path, State},
+    extract::{FromRef, Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post},
@@ -157,7 +157,11 @@ fn generate_password(length: usize) -> String {
 }
 
 /// Device password routes
-pub fn routes() -> Router<PgPool> {
+pub fn routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    PgPool: FromRef<S>,
+{
     Router::new()
         .route("/users/:user_id/devices", post(create_device_password))
         .route("/users/:user_id/devices", get(list_device_passwords))

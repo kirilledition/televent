@@ -4,6 +4,7 @@
 
 mod config;
 mod db;
+mod mailer;
 mod processors;
 
 use anyhow::Result;
@@ -49,7 +50,7 @@ async fn main() -> Result<()> {
     let db = WorkerDb::new(pool);
 
     // Initialize Telegram bot
-    let bot = Bot::new(&config.bot_token);
+    let bot = Bot::new(&config.telegram_bot_token);
     info!("Telegram bot initialized");
 
     // Start processing loop

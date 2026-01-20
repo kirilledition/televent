@@ -14,6 +14,9 @@ uuid.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 thiserror.workspace = true
+anyhow.workspace = true
+dotenvy = "0.15.7"
+tracing.workspace = true
 
 # Database
 sqlx.workspace = true

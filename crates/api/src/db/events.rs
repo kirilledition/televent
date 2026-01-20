@@ -8,6 +8,7 @@ use televent_core::models::{Event, EventStatus};
 use uuid::Uuid;
 
 /// Create a new event
+#[allow(clippy::too_many_arguments)]
 pub async fn create_event(
     pool: &PgPool,
     calendar_id: Uuid,
@@ -178,6 +179,7 @@ pub async fn list_events_since_sync(
 }
 
 /// Update an existing event
+#[allow(clippy::too_many_arguments)]
 pub async fn update_event(
     pool: &PgPool,
     event_id: Uuid,
@@ -200,7 +202,7 @@ pub async fn update_event(
     let new_start = start.unwrap_or(current.start);
     let new_end = end.unwrap_or(current.end);
     let new_is_all_day = is_all_day.unwrap_or(current.is_all_day);
-    let new_status = status.clone().unwrap_or(current.status);
+    let new_status = status.unwrap_or(current.status);
     let new_rrule = if rrule.is_some() {
         rrule.clone()
     } else {
@@ -275,6 +277,7 @@ pub async fn delete_event(pool: &PgPool, event_id: Uuid) -> Result<(), ApiError>
 /// Generate ETag for an event (SHA256 hash)
 ///
 /// Includes all mutable fields to ensure ETag changes when any field changes
+#[allow(clippy::too_many_arguments)]
 fn generate_etag(
     uid: &str,
     summary: &str,

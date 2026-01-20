@@ -9,14 +9,17 @@ license.workspace = true
 [dependencies]
 # Internal
 televent-core = { path = "../core" }
-mailer = { path = "../mailer" }
 
 # Core
 tokio.workspace = true
 anyhow.workspace = true
+thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+
+# Email
+lettre.workspace = true
 
 # Database
 sqlx.workspace = true

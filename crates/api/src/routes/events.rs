@@ -2,7 +2,7 @@
 
 use crate::{db, error::ApiError};
 use axum::{
-    extract::{Path, Query, State},
+    extract::{FromRef, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
@@ -161,7 +161,11 @@ async fn delete_event_handler(
 }
 
 /// Event routes
-pub fn routes() -> Router<PgPool> {
+pub fn routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    PgPool: FromRef<S>,
+{
     Router::new()
         .route("/events", post(create_event))
         .route("/events", get(list_events))

@@ -116,6 +116,9 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
                 }
             }
             Ok(Event::Eof) => break,
+            Ok(Event::DocType(_)) => {
+                return Err(ApiError::BadRequest("DTD not allowed".to_string()));
+            }
             Err(e) => {
                 return Err(ApiError::BadRequest(format!(
                     "XML parse error: {}",

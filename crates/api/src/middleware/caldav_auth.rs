@@ -3,6 +3,7 @@
 //! Validates device passwords for CalDAV clients using HTTP Basic Auth
 
 use crate::error::ApiError;
+use crate::AppState;
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use axum::{
     extract::{Request, State},
@@ -11,7 +12,6 @@ use axum::{
     response::Response,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
-use sqlx::PgPool;
 use uuid::Uuid;
 
 /// CalDAV Basic Auth middleware
@@ -19,7 +19,7 @@ use uuid::Uuid;
 /// Expects Authorization header with format: "Basic base64(telegram_id:password)"
 /// Verifies password against device_passwords table using Argon2id
 pub async fn caldav_basic_auth(
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
@@ -33,12 +33,18 @@ pub async fn caldav_basic_auth(
     // Parse Basic Auth
     let (telegram_id, password) = parse_basic_auth(auth_header)?;
 
+    // Check Cache
+    if let Some(user_id) = state.auth_cache.get(&(telegram_id, password.clone())).await {
+        request.extensions_mut().insert(user_id);
+        return Ok(next.run(request).await);
+    }
+
     // Look up user by telegram_id
     let user_id: Uuid = sqlx::query_scalar(
         "SELECT id FROM users WHERE telegram_id = $1"
     )
     .bind(telegram_id)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?
     .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?;
@@ -48,7 +54,7 @@ pub async fn caldav_basic_auth(
         "SELECT id, hashed_password FROM device_passwords WHERE user_id = $1"
     )
     .bind(user_id)
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await
     .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?;
 
@@ -67,13 +73,16 @@ pub async fn caldav_basic_auth(
     // Update last_used_at timestamp
     sqlx::query("UPDATE device_passwords SET last_used_at = NOW() WHERE id = $1")
         .bind(device_id)
-        .execute(&pool)
+        .execute(&state.pool)
         .await
         .map_err(|e| {
             tracing::warn!("Failed to update last_used_at: {}", e);
             // Don't fail the request if we can't update the timestamp
         })
         .ok();
+
+    // Cache success
+    state.auth_cache.insert((telegram_id, password), user_id).await;
 
     // Attach user_id to request extensions
     request.extensions_mut().insert(user_id);

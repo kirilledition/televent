@@ -4,15 +4,14 @@
 
 use anyhow::{Context, Result};
 use std::env;
+use std::ops::Deref;
+use televent_core::config::CoreConfig;
 
 /// Worker configuration
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Database connection URL
-    pub database_url: String,
-
-    /// Telegram bot token for sending notifications
-    pub bot_token: String,
+    /// Core configuration
+    pub core: CoreConfig,
 
     /// Poll interval in seconds
     pub poll_interval_secs: u64,
@@ -27,13 +26,10 @@ pub struct Config {
 impl Config {
     /// Load configuration from environment variables
     pub fn from_env() -> Result<Self> {
+        let core = CoreConfig::from_env()?;
+
         Ok(Self {
-            database_url: env::var("DATABASE_URL")
-                .context("DATABASE_URL must be set")?,
-
-            bot_token: env::var("TELEGRAM_BOT_TOKEN")
-                .context("TELEGRAM_BOT_TOKEN must be set")?,
-
+            core,
             poll_interval_secs: env::var("WORKER_POLL_INTERVAL_SECS")
                 .unwrap_or_else(|_| "10".to_string())
                 .parse()
@@ -52,6 +48,14 @@ impl Config {
     }
 }
 
+impl Deref for Config {
+    type Target = CoreConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.core
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,8 +65,10 @@ mod tests {
         // Just verify the structure exists and can be created
         // Actual env var tests would require integration tests
         let _ = Config {
-            database_url: "postgres://localhost".to_string(),
-            bot_token: "test_token".to_string(),
+            core: CoreConfig {
+                database_url: "postgres://localhost".to_string(),
+                telegram_bot_token: "test_token".to_string(),
+            },
             poll_interval_secs: 10,
             max_retry_count: 5,
             batch_size: 10,

@@ -3,30 +3,30 @@
 //! Loads configuration from environment variables
 
 use anyhow::Result;
+use std::ops::Deref;
+use televent_core::config::CoreConfig;
 
 /// Bot configuration
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Telegram bot token
-    pub bot_token: String,
-
-    /// Database connection URL
-    pub database_url: String,
+    /// Core configuration (database, bot token)
+    pub core: CoreConfig,
 }
 
 impl Config {
     /// Load configuration from environment variables
     pub fn from_env() -> Result<Self> {
-        let bot_token = std::env::var("TELEGRAM_BOT_TOKEN")
-            .map_err(|_| anyhow::anyhow!("TELEGRAM_BOT_TOKEN environment variable not set"))?;
-
-        let database_url = std::env::var("DATABASE_URL")
-            .map_err(|_| anyhow::anyhow!("DATABASE_URL environment variable not set"))?;
-
         Ok(Self {
-            bot_token,
-            database_url,
+            core: CoreConfig::from_env()?,
         })
+    }
+}
+
+impl Deref for Config {
+    type Target = CoreConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.core
     }
 }
 

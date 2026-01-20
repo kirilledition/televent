@@ -4,7 +4,7 @@
 
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{FromRef, Path, State},
     http::{header, HeaderMap, HeaderName, Method, StatusCode},
     response::{IntoResponse, Response},
     routing::any,
@@ -339,7 +339,11 @@ async fn caldav_delete_event(
 }
 
 /// CalDAV routes
-pub fn routes() -> Router<PgPool> {
+pub fn routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    PgPool: FromRef<S>,
+{
     Router::new()
         // Calendar collection endpoints
         .route("/:user_id/", any(caldav_handler))

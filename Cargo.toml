@@ -1,11 +1,10 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "crates/core",
     "crates/api",
     "crates/bot",
     "crates/worker",
-    "crates/mailer",
     "crates/web",
 ]
 
@@ -13,7 +12,7 @@ members = [
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.92"
-authors = ["Kirill Denisov"]
+authors = ["kirill denisov"]
 license = "MIT"
 
 [workspace.dependencies]
@@ -74,3 +73,13 @@ lettre = { version = "0.11", default-features = false, features = [
 # Frontend
 dioxus = { version = "0.7" }
 dioxus-web = { version = "0.7" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
+nursery = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
