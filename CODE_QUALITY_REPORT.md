@@ -100,13 +100,27 @@ pub async fn update_event(
     pool: &PgPool,
     event_id: Uuid,
     current_version: i32,  // ADD THIS PARAMETER
-    // ... other params
+    summary: Option<String>,
+    description: Option<Option<String>>,
+    location: Option<Option<String>>,
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
+    is_all_day: Option<bool>,
+    status: Option<EventStatus>,
+    rrule: Option<Option<String>>,
+    etag: String,
 ) -> Result<Event, sqlx::Error> {
     sqlx::query_as::<_, Event>(
         r#"
         UPDATE events SET
             summary = COALESCE($2, summary),
-            // ... other fields
+            description = COALESCE($3, description),
+            location = COALESCE($4, location),
+            start = COALESCE($5, start),
+            "end" = COALESCE($6, "end"),
+            is_all_day = COALESCE($7, is_all_day),
+            status = COALESCE($8, status),
+            rrule = COALESCE($9, rrule),
             version = version + 1,
             etag = $10,
             updated_at = NOW()
@@ -114,9 +128,17 @@ pub async fn update_event(
         RETURNING *
         "#,
     )
-    .bind(event_id)
-    // ... other binds
-    .bind(current_version)  // ADD THIS BIND
+    .bind(event_id)        // $1
+    .bind(summary)         // $2
+    .bind(description)     // $3
+    .bind(location)        // $4
+    .bind(start)           // $5
+    .bind(end)             // $6
+    .bind(is_all_day)      // $7
+    .bind(status)          // $8
+    .bind(rrule)           // $9
+    .bind(etag)            // $10
+    .bind(current_version) // $11 - ADD THIS BIND
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| sqlx::Error::RowNotFound)  // Handle version mismatch
@@ -353,11 +375,11 @@ If models change (e.g., adding newtypes), ensure:
 
 ### Immediate Actions (Before Production)
 
-1. ✅ Fix critical issue #1: Implement newtypes for all IDs
-2. ✅ Fix critical issue #2: Add version check in update_event
-3. ✅ Add integration tests for concurrent scenarios
-4. ✅ Run `cargo sqlx prepare` after changes
-5. ✅ Verify database indexes exist
+1. [ ] Fix critical issue #1: Implement newtypes for all IDs
+2. [ ] Fix critical issue #2: Add version check in update_event
+3. [ ] Add integration tests for concurrent scenarios
+4. [ ] Run `cargo sqlx prepare` after changes
+5. [ ] Verify database indexes exist
 
 ### Next Sprint
 
