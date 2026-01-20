@@ -89,13 +89,12 @@ pub async fn get_event_by_uid(
     calendar_id: Uuid,
     uid: &str,
 ) -> Result<Option<Event>, ApiError> {
-    let event = sqlx::query_as::<_, Event>(
-        "SELECT * FROM events WHERE calendar_id = $1 AND uid = $2",
-    )
-    .bind(calendar_id)
-    .bind(uid)
-    .fetch_optional(pool)
-    .await?;
+    let event =
+        sqlx::query_as::<_, Event>("SELECT * FROM events WHERE calendar_id = $1 AND uid = $2")
+            .bind(calendar_id)
+            .bind(uid)
+            .fetch_optional(pool)
+            .await?;
 
     Ok(event)
 }
@@ -265,10 +264,7 @@ pub async fn delete_event(pool: &PgPool, event_id: Uuid) -> Result<(), ApiError>
         .await?;
 
     if result.rows_affected() == 0 {
-        return Err(ApiError::NotFound(format!(
-            "Event not found: {}",
-            event_id
-        )));
+        return Err(ApiError::NotFound(format!("Event not found: {}", event_id)));
     }
 
     Ok(())
@@ -333,8 +329,12 @@ mod tests {
         let end = "2026-01-18T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let status = EventStatus::Confirmed;
 
-        let etag1 = generate_etag(uid, summary1, None, None, &start, &end, false, &status, None);
-        let etag2 = generate_etag(uid, summary2, None, None, &start, &end, false, &status, None);
+        let etag1 = generate_etag(
+            uid, summary1, None, None, &start, &end, false, &status, None,
+        );
+        let etag2 = generate_etag(
+            uid, summary2, None, None, &start, &end, false, &status, None,
+        );
 
         assert_ne!(etag1, etag2);
     }
@@ -348,8 +348,12 @@ mod tests {
         let end = "2026-01-18T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let status = EventStatus::Confirmed;
 
-        let etag1 = generate_etag(uid, summary, None, None, &start1, &end, false, &status, None);
-        let etag2 = generate_etag(uid, summary, None, None, &start2, &end, false, &status, None);
+        let etag1 = generate_etag(
+            uid, summary, None, None, &start1, &end, false, &status, None,
+        );
+        let etag2 = generate_etag(
+            uid, summary, None, None, &start2, &end, false, &status, None,
+        );
 
         assert_ne!(etag1, etag2);
     }
@@ -363,7 +367,17 @@ mod tests {
         let status = EventStatus::Confirmed;
 
         let etag1 = generate_etag(uid, summary, None, None, &start, &end, false, &status, None);
-        let etag2 = generate_etag(uid, summary, Some("Description"), None, &start, &end, false, &status, None);
+        let etag2 = generate_etag(
+            uid,
+            summary,
+            Some("Description"),
+            None,
+            &start,
+            &end,
+            false,
+            &status,
+            None,
+        );
 
         assert_ne!(etag1, etag2);
     }
@@ -375,8 +389,28 @@ mod tests {
         let start = "2026-01-18T10:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let end = "2026-01-18T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
 
-        let etag1 = generate_etag(uid, summary, None, None, &start, &end, false, &EventStatus::Confirmed, None);
-        let etag2 = generate_etag(uid, summary, None, None, &start, &end, false, &EventStatus::Cancelled, None);
+        let etag1 = generate_etag(
+            uid,
+            summary,
+            None,
+            None,
+            &start,
+            &end,
+            false,
+            &EventStatus::Confirmed,
+            None,
+        );
+        let etag2 = generate_etag(
+            uid,
+            summary,
+            None,
+            None,
+            &start,
+            &end,
+            false,
+            &EventStatus::Cancelled,
+            None,
+        );
 
         assert_ne!(etag1, etag2);
     }

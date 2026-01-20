@@ -104,11 +104,12 @@ mod tests {
         let singapore_tz = parse_timezone("Asia/Singapore").unwrap();
 
         // Create a UTC time: 2026-01-18 04:00:00 UTC
-        let utc_time = Utc
-            .from_utc_datetime(&NaiveDate::from_ymd_opt(2026, 1, 18)
+        let utc_time = Utc.from_utc_datetime(
+            &NaiveDate::from_ymd_opt(2026, 1, 18)
                 .unwrap()
                 .and_hms_opt(4, 0, 0)
-                .unwrap());
+                .unwrap(),
+        );
 
         // Convert to Singapore time (UTC+8)
         let singapore_time = to_timezone(&utc_time, &singapore_tz);

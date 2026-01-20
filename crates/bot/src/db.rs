@@ -6,7 +6,6 @@
 //! to generate offline query cache for compile-time verification.
 
 use chrono::{DateTime, Utc};
-use sha2::Digest;
 use sqlx::{FromRow, PgPool, Row};
 use uuid::Uuid;
 
@@ -37,11 +36,14 @@ pub struct BotDb {
 /// Event data structure for bot display
 #[derive(Debug, Clone, FromRow)]
 pub struct BotEvent {
+    #[allow(dead_code)]
     pub id: Uuid,
     pub title: String,
     pub start: DateTime<Utc>,
+    #[allow(dead_code)]
     pub end: DateTime<Utc>,
     pub location: Option<String>,
+    #[allow(dead_code)]
     pub description: Option<String>,
 }
 
@@ -98,119 +100,12 @@ impl BotDb {
         Ok(events)
     }
 
-    /// Get a specific event by ID
-    pub async fn get_event(&self, event_id: Uuid) -> Result<Option<BotEvent>, sqlx::Error> {
-        let event = sqlx::query_as::<_, BotEvent>(
-            r#"
-            SELECT id, title, start, "end", location, description
-            FROM events
-            WHERE id = $1
-            "#,
-        )
-        .bind(event_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(event)
-    }
-
-    /// Check if user has a calendar
-    pub async fn user_has_calendar(&self, telegram_id: i64) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            r#"
-            SELECT EXISTS(
-                SELECT 1 FROM calendars
-                WHERE user_id = (
-                    SELECT id FROM users WHERE telegram_id = $1
-                )
-            ) as exists
-            "#,
-        )
-        .bind(telegram_id)
-        .fetch_one(&self.pool)
-        .await?;
-
-        let exists: bool = result.try_get("exists")?;
-        Ok(exists)
-    }
-
-    /// Create a new event for a user
-    pub async fn create_event(
+    /// Ensure user exists and has a calendar
+    pub async fn ensure_user_setup(
         &self,
         telegram_id: i64,
-        title: &str,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-        description: Option<&str>,
-        location: Option<&str>,
-    ) -> Result<Uuid, sqlx::Error> {
-        // Get user's calendar_id
-        let calendar_row = sqlx::query(
-            r#"
-            SELECT id
-            FROM calendars
-            WHERE user_id = (
-                SELECT id FROM users WHERE telegram_id = $1
-            )
-            "#,
-        )
-        .bind(telegram_id)
-        .fetch_one(&self.pool)
-        .await?;
-
-        let calendar_id: Uuid = calendar_row.try_get("id")?;
-
-        // Generate event ID and UID
-        let event_id = Uuid::new_v4();
-        let uid = format!("{}@televent.app", event_id);
-
-        // Generate ETag (SHA256 of event data)
-        let etag_data = format!("{}|{}|{}|{}", uid, title, start, end);
-        let etag = format!("{:x}", sha2::Sha256::digest(etag_data.as_bytes()));
-
-        // Create event
-        sqlx::query(
-            r#"
-            INSERT INTO events (
-                id, calendar_id, uid, title, description, location,
-                start, "end", is_all_day, status, timezone, version, etag
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            "#,
-        )
-        .bind(event_id)
-        .bind(calendar_id)
-        .bind(&uid)
-        .bind(title)
-        .bind(description)
-        .bind(location)
-        .bind(start)
-        .bind(end)
-        .bind(false) // is_all_day
-        .bind("confirmed") // status
-        .bind("UTC") // timezone
-        .bind(1_i32) // version
-        .bind(etag)
-        .execute(&self.pool)
-        .await?;
-
-        // Update calendar's ctag
-        sqlx::query(
-            r#"
-            UPDATE calendars
-            SET ctag = gen_random_uuid()::text
-            WHERE id = $1
-            "#,
-        )
-        .bind(calendar_id)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(event_id)
-    }
-
-    /// Ensure user exists and has a calendar
-    pub async fn ensure_user_setup(&self, telegram_id: i64, username: Option<&str>) -> Result<(), sqlx::Error> {
+        username: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
         // Create user if doesn't exist
         sqlx::query(
             r#"
@@ -274,8 +169,8 @@ impl BotDb {
 
         // Hash password with Argon2id
         use argon2::{
-            password_hash::{PasswordHasher, SaltString},
             Argon2,
+            password_hash::{PasswordHasher, SaltString},
         };
 
         let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);

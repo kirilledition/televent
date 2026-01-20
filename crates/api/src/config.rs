@@ -29,7 +29,8 @@ impl Config {
                 .unwrap_or_else(|_| "3000".to_string())
                 .parse()
                 .context("Failed to parse API_PORT as u16")?,
-            jwt_secret: env::var("JWT_SECRET").context("JWT_SECRET environment variable not set")?,
+            jwt_secret: env::var("JWT_SECRET")
+                .context("JWT_SECRET environment variable not set")?,
             cors_allowed_origin: env::var("CORS_ALLOWED_ORIGIN")
                 .unwrap_or_else(|_| "*".to_string()),
         })
@@ -59,6 +60,7 @@ mod tests {
             host: "0.0.0.0".to_string(),
             port: 3000,
             jwt_secret: "test_secret".to_string(),
+            cors_allowed_origin: "*".to_string(),
         };
 
         assert_eq!(config.host, "0.0.0.0");

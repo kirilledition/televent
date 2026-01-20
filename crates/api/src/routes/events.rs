@@ -2,11 +2,11 @@
 
 use crate::{db, error::ApiError};
 use axum::{
+    Json, Router,
     extract::{FromRef, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Json, Router,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -144,8 +144,16 @@ async fn update_event(
     Json(req): Json<UpdateEventRequest>,
 ) -> Result<Json<EventResponse>, ApiError> {
     let event = db::events::update_event(
-        &pool, event_id, req.summary, req.description, req.location, req.start, req.end,
-        req.is_all_day, req.status, req.rrule,
+        &pool,
+        event_id,
+        req.summary,
+        req.description,
+        req.location,
+        req.start,
+        req.end,
+        req.is_all_day,
+        req.status,
+        req.rrule,
     )
     .await?;
     Ok(Json(EventResponse::from(event)))

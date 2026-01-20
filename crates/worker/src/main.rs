@@ -81,10 +81,10 @@ async fn run_worker_loop(db: WorkerDb, bot: Bot, config: Config) -> Result<()> {
                 }
 
                 // Log queue status
-                if let Ok(pending_count) = db.count_pending().await {
-                    if pending_count > 0 {
-                        info!("Queue status: {} pending jobs remaining", pending_count);
-                    }
+                if let Ok(pending_count) = db.count_pending().await
+                    && pending_count > 0
+                {
+                    info!("Queue status: {} pending jobs remaining", pending_count);
                 }
             }
             Err(e) => {

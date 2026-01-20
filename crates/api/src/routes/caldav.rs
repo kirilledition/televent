@@ -3,12 +3,12 @@
 //! Implements RFC 4791 (CalDAV), RFC 5545 (iCalendar), and RFC 6578 (sync-collection)
 
 use axum::{
+    Router,
     body::Body,
     extract::{FromRef, Path, State},
-    http::{header, HeaderMap, HeaderName, Method, StatusCode},
+    http::{HeaderMap, HeaderName, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::any,
-    Router,
 };
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -55,7 +55,11 @@ async fn caldav_propfind(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("0");
 
-    tracing::debug!("PROPFIND request for user {} with Depth: {}", user_id, depth);
+    tracing::debug!(
+        "PROPFIND request for user {} with Depth: {}",
+        user_id,
+        depth
+    );
 
     // Get or create calendar for user
     let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;
@@ -68,7 +72,8 @@ async fn caldav_propfind(
     };
 
     // Generate XML response
-    let response_xml = caldav_xml::generate_propfind_multistatus(user_id, &calendar, &events, depth)?;
+    let response_xml =
+        caldav_xml::generate_propfind_multistatus(user_id, &calendar, &events, depth)?;
 
     Ok((
         StatusCode::MULTI_STATUS,
@@ -201,12 +206,7 @@ async fn caldav_put_event(
     // Increment sync token
     let _new_sync_token = db::calendars::increment_sync_token(&pool, calendar.id).await?;
 
-    Ok((
-        status_code,
-        [(header::ETAG, format!("\"{}\"", etag))],
-        "",
-    )
-        .into_response())
+    Ok((status_code, [(header::ETAG, format!("\"{}\"", etag))], "").into_response())
 }
 
 /// CalDAV REPORT handler

@@ -31,19 +31,6 @@ pub async fn get_or_create_calendar(pool: &PgPool, user_id: Uuid) -> Result<Cale
     Ok(calendar)
 }
 
-/// Get calendar by user_id
-pub async fn get_calendar_by_user(
-    pool: &PgPool,
-    user_id: Uuid,
-) -> Result<Option<Calendar>, ApiError> {
-    let calendar = sqlx::query_as::<_, Calendar>("SELECT * FROM calendars WHERE user_id = $1")
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?;
-
-    Ok(calendar)
-}
-
 /// Increment sync token for a calendar
 pub async fn increment_sync_token(pool: &PgPool, calendar_id: Uuid) -> Result<String, ApiError> {
     let result = sqlx::query_scalar::<_, String>(

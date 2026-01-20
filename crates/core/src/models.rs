@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// User entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct User {
     pub id: Uuid,
     pub telegram_id: i64,
@@ -18,8 +17,7 @@ pub struct User {
 }
 
 /// Calendar entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Calendar {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -32,30 +30,28 @@ pub struct Calendar {
 }
 
 /// Event entity
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Event {
     pub id: Uuid,
     pub calendar_id: Uuid,
-    pub uid: String,                 // iCalendar UID (stable across syncs)
+    pub uid: String, // iCalendar UID (stable across syncs)
     pub summary: String,
     pub description: Option<String>,
     pub location: Option<String>,
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
     pub is_all_day: bool,
-    pub status: EventStatus,    // CONFIRMED | TENTATIVE | CANCELLED
-    pub rrule: Option<String>,  // RFC 5545 recurrence rule
-    pub timezone: String,       // VTIMEZONE reference
-    pub version: i32,           // Optimistic locking
-    pub etag: String,           // HTTP ETag for conflict detection
+    pub status: EventStatus,   // CONFIRMED | TENTATIVE | CANCELLED
+    pub rrule: Option<String>, // RFC 5545 recurrence rule
+    pub timezone: String,      // VTIMEZONE reference
+    pub version: i32,          // Optimistic locking
+    pub etag: String,          // HTTP ETag for conflict detection
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 /// Event status enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "event_status", rename_all = "UPPERCASE")]
 pub enum EventStatus {
     Confirmed,
@@ -64,8 +60,7 @@ pub enum EventStatus {
 }
 
 /// Device password for CalDAV authentication
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DevicePassword {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -76,8 +71,7 @@ pub struct DevicePassword {
 }
 
 /// Outbox message for asynchronous processing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct OutboxMessage {
     pub id: Uuid,
     pub message_type: String, // "email" | "telegram_notification"
@@ -90,8 +84,7 @@ pub struct OutboxMessage {
 }
 
 /// Outbox message status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "outbox_status", rename_all = "lowercase")]
 pub enum OutboxStatus {
     Pending,
@@ -101,12 +94,11 @@ pub enum OutboxStatus {
 }
 
 /// Audit log entry for GDPR compliance
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AuditLog {
     pub id: Uuid,
     pub user_id: Uuid,
-    pub action: String,     // "event_created" | "data_exported" | "account_deleted"
+    pub action: String, // "event_created" | "data_exported" | "account_deleted"
     pub entity_type: String,
     pub entity_id: Option<Uuid>,
     pub ip_address: Option<String>,
@@ -171,7 +163,10 @@ mod tests {
 
         // Test JSON serialization
         assert_eq!(serde_json::to_string(&pending).unwrap(), r#""Pending""#);
-        assert_eq!(serde_json::to_string(&processing).unwrap(), r#""Processing""#);
+        assert_eq!(
+            serde_json::to_string(&processing).unwrap(),
+            r#""Processing""#
+        );
         assert_eq!(serde_json::to_string(&completed).unwrap(), r#""Completed""#);
         assert_eq!(serde_json::to_string(&failed).unwrap(), r#""Failed""#);
     }

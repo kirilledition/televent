@@ -5,7 +5,6 @@
 mod commands;
 mod config;
 mod db;
-mod dialogue;
 mod handlers;
 
 use anyhow::Result;

@@ -3,11 +3,11 @@
 //! Provides REST API for managing CalDAV device passwords
 
 use axum::{
+    Json, Router,
     extract::{FromRef, Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -45,7 +45,9 @@ pub struct DeviceListItem {
 #[derive(Debug, sqlx::FromRow)]
 struct DevicePassword {
     id: Uuid,
+    #[allow(dead_code)]
     user_id: Uuid,
+    #[allow(dead_code)]
     hashed_password: String,
     name: String,
     created_at: chrono::DateTime<chrono::Utc>,
@@ -125,13 +127,11 @@ async fn delete_device_password(
     State(pool): State<PgPool>,
     Path((user_id, device_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = sqlx::query(
-        "DELETE FROM device_passwords WHERE id = $1 AND user_id = $2",
-    )
-    .bind(device_id)
-    .bind(user_id)
-    .execute(&pool)
-    .await?;
+    let result = sqlx::query("DELETE FROM device_passwords WHERE id = $1 AND user_id = $2")
+        .bind(device_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::NotFound(format!(

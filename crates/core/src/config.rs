@@ -24,8 +24,7 @@ impl CoreConfig {
         dotenvy::dotenv().ok();
 
         Ok(Self {
-            database_url: env::var("DATABASE_URL")
-                .context("DATABASE_URL must be set")?,
+            database_url: env::var("DATABASE_URL").context("DATABASE_URL must be set")?,
             telegram_bot_token: env::var("TELEGRAM_BOT_TOKEN")
                 .context("TELEGRAM_BOT_TOKEN must be set")?,
         })

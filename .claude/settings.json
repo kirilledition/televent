@@ -15,13 +15,19 @@
         "Bash(chmod:*)",
         "Bash(pg_isready:*)",
         "Bash(psql:*)",
+        "Bash(PGPASSWORD=dev psql:*)",
         "Bash(sqlx:*)",
         "Bash(tee:*)",
         "Bash(grep:*)",
         "Bash(export:*)",
         "Bash(source:*)",
         "Bash(echo:*)",
+        "Bash(netstat:*)",
+        "Bash(sudo cat:*)",
+        "Bash(bash -c:*)",
+        "Bash(tree:*)",
+        "Bash(find:*)",
+        "Bash(ss:*)",
         "mcp__serena"
-      ]
-  }
-}
+    ]
+}}

@@ -85,6 +85,7 @@ pub fn next_occurrences(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{Datelike, TimeZone};
 
     #[test]
     fn test_validate_rrule_valid() {
@@ -104,14 +105,8 @@ mod tests {
         let range_end = Utc.with_ymd_and_hms(2026, 1, 5, 0, 0, 0).unwrap();
 
         // Daily for 3 days
-        let occurrences = expand_rrule(
-            "FREQ=DAILY;COUNT=3",
-            dtstart,
-            range_start,
-            range_end,
-            10,
-        )
-        .unwrap();
+        let occurrences =
+            expand_rrule("FREQ=DAILY;COUNT=3", dtstart, range_start, range_end, 10).unwrap();
 
         assert_eq!(occurrences.len(), 3);
         assert_eq!(occurrences[0], dtstart);
@@ -126,14 +121,8 @@ mod tests {
         let range_start = Utc.with_ymd_and_hms(2026, 1, 4, 0, 0, 0).unwrap();
         let range_end = Utc.with_ymd_and_hms(2026, 1, 6, 0, 0, 0).unwrap();
 
-        let occurrences = expand_rrule(
-            "FREQ=DAILY;COUNT=10",
-            dtstart,
-            range_start,
-            range_end,
-            10,
-        )
-        .unwrap();
+        let occurrences =
+            expand_rrule("FREQ=DAILY;COUNT=10", dtstart, range_start, range_end, 10).unwrap();
 
         // 2026-01-01 (skip)
         // 2026-01-02 (skip)

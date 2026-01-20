@@ -1,5 +1,5 @@
 use anyhow::Result;
-use api::{create_router, AppState};
+use api::{AppState, create_router};
 use moka::future::Cache;
 use sqlx::PgPool;
 use std::time::Duration;

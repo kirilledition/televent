@@ -1,9 +1,9 @@
 //! Error handling for API endpoints
 
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Serialize;
 use televent_core::CalendarError;

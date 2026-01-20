@@ -19,8 +19,8 @@ pub enum MailerError {
 pub type Result<T> = std::result::Result<T, MailerError>;
 
 use lettre::{
-    message::header::ContentType, transport::smtp::authentication::Credentials, Message,
-    SmtpTransport, Transport,
+    Message, SmtpTransport, Transport, message::header::ContentType,
+    transport::smtp::authentication::Credentials,
 };
 
 /// Send an email via SMTP
@@ -37,12 +37,19 @@ pub async fn send_email(to: &str, subject: &str, body: &str) -> Result<()> {
         .unwrap_or_else(|_| "1025".to_string())
         .parse()
         .unwrap_or(1025);
-    let smtp_from = std::env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@televent.app".to_string());
+    let smtp_from =
+        std::env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@televent.app".to_string());
 
     // Build email message
     let email = Message::builder()
-        .from(smtp_from.parse().map_err(|e| MailerError::InvalidAddress(format!("Invalid from address: {}", e)))?)
-        .to(to.parse().map_err(|e| MailerError::InvalidAddress(format!("Invalid to address: {}", e)))?)
+        .from(
+            smtp_from
+                .parse()
+                .map_err(|e| MailerError::InvalidAddress(format!("Invalid from address: {}", e)))?,
+        )
+        .to(to
+            .parse()
+            .map_err(|e| MailerError::InvalidAddress(format!("Invalid to address: {}", e)))?)
         .subject(subject)
         .header(ContentType::TEXT_PLAIN)
         .body(body.to_string())
@@ -55,7 +62,9 @@ pub async fn send_email(to: &str, subject: &str, body: &str) -> Result<()> {
     ) {
         // Authenticated SMTP
         SmtpTransport::relay(&smtp_host)
-            .map_err(|e| MailerError::ConnectionFailed(format!("Failed to create transport: {}", e)))?
+            .map_err(|e| {
+                MailerError::ConnectionFailed(format!("Failed to create transport: {}", e))
+            })?
             .port(smtp_port)
             .credentials(Credentials::new(username, password))
             .build()

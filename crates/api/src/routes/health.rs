@@ -1,13 +1,13 @@
 //! Health check endpoint
 
 use axum::{
+    Json, Router,
     extract::{FromRef, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
-    Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sqlx::PgPool;
 
 /// Health check response

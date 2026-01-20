@@ -14,9 +14,12 @@ pub struct OutboxMessage {
     pub id: Uuid,
     pub message_type: String,
     pub payload: Value,
+    #[allow(dead_code)]
     pub status: OutboxStatus,
     pub retry_count: i32,
+    #[allow(dead_code)]
     pub scheduled_at: DateTime<Utc>,
+    #[allow(dead_code)]
     pub processed_at: Option<DateTime<Utc>>,
 }
 
@@ -132,21 +135,6 @@ impl WorkerDb {
             SELECT COUNT(*)
             FROM outbox_messages
             WHERE status = 'pending'
-            "#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(result)
-    }
-
-    /// Get count of processing messages (for monitoring)
-    pub async fn count_processing(&self) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT COUNT(*)
-            FROM outbox_messages
-            WHERE status = 'processing'
             "#,
         )
         .fetch_one(&self.pool)

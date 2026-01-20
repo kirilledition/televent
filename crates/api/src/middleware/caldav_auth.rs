@@ -2,8 +2,8 @@
 //!
 //! Validates device passwords for CalDAV clients using HTTP Basic Auth
 
-use crate::error::ApiError;
 use crate::AppState;
+use crate::error::ApiError;
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use axum::{
     extract::{Request, State},
@@ -11,7 +11,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use uuid::Uuid;
 
 /// CalDAV Basic Auth middleware
@@ -40,23 +40,20 @@ pub async fn caldav_basic_auth(
     }
 
     // Look up user by telegram_id
-    let user_id: Uuid = sqlx::query_scalar(
-        "SELECT id FROM users WHERE telegram_id = $1"
-    )
-    .bind(telegram_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?
-    .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?;
+    let user_id: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE telegram_id = $1")
+        .bind(telegram_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?
+        .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?;
 
     // Get device passwords for this user
-    let device_passwords: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, hashed_password FROM device_passwords WHERE user_id = $1"
-    )
-    .bind(user_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?;
+    let device_passwords: Vec<(Uuid, String)> =
+        sqlx::query_as("SELECT id, hashed_password FROM device_passwords WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(&state.pool)
+            .await
+            .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?;
 
     // Verify password against each device password
     let mut verified_device_id: Option<Uuid> = None;
@@ -82,7 +79,10 @@ pub async fn caldav_basic_auth(
         .ok();
 
     // Cache success
-    state.auth_cache.insert((telegram_id, password), user_id).await;
+    state
+        .auth_cache
+        .insert((telegram_id, password), user_id)
+        .await;
 
     // Attach user_id to request extensions
     request.extensions_mut().insert(user_id);
@@ -139,8 +139,8 @@ fn verify_password(password: &str, hashed_password: &str) -> Result<bool, ApiErr
 mod tests {
     use super::*;
     use argon2::{
-        password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
         Argon2,
+        password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
     };
 
     #[test]

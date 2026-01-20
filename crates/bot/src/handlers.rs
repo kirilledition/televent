@@ -10,20 +10,25 @@ use teloxide::types::ParseMode;
 
 /// Handle the /start command
 pub async fn handle_start(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
-    let user = msg.from.as_ref().ok_or_else(|| anyhow::anyhow!("No user in message"))?;
+    let user = msg
+        .from
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
     let telegram_id = user.id.0 as i64;
     let username = user.username.as_deref();
 
     // Ensure user and calendar are set up
     if let Err(e) = db.ensure_user_setup(telegram_id, username).await {
         tracing::error!("Failed to setup user {}: {}", telegram_id, e);
-        bot.send_message(msg.chat.id, "❌ Failed to initialize your account. Please try again later.")
-            .await?;
+        bot.send_message(
+            msg.chat.id,
+            "❌ Failed to initialize your account. Please try again later.",
+        )
+        .await?;
         return Ok(());
     }
 
-    let welcome_text = format!(
-        "👋 <b>Welcome to Televent!</b>\n\n\
+    let welcome_text = "👋 <b>Welcome to Televent!</b>\n\n\
          Your Telegram-native calendar with CalDAV sync.\n\n\
          <b>Quick Commands:</b>\n\
          /today - View today's events\n\
@@ -32,8 +37,7 @@ pub async fn handle_start(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
          /create - Create a new event\n\
          /device - Manage CalDAV device passwords\n\
          /help - Show all commands\n\n\
-         Your account is ready! Get started by creating your first event with /create"
-    );
+         Your account is ready! Get started by creating your first event with /create";
 
     bot.send_message(msg.chat.id, welcome_text)
         .parse_mode(ParseMode::Html)
@@ -46,8 +50,7 @@ pub async fn handle_start(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
 
 /// Handle the /help command
 pub async fn handle_help(bot: Bot, msg: Message) -> Result<()> {
-    let help_text = format!(
-        "<b>Televent Commands</b>\n\n\
+    let help_text = "<b>Televent Commands</b>\n\n\
          <b>Event Management:</b>\n\
          /today - Show today's events\n\
          /tomorrow - Show tomorrow's events\n\
@@ -60,8 +63,7 @@ pub async fn handle_help(bot: Bot, msg: Message) -> Result<()> {
          /export - Export calendar as .ics file\n\n\
          <b>Account:</b>\n\
          /deleteaccount - Delete your account and all data\n\n\
-         For detailed help, visit: https://github.com/kirilledition/televent"
-    );
+         For detailed help, visit: https://github.com/kirilledition/televent";
 
     bot.send_message(msg.chat.id, help_text)
         .parse_mode(ParseMode::Html)
@@ -72,18 +74,24 @@ pub async fn handle_help(bot: Bot, msg: Message) -> Result<()> {
 
 /// Handle the /today command
 pub async fn handle_today(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
-    let user = msg.from.ok_or_else(|| anyhow::anyhow!("No user in message"))?;
+    let user = msg
+        .from
+        .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
     let telegram_id = user.id.0 as i64;
 
     // Get today's date range
     let now = Utc::now();
-    let start_of_day = now.date_naive().and_hms_opt(0, 0, 0)
+    let start_of_day = now
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
         .ok_or_else(|| anyhow::anyhow!("Invalid time"))?
         .and_utc();
     let end_of_day = start_of_day + Duration::days(1);
 
     // Query events from database
-    let events = db.get_events_for_user(telegram_id, start_of_day, end_of_day).await?;
+    let events = db
+        .get_events_for_user(telegram_id, start_of_day, end_of_day)
+        .await?;
 
     if events.is_empty() {
         bot.send_message(msg.chat.id, "📅 No events today. Enjoy your free time!")
@@ -111,25 +119,35 @@ pub async fn handle_today(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             .await?;
     }
 
-    tracing::info!("User {} queried today's events: {} found", telegram_id, events.len());
+    tracing::info!(
+        "User {} queried today's events: {} found",
+        telegram_id,
+        events.len()
+    );
 
     Ok(())
 }
 
 /// Handle the /tomorrow command
 pub async fn handle_tomorrow(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
-    let user = msg.from.ok_or_else(|| anyhow::anyhow!("No user in message"))?;
+    let user = msg
+        .from
+        .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
     let telegram_id = user.id.0 as i64;
 
     // Get tomorrow's date range
     let tomorrow = Utc::now() + Duration::days(1);
-    let start_of_day = tomorrow.date_naive().and_hms_opt(0, 0, 0)
+    let start_of_day = tomorrow
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
         .ok_or_else(|| anyhow::anyhow!("Invalid time"))?
         .and_utc();
     let end_of_day = start_of_day + Duration::days(1);
 
     // Query events from database
-    let events = db.get_events_for_user(telegram_id, start_of_day, end_of_day).await?;
+    let events = db
+        .get_events_for_user(telegram_id, start_of_day, end_of_day)
+        .await?;
 
     if events.is_empty() {
         bot.send_message(msg.chat.id, "📅 No events tomorrow.")
@@ -157,19 +175,27 @@ pub async fn handle_tomorrow(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             .await?;
     }
 
-    tracing::info!("User {} queried tomorrow's events: {} found", telegram_id, events.len());
+    tracing::info!(
+        "User {} queried tomorrow's events: {} found",
+        telegram_id,
+        events.len()
+    );
 
     Ok(())
 }
 
 /// Handle the /week command
 pub async fn handle_week(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
-    let user = msg.from.ok_or_else(|| anyhow::anyhow!("No user in message"))?;
+    let user = msg
+        .from
+        .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
     let telegram_id = user.id.0 as i64;
 
     // Get this week's date range (next 7 days)
     let now = Utc::now();
-    let start = now.date_naive().and_hms_opt(0, 0, 0)
+    let start = now
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
         .ok_or_else(|| anyhow::anyhow!("Invalid time"))?
         .and_utc();
     let end = start + Duration::days(7);
@@ -204,7 +230,11 @@ pub async fn handle_week(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             .await?;
     }
 
-    tracing::info!("User {} queried week's events: {} found", telegram_id, events.len());
+    tracing::info!(
+        "User {} queried week's events: {} found",
+        telegram_id,
+        events.len()
+    );
 
     Ok(())
 }
@@ -233,16 +263,22 @@ pub async fn handle_create(bot: Bot, msg: Message) -> Result<()> {
 
 /// Handle the /device command
 pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
-    let user = msg.from.clone().ok_or_else(|| anyhow::anyhow!("No user in message"))?;
+    let user = msg
+        .from
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
     let telegram_id = user.id.0 as i64;
 
     // Get text after command (if any)
     let text = msg.text().unwrap_or("");
     let parts: Vec<&str> = text.split_whitespace().collect();
 
-    match parts.get(1).map(|s| *s) {
+    match parts.get(1).copied() {
         Some("add") => {
-            let device_name = parts.get(2..).map(|s| s.join(" ")).unwrap_or_else(|| "My Device".to_string());
+            let device_name = parts
+                .get(2..)
+                .map(|s| s.join(" "))
+                .unwrap_or_else(|| "My Device".to_string());
 
             match db.generate_device_password(telegram_id, &device_name).await {
                 Ok(password) => {
@@ -256,71 +292,71 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                          Password: Use the password above\n\n\
                          ⚠️ <b>Important:</b> Save this password securely! \
                          You won't be able to see it again.",
-                        device_name,
-                        password,
-                        telegram_id
+                        device_name, password, telegram_id
                     );
 
                     bot.send_message(msg.chat.id, response)
                         .parse_mode(ParseMode::Html)
                         .await?;
 
-                    tracing::info!("Device password created for user {}: {}", telegram_id, device_name);
+                    tracing::info!(
+                        "Device password created for user {}: {}",
+                        telegram_id,
+                        device_name
+                    );
                 }
                 Err(e) => {
                     bot.send_message(
                         msg.chat.id,
-                        format!("❌ Failed to create device password: {}", e)
+                        format!("❌ Failed to create device password: {}", e),
                     )
                     .await?;
                 }
             }
         }
-        Some("list") => {
-            match db.list_device_passwords(telegram_id).await {
-                Ok(devices) if devices.is_empty() => {
-                    bot.send_message(
-                        msg.chat.id,
-                        "📱 You don't have any device passwords yet.\n\n\
-                         Create one with: <code>/device add Device Name</code>"
-                    )
-                    .parse_mode(ParseMode::Html)
-                    .await?;
-                }
-                Ok(devices) => {
-                    let mut response = format!("📱 <b>Your Devices</b> ({})\n\n", devices.len());
+        Some("list") => match db.list_device_passwords(telegram_id).await {
+            Ok(devices) if devices.is_empty() => {
+                bot.send_message(
+                    msg.chat.id,
+                    "📱 You don't have any device passwords yet.\n\n\
+                         Create one with: <code>/device add Device Name</code>",
+                )
+                .parse_mode(ParseMode::Html)
+                .await?;
+            }
+            Ok(devices) => {
+                let mut response = format!("📱 <b>Your Devices</b> ({})\n\n", devices.len());
 
-                    for (idx, device) in devices.iter().enumerate() {
+                for (idx, device) in devices.iter().enumerate() {
+                    response.push_str(&format!(
+                        "{}. <b>{}</b>\n   🆔 <code>{}</code>\n   📅 Created: {}\n",
+                        idx + 1,
+                        device.name,
+                        device.id,
+                        device.created_at.format("%Y-%m-%d %H:%M")
+                    ));
+
+                    if let Some(last_used) = device.last_used_at {
                         response.push_str(&format!(
-                            "{}. <b>{}</b>\n   🆔 <code>{}</code>\n   📅 Created: {}\n",
-                            idx + 1,
-                            device.name,
-                            device.id,
-                            device.created_at.format("%Y-%m-%d %H:%M")
+                            "   🕐 Last used: {}\n",
+                            last_used.format("%Y-%m-%d %H:%M")
                         ));
-
-                        if let Some(last_used) = device.last_used_at {
-                            response.push_str(&format!("   🕐 Last used: {}\n", last_used.format("%Y-%m-%d %H:%M")));
-                        }
-
-                        response.push('\n');
                     }
 
-                    response.push_str("To revoke a device: <code>/device revoke &lt;ID&gt;</code>");
+                    response.push('\n');
+                }
 
-                    bot.send_message(msg.chat.id, response)
-                        .parse_mode(ParseMode::Html)
-                        .await?;
-                }
-                Err(e) => {
-                    bot.send_message(
-                        msg.chat.id,
-                        format!("❌ Failed to list devices: {}", e)
-                    )
+                response.push_str("To revoke a device: <code>/device revoke &lt;ID&gt;</code>");
+
+                bot.send_message(msg.chat.id, response)
+                    .parse_mode(ParseMode::Html)
                     .await?;
-                }
             }
-        }
+            Err(e) => {
+                bot.send_message(msg.chat.id, format!("❌ Failed to list devices: {}", e))
+                    .await?;
+            }
+        },
         Some("revoke") => {
             if let Some(device_id_str) = parts.get(2) {
                 match device_id_str.parse::<uuid::Uuid>() {
@@ -329,40 +365,41 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                             Ok(true) => {
                                 bot.send_message(
                                     msg.chat.id,
-                                    "✅ Device password revoked successfully!"
+                                    "✅ Device password revoked successfully!",
                                 )
                                 .await?;
 
-                                tracing::info!("Device password revoked for user {}: {}", telegram_id, device_id);
+                                tracing::info!(
+                                    "Device password revoked for user {}: {}",
+                                    telegram_id,
+                                    device_id
+                                );
                             }
                             Ok(false) => {
                                 bot.send_message(
                                     msg.chat.id,
-                                    "❌ Device not found or already revoked."
+                                    "❌ Device not found or already revoked.",
                                 )
                                 .await?;
                             }
                             Err(e) => {
                                 bot.send_message(
                                     msg.chat.id,
-                                    format!("❌ Failed to revoke device: {}", e)
+                                    format!("❌ Failed to revoke device: {}", e),
                                 )
                                 .await?;
                             }
                         }
                     }
                     Err(_) => {
-                        bot.send_message(
-                            msg.chat.id,
-                            "❌ Invalid device ID format."
-                        )
-                        .await?;
+                        bot.send_message(msg.chat.id, "❌ Invalid device ID format.")
+                            .await?;
                     }
                 }
             } else {
                 bot.send_message(
                     msg.chat.id,
-                    "❌ Please provide a device ID: <code>/device revoke &lt;ID&gt;</code>"
+                    "❌ Please provide a device ID: <code>/device revoke &lt;ID&gt;</code>",
                 )
                 .parse_mode(ParseMode::Html)
                 .await?;
@@ -392,13 +429,15 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
 
 /// Handle the /export command
 pub async fn handle_export(bot: Bot, msg: Message, _db: BotDb) -> Result<()> {
-    let user = msg.from.ok_or_else(|| anyhow::anyhow!("No user in message"))?;
+    let user = msg
+        .from
+        .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
     let telegram_id = user.id.0 as i64;
 
     // TODO: Implement ICS export
     bot.send_message(
         msg.chat.id,
-        "📤 Export functionality coming soon! For now, use CalDAV sync to access your calendar."
+        "📤 Export functionality coming soon! For now, use CalDAV sync to access your calendar.",
     )
     .await?;
 

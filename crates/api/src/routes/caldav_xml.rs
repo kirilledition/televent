@@ -3,9 +3,9 @@
 //! Handles XML generation for CalDAV protocol responses
 
 use chrono::{DateTime, Utc};
-use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::Reader;
 use quick_xml::Writer;
+use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use std::io::Cursor;
 use televent_core::models::{Calendar, Event as CalEvent};
 use uuid::Uuid;
@@ -120,10 +120,7 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
                 return Err(ApiError::BadRequest("DTD not allowed".to_string()));
             }
             Err(e) => {
-                return Err(ApiError::BadRequest(format!(
-                    "XML parse error: {}",
-                    e
-                )));
+                return Err(ApiError::BadRequest(format!("XML parse error: {}", e)));
             }
             _ => {}
         }
@@ -852,7 +849,10 @@ mod tests {
             updated_at: now,
         };
 
-        let ical_data = vec![("event-123".to_string(), "BEGIN:VCALENDAR...END:VCALENDAR".to_string())];
+        let ical_data = vec![(
+            "event-123".to_string(),
+            "BEGIN:VCALENDAR...END:VCALENDAR".to_string(),
+        )];
         let xml = generate_calendar_query_response(user_id, &[event], &ical_data).unwrap();
 
         assert!(xml.contains("<?xml"));
@@ -901,7 +901,8 @@ mod tests {
         };
 
         let deleted_uids = vec!["deleted-event".to_string()];
-        let xml = generate_sync_collection_response(user_id, &calendar, &[event], &deleted_uids).unwrap();
+        let xml =
+            generate_sync_collection_response(user_id, &calendar, &[event], &deleted_uids).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));

@@ -7,7 +7,7 @@ mod middleware;
 mod routes;
 
 use axum::extract::FromRef;
-use axum::{middleware as axum_middleware, Router};
+use axum::{Router, middleware as axum_middleware};
 use moka::future::Cache;
 use sqlx::PgPool;
 use tower_http::cors::{Any, CorsLayer};
@@ -57,11 +57,10 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
         .nest("/api", routes::devices::routes())
         .nest(
             "/caldav",
-            routes::caldav::routes()
-                .layer(axum_middleware::from_fn_with_state(
-                    state.clone(),
-                    caldav_basic_auth,
-                )),
+            routes::caldav::routes().layer(axum_middleware::from_fn_with_state(
+                state.clone(),
+                caldav_basic_auth,
+            )),
         )
         .layer(cors)
         .with_state(state)

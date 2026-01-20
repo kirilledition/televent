@@ -3,7 +3,6 @@
 //! Handles different types of outbox messages
 
 use anyhow::{Context, Result};
-use serde_json::Value;
 use teloxide::prelude::*;
 use tracing::{error, info};
 
@@ -11,10 +10,7 @@ use crate::db::OutboxMessage;
 use crate::mailer;
 
 /// Process a single outbox message
-pub async fn process_message(
-    message: &OutboxMessage,
-    bot: &Bot,
-) -> Result<()> {
+pub async fn process_message(message: &OutboxMessage, bot: &Bot) -> Result<()> {
     match message.message_type.as_str() {
         "telegram_notification" => process_telegram_notification(message, bot).await,
         "email" => process_email(message).await,
@@ -26,10 +22,7 @@ pub async fn process_message(
 }
 
 /// Process a Telegram notification
-async fn process_telegram_notification(
-    message: &OutboxMessage,
-    bot: &Bot,
-) -> Result<()> {
+async fn process_telegram_notification(message: &OutboxMessage, bot: &Bot) -> Result<()> {
     let telegram_id: i64 = message.payload["telegram_id"]
         .as_i64()
         .context("Missing telegram_id in payload")?;
@@ -79,7 +72,6 @@ async fn process_email(message: &OutboxMessage) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
 
     #[test]
