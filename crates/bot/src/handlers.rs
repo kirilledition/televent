@@ -10,8 +10,18 @@ use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 
 /// Handle the /start command
-pub async fn handle_start(bot: Bot, msg: Message, _db: BotDb) -> Result<()> {
-    let user_id = msg.from.as_ref().map(|u| u.id.0 as i64);
+pub async fn handle_start(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
+    let user = msg.from.as_ref().ok_or_else(|| anyhow::anyhow!("No user in message"))?;
+    let telegram_id = user.id.0 as i64;
+    let username = user.username.as_deref();
+
+    // Ensure user and calendar are set up
+    if let Err(e) = db.ensure_user_setup(telegram_id, username).await {
+        tracing::error!("Failed to setup user {}: {}", telegram_id, e);
+        bot.send_message(msg.chat.id, "❌ Failed to initialize your account. Please try again later.")
+            .await?;
+        return Ok(());
+    }
 
     let welcome_text = format!(
         "👋 *Welcome to Televent!*\n\n\
@@ -23,14 +33,14 @@ pub async fn handle_start(bot: Bot, msg: Message, _db: BotDb) -> Result<()> {
          /create - Create a new event\n\
          /device - Manage CalDAV device passwords\n\
          /help - Show all commands\n\n\
-         Get started by creating your first event with /create!"
+         Your account is ready! Get started by creating your first event with /create"
     );
 
     bot.send_message(msg.chat.id, welcome_text)
         .parse_mode(ParseMode::Markdown)
         .await?;
 
-    tracing::info!("User {:?} started the bot", user_id);
+    tracing::info!("User {} started the bot", telegram_id);
 
     Ok(())
 }
@@ -223,21 +233,160 @@ pub async fn handle_create(bot: Bot, msg: Message) -> Result<()> {
 }
 
 /// Handle the /device command
-pub async fn handle_device(bot: Bot, msg: Message) -> Result<()> {
-    let response = "🔐 *CalDAV Device Management*\n\n\
-                    Device passwords allow you to sync your calendar with CalDAV clients \
-                    (Apple Calendar, Google Calendar, Thunderbird, etc.)\n\n\
-                    Use the web UI to:\n\
-                    • Create device passwords\n\
-                    • List existing devices\n\
-                    • Delete device access\n\n\
-                    CalDAV URL: `https://your-domain.com/caldav`\n\
-                    Username: Your Telegram ID\n\
-                    Password: Generated device password";
+pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
+    let user = msg.from.clone().ok_or_else(|| anyhow::anyhow!("No user in message"))?;
+    let telegram_id = user.id.0 as i64;
 
-    bot.send_message(msg.chat.id, response)
-        .parse_mode(ParseMode::Markdown)
-        .await?;
+    // Get text after command (if any)
+    let text = msg.text().unwrap_or("");
+    let parts: Vec<&str> = text.split_whitespace().collect();
+
+    match parts.get(1).map(|s| *s) {
+        Some("add") => {
+            let device_name = parts.get(2..).map(|s| s.join(" ")).unwrap_or_else(|| "My Device".to_string());
+
+            match db.generate_device_password(telegram_id, &device_name).await {
+                Ok(password) => {
+                    let response = format!(
+                        "✅ *Device Password Created!*\n\n\
+                         🏷️ Device: {}\n\
+                         🔑 Password: `{}`\n\n\
+                         *CalDAV Setup:*\n\
+                         Server: `https://your-domain.com/caldav`\n\
+                         Username: `{}`\n\
+                         Password: Use the password above\n\n\
+                         ⚠️ *Important:* Save this password securely! \
+                         You won't be able to see it again.",
+                        device_name,
+                        password,
+                        telegram_id
+                    );
+
+                    bot.send_message(msg.chat.id, response)
+                        .parse_mode(ParseMode::Markdown)
+                        .await?;
+
+                    tracing::info!("Device password created for user {}: {}", telegram_id, device_name);
+                }
+                Err(e) => {
+                    bot.send_message(
+                        msg.chat.id,
+                        format!("❌ Failed to create device password: {}", e)
+                    )
+                    .await?;
+                }
+            }
+        }
+        Some("list") => {
+            match db.list_device_passwords(telegram_id).await {
+                Ok(devices) if devices.is_empty() => {
+                    bot.send_message(
+                        msg.chat.id,
+                        "📱 You don't have any device passwords yet.\n\n\
+                         Create one with: `/device add Device Name`"
+                    )
+                    .parse_mode(ParseMode::Markdown)
+                    .await?;
+                }
+                Ok(devices) => {
+                    let mut response = format!("📱 *Your Devices* ({})\n\n", devices.len());
+
+                    for (idx, device) in devices.iter().enumerate() {
+                        response.push_str(&format!(
+                            "{}. *{}*\n   🆔 `{}`\n   📅 Created: {}\n",
+                            idx + 1,
+                            device.name,
+                            device.id,
+                            device.created_at.format("%Y-%m-%d %H:%M")
+                        ));
+
+                        if let Some(last_used) = device.last_used_at {
+                            response.push_str(&format!("   🕐 Last used: {}\n", last_used.format("%Y-%m-%d %H:%M")));
+                        }
+
+                        response.push('\n');
+                    }
+
+                    response.push_str("To revoke a device: `/device revoke <ID>`");
+
+                    bot.send_message(msg.chat.id, response)
+                        .parse_mode(ParseMode::Markdown)
+                        .await?;
+                }
+                Err(e) => {
+                    bot.send_message(
+                        msg.chat.id,
+                        format!("❌ Failed to list devices: {}", e)
+                    )
+                    .await?;
+                }
+            }
+        }
+        Some("revoke") => {
+            if let Some(device_id_str) = parts.get(2) {
+                match device_id_str.parse::<uuid::Uuid>() {
+                    Ok(device_id) => {
+                        match db.revoke_device_password(telegram_id, device_id).await {
+                            Ok(true) => {
+                                bot.send_message(
+                                    msg.chat.id,
+                                    "✅ Device password revoked successfully!"
+                                )
+                                .await?;
+
+                                tracing::info!("Device password revoked for user {}: {}", telegram_id, device_id);
+                            }
+                            Ok(false) => {
+                                bot.send_message(
+                                    msg.chat.id,
+                                    "❌ Device not found or already revoked."
+                                )
+                                .await?;
+                            }
+                            Err(e) => {
+                                bot.send_message(
+                                    msg.chat.id,
+                                    format!("❌ Failed to revoke device: {}", e)
+                                )
+                                .await?;
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        bot.send_message(
+                            msg.chat.id,
+                            "❌ Invalid device ID format."
+                        )
+                        .await?;
+                    }
+                }
+            } else {
+                bot.send_message(
+                    msg.chat.id,
+                    "❌ Please provide a device ID: `/device revoke <ID>`"
+                )
+                .parse_mode(ParseMode::Markdown)
+                .await?;
+            }
+        }
+        _ => {
+            let response = "🔐 *CalDAV Device Management*\n\n\
+                            Device passwords allow you to sync your calendar with CalDAV clients.\n\n\
+                            *Commands:*\n\
+                            `/device add [name]` - Create a new device password\n\
+                            `/device list` - List all your devices\n\
+                            `/device revoke <id>` - Revoke a device password\n\n\
+                            *Supported Clients:*\n\
+                            • Apple Calendar (iOS, macOS)\n\
+                            • Thunderbird\n\
+                            • DAVx⁵ (Android)\n\
+                            • Any CalDAV-compatible client";
+
+            bot.send_message(msg.chat.id, response)
+                .parse_mode(ParseMode::Markdown)
+                .await?;
+        }
+    }
 
     Ok(())
 }

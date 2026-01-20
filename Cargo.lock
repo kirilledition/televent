@@ -347,10 +347,14 @@ name = "bot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "argon2",
  "chrono",
+ "chrono-english",
  "chrono-tz 0.10.4",
+ "rand 0.9.2",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "televent-core",
  "teloxide",
@@ -447,6 +451,16 @@ dependencies = [
  "serde",
  "wasm-bindgen",
  "windows-link",
+]
+
+[[package]]
+name = "chrono-english"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38a56613410c9249673f4676ab8d27c70949814accb27b6b738009e2ff1034a1"
+dependencies = [
+ "chrono",
+ "scanlex",
 ]
 
 [[package]]
@@ -3121,6 +3135,12 @@ name = "ryu"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a50f4cf475b65d88e057964e0e9bb1f0aa9bbb2036dc65c64596b42932536984"
+
+[[package]]
+name = "scanlex"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "088c5d71572124929ea7549a8ce98e1a6fd33d0a38367b09027b382e67c033db"
 
 [[package]]
 name = "schannel"

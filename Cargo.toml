@@ -40,6 +40,7 @@ teloxide = { version = "0.13", features = ["macros"] }
 # Date/Time
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
+chrono-english = "0.1"
 
 # Logging/Tracing
 tracing = "0.1"
