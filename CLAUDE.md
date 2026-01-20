@@ -27,6 +27,26 @@ televent/
 └── docs/          # Architecture diagrams, API specs
 ```
 
+## Dependency Management
+
+**CRITICAL: Use `cargo add`, NEVER edit Cargo.toml manually**
+
+```bash
+# Add a dependency to a specific crate
+cargo add --package bot chrono-english
+
+# Add with workspace features
+cargo add --package api tower-http --features trace,cors
+
+# Update all dependencies to latest compatible versions
+cargo update
+
+# Update to latest versions (including breaking changes)
+cargo upgrade  # Requires: cargo install cargo-edit
+```
+
+Why: Manual edits miss version resolution, feature flags, and workspace inheritance.
+
 ## Common Commands (Use Just)
 ```bash
 just setup          # Start Docker, run migrations

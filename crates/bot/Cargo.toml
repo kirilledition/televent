@@ -26,7 +26,13 @@ sqlx.workspace = true
 # Date/Time
 chrono.workspace = true
 chrono-tz.workspace = true
+chrono-english.workspace = true
 
 # Logging
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+# Security
+sha2.workspace = true
+argon2.workspace = true
+rand.workspace = true

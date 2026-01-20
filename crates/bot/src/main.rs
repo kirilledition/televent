@@ -5,6 +5,7 @@
 mod commands;
 mod config;
 mod db;
+mod dialogue;
 mod handlers;
 
 use anyhow::Result;
@@ -76,7 +77,7 @@ async fn handle_command(bot: Bot, msg: Message, cmd: Command, db: BotDb) -> Resu
         Command::Create => handlers::handle_create(bot, msg).await?,
         Command::List => handlers::handle_list(bot, msg).await?,
         Command::Cancel => handlers::handle_cancel(bot, msg).await?,
-        Command::Device => handlers::handle_device(bot, msg).await?,
+        Command::Device => handlers::handle_device(bot, msg, db).await?,
         Command::Export => handlers::handle_export(bot, msg, db).await?,
         Command::DeleteAccount => handlers::handle_delete_account(bot, msg).await?,
     }
