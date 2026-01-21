@@ -145,8 +145,6 @@ async fn process_job(db: &WorkerDb, bot: &Bot, config: &Config, job: db::OutboxM
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_worker_compiles() {
         // Basic compilation test

@@ -52,7 +52,7 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
     };
 
     Router::new()
-        .nest("/", routes::health::routes())
+        .merge(routes::health::routes())
         .nest("/api", routes::events::routes())
         .nest("/api", routes::devices::routes())
         .nest(

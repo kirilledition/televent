@@ -589,6 +589,18 @@ fn write_event_response(
         .write_event(Event::End(BytesEnd::new("d:getcontenttype")))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
+    // <getlastmodified> (RFC 2616 HTTP-date format)
+    writer
+        .write_event(Event::Start(BytesStart::new("d:getlastmodified")))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    let http_date = event.updated_at.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    writer
+        .write_event(Event::Text(BytesText::new(&http_date)))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    writer
+        .write_event(Event::End(BytesEnd::new("d:getlastmodified")))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+
     // </prop>
     writer
         .write_event(Event::End(BytesEnd::new("d:prop")))

@@ -28,6 +28,14 @@
         "Bash(tree:*)",
         "Bash(find:*)",
         "Bash(ss:*)",
+        "Bash(sudo apt:*)",
+        "Bash(curl:*)",
+        "Bash(sudo service:*)",
+        "Bash(sudo -u postgres:*)",
+        "Bash(./test_verify_events.sh:*)",
+        "Bash(/workspace/get_caldav_credentials.sh:*)",
+        "Bash(/workspace/get_caldav_url.sh:*)",
+        "Bash(./test_caldav.sh:*)",
         "mcp__serena"
     ]
 }}

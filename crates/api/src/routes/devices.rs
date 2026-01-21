@@ -163,10 +163,10 @@ where
     PgPool: FromRef<S>,
 {
     Router::new()
-        .route("/users/:user_id/devices", post(create_device_password))
-        .route("/users/:user_id/devices", get(list_device_passwords))
+        .route("/users/{user_id}/devices", post(create_device_password))
+        .route("/users/{user_id}/devices", get(list_device_passwords))
         .route(
-            "/users/:user_id/devices/:device_id",
+            "/users/{user_id}/devices/{device_id}",
             delete(delete_device_password),
         )
 }

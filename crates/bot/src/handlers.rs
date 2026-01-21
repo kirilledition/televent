@@ -103,7 +103,7 @@ pub async fn handle_today(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             response.push_str(&format!(
                 "{}. <b>{}</b>\n   🕐 {}\n",
                 idx + 1,
-                event.title,
+                event.summary,
                 event.start.format("%H:%M")
             ));
 
@@ -159,7 +159,7 @@ pub async fn handle_tomorrow(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             response.push_str(&format!(
                 "{}. <b>{}</b>\n   🕐 {}\n",
                 idx + 1,
-                event.title,
+                event.summary,
                 event.start.format("%H:%M")
             ));
 
@@ -213,7 +213,7 @@ pub async fn handle_week(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             response.push_str(&format!(
                 "{}. <b>{}</b>\n   📆 {}\n   🕐 {}\n",
                 idx + 1,
-                event.title,
+                event.summary,
                 event.start.format("%a, %b %d"),
                 event.start.format("%H:%M")
             ));

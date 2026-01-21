@@ -177,9 +177,9 @@ where
     Router::new()
         .route("/events", post(create_event))
         .route("/events", get(list_events))
-        .route("/events/:id", get(get_event))
-        .route("/events/:id", put(update_event))
-        .route("/events/:id", delete(delete_event_handler))
+        .route("/events/{id}", get(get_event))
+        .route("/events/{id}", put(update_event))
+        .route("/events/{id}", delete(delete_event_handler))
 }
 
 #[cfg(test)]

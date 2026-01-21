@@ -38,7 +38,7 @@ pub struct BotDb {
 pub struct BotEvent {
     #[allow(dead_code)]
     pub id: Uuid,
-    pub title: String,
+    pub summary: String,
     pub start: DateTime<Utc>,
     #[allow(dead_code)]
     pub end: DateTime<Utc>,
@@ -130,12 +130,12 @@ impl BotDb {
         // Query events in the date range
         let events = sqlx::query_as::<_, BotEvent>(
             r#"
-            SELECT id, title, start, "end", location, description
+            SELECT id, summary, start, "end", location, description
             FROM events
             WHERE calendar_id = $1
               AND start >= $2
               AND start < $3
-              AND status != 'cancelled'
+              AND status != 'CANCELLED'
             ORDER BY start ASC
             "#,
         )

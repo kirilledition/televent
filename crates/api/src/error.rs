@@ -2,7 +2,7 @@
 
 use axum::{
     Json,
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
@@ -49,6 +49,17 @@ impl IntoResponse for ApiError {
             error: error.to_string(),
             details,
         });
+
+        // Add WWW-Authenticate header for 401 Unauthorized responses
+        // Required by RFC 2617 for HTTP Basic Auth
+        if status == StatusCode::UNAUTHORIZED {
+            return (
+                status,
+                [(header::WWW_AUTHENTICATE, r#"Basic realm="Televent CalDAV""#)],
+                body,
+            )
+                .into_response();
+        }
 
         (status, body).into_response()
     }

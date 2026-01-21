@@ -72,8 +72,8 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 RUN curl -fsSL https://claude.ai/install.sh | bash && \
     curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install Node.js (required for npm packages like Claude Code CLI and Gemini CLI)
-# RUN curl -fsSL https://deb.nodesource.com/setup_25.x | bash - && \
-#     apt-get install -y nodejs && \
-#     apt-get clean && rm -rf /var/lib/apt/lists/* \
-#     npm install -g @google/gemini-cli
+Install Node.js (required for npm packages like Claude Code CLI and Gemini CLI)
+RUN curl -fsSL https://deb.nodesource.com/setup_25.x | bash - && \
+    apt-get install -y nodejs && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* \
+    npm install -g @google/gemini-cli

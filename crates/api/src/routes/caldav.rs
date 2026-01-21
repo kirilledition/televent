@@ -346,9 +346,9 @@ where
 {
     Router::new()
         // Calendar collection endpoints
-        .route("/:user_id/", any(caldav_handler))
+        .route("/{user_id}/", any(caldav_handler))
         // Event resource endpoints
-        .route("/:user_id/:event_uid.ics", any(event_handler))
+        .route("/{user_id}/{*event_uid}", any(event_handler))
 }
 
 /// Main CalDAV collection handler
@@ -374,11 +374,17 @@ async fn caldav_handler(
 /// Event resource handler
 async fn event_handler(
     State(pool): State<PgPool>,
-    Path((user_id, event_uid)): Path<(Uuid, String)>,
+    Path((user_id, event_uid_raw)): Path<(Uuid, String)>,
     headers: HeaderMap,
     method: Method,
     body: Body,
 ) -> Result<Response, ApiError> {
+    // Strip leading slash and .ics extension from wildcard capture
+    let event_uid = event_uid_raw
+        .trim_start_matches('/')
+        .trim_end_matches(".ics")
+        .to_string();
+    
     match method {
         Method::GET => caldav_get_event(State(pool), Path((user_id, event_uid))).await,
         Method::PUT => {
