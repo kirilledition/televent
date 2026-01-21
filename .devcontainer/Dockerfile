@@ -1,6 +1,6 @@
 FROM rust:1.92-bookworm
 
-# Install basic development tools, PostgreSQL client, Node.js for Tailwind
+# Install basic development tools, PostgreSQL client
 RUN apt-get update && apt-get install -y --no-install-recommends \
     less \
     git \
@@ -48,17 +48,14 @@ USER ${USERNAME}
 # Configure Cargo and NPM paths
 ENV CARGO_HOME=/home/${USERNAME}/.cargo
 ENV PATH=$CARGO_HOME/bin:$PATH
-ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
-ENV PATH=$PATH:/usr/local/share/npm-global/bin
+
 
 # Install Rust toolchain components
 RUN rustup component add rustfmt clippy rust-analyzer
 
 # Install Rust development tools
 RUN cargo install sqlx-cli --no-default-features --features postgres,rustls && \
-    cargo install cargo-watch && \
-    cargo install just
-
+    cargo install cargo-watch just
 # Set the default shell to zsh
 ENV SHELL=/bin/zsh
 ENV EDITOR=nano
@@ -72,5 +69,11 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
     -x
 
 # Install Claude Code CLI and gemini cli
-RUN npm install -g @anthropic-ai/claude-code@latest
-RUN npm install -g @google/gemini-cli
+RUN curl -fsSL https://claude.ai/install.sh | bash && \
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install Node.js (required for npm packages like Claude Code CLI and Gemini CLI)
+# RUN curl -fsSL https://deb.nodesource.com/setup_25.x | bash - && \
+#     apt-get install -y nodejs && \
+#     apt-get clean && rm -rf /var/lib/apt/lists/* \
+#     npm install -g @google/gemini-cli

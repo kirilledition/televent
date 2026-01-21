@@ -53,7 +53,7 @@
         "POWERLEVEL9K_DISABLE_GITSTATUS": "true"
     },
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
-    "workspaceFolder": "/workspace",
-    "postCreateCommand": "bash .devcontainer/setup.sh",
-    "postStartCommand": "sudo service postgresql start"
+    "workspaceFolder": "/workspace"
+    // "postCreateCommand": "bash .devcontainer/setup.sh",
+    // "postStartCommand": "sudo service postgresql start"
 }
