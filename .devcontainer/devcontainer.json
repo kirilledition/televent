@@ -53,7 +53,10 @@
         "POWERLEVEL9K_DISABLE_GITSTATUS": "true"
     },
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
-    "workspaceFolder": "/workspace"
+    "workspaceFolder": "/workspace",
+    "forwardPorts": [
+        3000
+    ]
     // "postCreateCommand": "bash .devcontainer/setup.sh",
     // "postStartCommand": "sudo service postgresql start"
 }

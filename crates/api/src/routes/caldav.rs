@@ -349,17 +349,6 @@ where
         .route("/{user_id}/", any(caldav_handler))
         // Event resource endpoints
         .route("/{user_id}/{*event_uid}", any(event_handler))
-        // Add logging middleware (executed BEFORE auth if added inside nest,
-        // but AFTER auth if added here because caldav auth is a layer on the nest call)
-        // Wait, layers wrap outer layers.
-        // Nest layer (Auth) wraps this router.
-        // So request comes: Auth -> Logging -> Router.
-        // Correct order is: Auth -> Logging -> Handler.
-        // So we want logging to be "inner" to auth.
-        // Adding it here makes it inner to auth middleware which is applied at nest level.
-        .layer(axum::middleware::from_fn(
-            crate::middleware::caldav_logging::caldav_logger,
-        ))
 }
 
 /// Main CalDAV collection handler

@@ -57,10 +57,14 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
         .nest("/api", routes::devices::routes())
         .nest(
             "/caldav",
-            routes::caldav::routes().layer(axum_middleware::from_fn_with_state(
-                state.clone(),
-                caldav_basic_auth,
-            )),
+            routes::caldav::routes()
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    caldav_basic_auth,
+                ))
+                .layer(axum_middleware::from_fn(
+                    crate::middleware::caldav_logging::caldav_logger,
+                )),
         )
         .layer(cors)
         .with_state(state)

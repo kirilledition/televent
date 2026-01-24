@@ -1,13 +1,12 @@
 use axum::{
     body::{Body, Bytes},
     extract::Request,
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
     middleware::Next,
     response::Response,
 };
-use std::{time::Duration, time::Instant};
-use tower_http::trace::TraceLayer;
-use tracing::{Level, Span};
+use std::time::Instant;
+
 
 /// Middleware to log deep details about CalDAV requests
 pub async fn caldav_logger(req: Request, next: Next) -> Response {
