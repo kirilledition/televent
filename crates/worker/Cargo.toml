@@ -21,6 +21,7 @@ televent-core = { path = "../core" }
 # Core
 tokio.workspace = true
 tokio-util.workspace = true
+futures = "0.3"
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true

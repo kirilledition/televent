@@ -6,11 +6,14 @@ mod config;
 mod db;
 mod mailer;
 mod processors;
+#[cfg(test)]
+mod concurrency_bench;
 
 pub use config::Config;
 
 use anyhow::Result;
 use db::WorkerDb;
+use futures::stream::{self, StreamExt};
 use sqlx::PgPool;
 use teloxide::Bot;
 use tokio::time::{Duration, Instant};
@@ -73,10 +76,17 @@ async fn run_worker_loop(
             Ok(jobs) => {
                 info!("Processing {} jobs", jobs.len());
 
-                // Process each job
-                for job in jobs {
-                    process_job(&db, &bot, &config, job).await;
-                }
+                // Process each job concurrently
+                stream::iter(jobs)
+                    .for_each_concurrent(Some(config.batch_size as usize), |job| {
+                        let db = db.clone();
+                        let bot = bot.clone();
+                        let config = config.clone();
+                        async move {
+                            process_job(&db, &bot, &config, job).await;
+                        }
+                    })
+                    .await;
 
                 // Log queue status
                 if last_status_log_time.elapsed() >= Duration::from_secs(config.status_log_interval_secs)

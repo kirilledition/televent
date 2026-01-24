@@ -4377,6 +4377,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "dotenvy",
+ "futures",
  "lettre",
  "serde",
  "serde_json",
