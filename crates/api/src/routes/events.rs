@@ -48,6 +48,8 @@ pub struct ListEventsQuery {
     pub calendar_id: Uuid,
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 /// Event response (same as Event model)
@@ -132,7 +134,19 @@ async fn list_events(
     State(pool): State<PgPool>,
     Query(query): Query<ListEventsQuery>,
 ) -> Result<Json<Vec<EventResponse>>, ApiError> {
-    let events = db::events::list_events(&pool, query.calendar_id, query.start, query.end).await?;
+    // Default limit to 100 to prevent OOM
+    let limit = query.limit.unwrap_or(100);
+    let offset = query.offset.unwrap_or(0);
+
+    let events = db::events::list_events(
+        &pool,
+        query.calendar_id,
+        query.start,
+        query.end,
+        Some(limit),
+        Some(offset),
+    )
+    .await?;
     let response = events.into_iter().map(EventResponse::from).collect();
     Ok(Json(response))
 }
@@ -246,5 +260,32 @@ mod tests {
         assert_eq!(req.summary, Some("Updated Summary".to_string()));
         assert!(req.description.is_none());
         assert!(req.start.is_none());
+    }
+
+    #[test]
+    fn test_list_events_query_deserialization() {
+        let json = r#"{
+            "calendar_id": "123e4567-e89b-12d3-a456-426614174000",
+            "start": "2026-01-18T10:00:00Z",
+            "limit": 50,
+            "offset": 10
+        }"#;
+
+        let query: ListEventsQuery = serde_json::from_str(json).unwrap();
+        assert_eq!(query.limit, Some(50));
+        assert_eq!(query.offset, Some(10));
+        assert!(query.start.is_some());
+        assert!(query.end.is_none());
+    }
+
+    #[test]
+    fn test_list_events_query_default_values() {
+        let json = r#"{
+            "calendar_id": "123e4567-e89b-12d3-a456-426614174000"
+        }"#;
+
+        let query: ListEventsQuery = serde_json::from_str(json).unwrap();
+        assert!(query.limit.is_none());
+        assert!(query.offset.is_none());
     }
 }

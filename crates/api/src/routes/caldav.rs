@@ -69,7 +69,7 @@ async fn caldav_propfind(
 
     // Get events if depth is 1
     let events = if depth == "1" {
-        db::events::list_events(&pool, calendar.id, None, None).await?
+        db::events::list_events(&pool, calendar.id, None, None, None, None).await?
     } else {
         Vec::new()
     };
@@ -249,7 +249,7 @@ async fn caldav_report(
     match report_type {
         caldav_xml::ReportType::CalendarQuery { start, end } => {
             // Query events with optional time range
-            let events = db::events::list_events(&pool, calendar.id, start, end).await?;
+            let events = db::events::list_events(&pool, calendar.id, start, end, None, None).await?;
             
             tracing::info!("CalendarQuery: returning {} events (range: {:?} to {:?})", events.len(), start, end);
 
@@ -285,7 +285,7 @@ async fn caldav_report(
             // Get events modified since last sync
             // For now, if sync_token is 0 or missing, return all events
             let events = if last_sync_token == 0 {
-                db::events::list_events(&pool, calendar.id, None, None).await?
+                db::events::list_events(&pool, calendar.id, None, None, None, None).await?
             } else {
                 db::events::list_events_since_sync(&pool, calendar.id, last_sync_token).await?
             };
