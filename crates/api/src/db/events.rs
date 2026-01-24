@@ -114,6 +114,21 @@ pub async fn delete_event_by_uid(
     Ok(result.rows_affected() > 0)
 }
 
+/// Delete event by UID (within transaction)
+pub async fn delete_event_by_uid_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    calendar_id: Uuid,
+    uid: &str,
+) -> Result<bool, ApiError> {
+    let result = sqlx::query("DELETE FROM events WHERE calendar_id = $1 AND uid = $2")
+        .bind(calendar_id)
+        .bind(uid)
+        .execute(&mut **tx)
+        .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 /// List events for a calendar within a time range
 pub async fn list_events(
     pool: &PgPool,
@@ -160,20 +175,19 @@ pub async fn list_events(
 /// "recently". However, since our sync_token is just an integer counter, mapping it to deleted_events
 /// (which has a timestamp) is tricky without a "deletion version".
 ///
-/// TODO: In a robust implementation, `deleted_events` should store the `sync_token` at the time of deletion.
-/// For now, we will fetch ALL deleted events if sync_token > 0.
-/// This is a simplification. A proper fix requires adding `deletion_token` to `deleted_events`.
+/// List UIDs of events deleted since a specific time
+///
+/// Uses deletion_token in deleted_events to filter efficiently.
 pub async fn list_deleted_events_since_sync(
     pool: &PgPool,
     calendar_id: Uuid,
-    _sync_token: i64,
+    sync_token: i64,
 ) -> Result<Vec<String>, ApiError> {
-    // MVP: Return all deleted events for this calendar.
-    // Client will ignore ones it doesn't know about.
     let uids = sqlx::query_scalar::<_, String>(
-        "SELECT uid FROM deleted_events WHERE calendar_id = $1",
+        "SELECT uid FROM deleted_events WHERE calendar_id = $1 AND deletion_token > $2",
     )
     .bind(calendar_id)
+    .bind(sync_token)
     .fetch_all(pool)
     .await?;
 
