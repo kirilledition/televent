@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT e.id, e.summary, e.start, e.\"end\", e.location, c.user_id\n            FROM events e\n            JOIN calendars c ON e.calendar_id = c.id\n            JOIN users u ON c.user_id = u.id\n            WHERE e.id = $1 AND u.telegram_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "summary",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "start",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "end",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "location",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "user_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "dfab97d1218591fea499759a64772e82117307e885f8be286e1e4f9c4eb13942"
+}

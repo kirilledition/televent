@@ -31,7 +31,6 @@ target
 *.env.backup
 
 # SQLx
-.sqlx/
 
 # Dioxus
 dist/

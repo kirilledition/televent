@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO users (id, telegram_id, telegram_username, timezone)\n            VALUES (gen_random_uuid(), $1, $2, 'UTC')\n            ON CONFLICT (telegram_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2f2478c92ccc9953f6c0c9955983fd5724b6b3756c2311bf783cf44f55700542"
+}

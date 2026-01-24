@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT u.telegram_id\n            FROM events e\n            JOIN calendars c ON e.calendar_id = c.id\n            JOIN users u ON c.user_id = u.id\n            WHERE e.id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "telegram_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6db0b4694425524cf814464618fb888a394cff12f437f0f1255bc451eb502bd1"
+}
