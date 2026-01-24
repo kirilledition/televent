@@ -1,21 +1,12 @@
-//! Televent Bot - Telegram bot for calendar management
+//! Televent Bot - Telegram bot binary (standalone mode)
 //!
-//! This crate provides Telegram bot functionality for managing calendars.
+//! This binary runs the bot as a standalone service.
+//! For library usage, see the bot crate's lib.rs.
 
-mod commands;
 mod config;
-mod db;
-mod event_parser;
-mod handlers;
 
 use anyhow::Result;
-use commands::Command;
 use config::Config;
-use db::BotDb;
-use sqlx::PgPool;
-use teloxide::dispatching::{HandlerExt, UpdateFilterExt};
-use teloxide::dptree;
-use teloxide::prelude::*;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -32,85 +23,29 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    tracing::info!("Starting Televent Telegram bot");
+    tracing::info!("Starting Televent Telegram bot (standalone mode)");
 
     // Load configuration
     let config = Config::from_env()?;
     tracing::info!("Configuration loaded");
 
-    // Create database connection pool
-    let pool = PgPool::connect(&config.database_url).await?;
-    tracing::info!("Database connection pool established");
+    // Create database connection pool with explicit configuration
+    // Standalone bot mode: sized for Telegram message handlers (~10 connections)
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(10)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .idle_timeout(std::time::Duration::from_secs(300))
+        .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
+        .connect(&config.database_url)
+        .await?;
+    tracing::info!("✓ Database pool established (max_connections: 10)");
 
     // Run migrations
     sqlx::migrate!("../../migrations").run(&pool).await?;
     tracing::info!("Database migrations completed");
 
-    // Create database handle for bot
-    let bot_db = BotDb::new(pool);
-
-    // Initialize bot
-    let bot = Bot::new(&config.telegram_bot_token);
-    tracing::info!("Bot initialized, starting dispatcher");
-
-    // Build the message handler schema
-    let handler = Update::filter_message()
-        // First try to handle as a command
-        .branch(
-            dptree::entry()
-                .filter_command::<Command>()
-                .endpoint(handle_command),
-        )
-        // Then handle as text message (for event creation)
-        .branch(
-            dptree::filter(|msg: Message| msg.text().is_some()).endpoint(handle_message),
-        );
-
-    // Create dispatcher with database dependency
-    Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![bot_db])
-        .enable_ctrlc_handler()
-        .build()
-        .dispatch()
-        .await;
-
-    Ok(())
-}
-
-/// Route commands to their handlers
-async fn handle_command(bot: Bot, msg: Message, cmd: Command, db: BotDb) -> ResponseResult<()> {
-    tracing::info!("Handling command: {:?}", cmd);
-
-    let result = match cmd {
-        Command::Start => handlers::handle_start(bot, msg, db).await,
-        Command::Help => handlers::handle_help(bot, msg).await,
-        Command::Today => handlers::handle_today(bot, msg, db).await,
-        Command::Tomorrow => handlers::handle_tomorrow(bot, msg, db).await,
-        Command::Week => handlers::handle_week(bot, msg, db).await,
-        Command::Create => handlers::handle_create(bot, msg).await,
-        Command::List => handlers::handle_list(bot, msg).await,
-        Command::Cancel => handlers::handle_cancel(bot, msg).await,
-        Command::Device => handlers::handle_device(bot, msg, db).await,
-        Command::Export => handlers::handle_export(bot, msg, db).await,
-        Command::Invite => handlers::handle_invite(bot, msg, db).await,
-        Command::Rsvp => handlers::handle_rsvp(bot, msg, db).await,
-        Command::DeleteAccount => handlers::handle_delete_account(bot, msg).await,
-    };
-
-    if let Err(e) = result {
-        tracing::error!("Error handling command: {}", e);
-    }
-
-    Ok(())
-}
-
-/// Handle non-command text messages (event creation)
-async fn handle_message(bot: Bot, msg: Message, db: BotDb) -> ResponseResult<()> {
-    let result = handlers::handle_text_message(bot, msg, db).await;
-
-    if let Err(e) = result {
-        tracing::error!("Error handling text message: {}", e);
-    }
+    // Run bot using library function
+    bot::run_bot(pool, config.telegram_bot_token.clone()).await?;
 
     Ok(())
 }

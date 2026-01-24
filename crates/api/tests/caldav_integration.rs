@@ -17,14 +17,16 @@ async fn test_caldav_root_propfind(pool: PgPool) {
     let app = create_router(state, "*");
 
     // Create a request
-    // CalDAV PROPFIND on root requires auth, but let's check basic response behavior
+    // CalDAV PROPFIND on user calendar requires auth
     // If we don't provide auth, it should return 401
+    // Use a random UUID since auth will fail anyway
 
+    let test_user_id = uuid::Uuid::new_v4();
     let response = app
         .oneshot(
             Request::builder()
                 .method("PROPFIND")
-                .uri("/caldav/")
+                .uri(format!("/caldav/{}/", test_user_id))
                 .body(Body::empty())
                 .unwrap(),
         )

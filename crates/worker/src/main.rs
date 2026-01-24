@@ -1,18 +1,11 @@
-//! Televent Worker - Background job processor
+//! Televent Worker - Background job processor binary (standalone mode)
 //!
-//! Processes outbox messages (emails, Telegram notifications) with retry logic
-
-mod config;
-mod db;
-mod mailer;
-mod processors;
+//! This binary runs the worker as a standalone service.
+//! For library usage, see the worker crate's lib.rs.
 
 use anyhow::Result;
-use config::Config;
-use db::WorkerDb;
-use sqlx::PgPool;
 use teloxide::Bot;
-use tracing::{error, info, warn};
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -29,137 +22,32 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    info!("Starting Televent worker");
+    info!("Starting Televent worker (standalone mode)");
 
-    // Load configuration
-    let config = Config::from_env()?;
-    info!(
-        "Configuration loaded: poll_interval={}s, max_retries={}, batch_size={}",
-        config.poll_interval_secs, config.max_retry_count, config.batch_size
-    );
+    // Load configuration (use library's exported Config)
+    let config = worker::Config::from_env()?;
 
-    // Create database connection pool
-    let pool = PgPool::connect(&config.database_url).await?;
-    info!("Database connection pool established");
+    // Create database connection pool with explicit configuration
+    // Standalone worker mode: sized for job processing (~10 connections)
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(10)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .idle_timeout(std::time::Duration::from_secs(300))
+        .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
+        .connect(&config.database_url)
+        .await?;
+    info!("✓ Database pool established (max_connections: 10)");
 
     // Run migrations
     sqlx::migrate!("../../migrations").run(&pool).await?;
     info!("Database migrations completed");
 
-    // Create database handle
-    let db = WorkerDb::new(pool);
-
     // Initialize Telegram bot
     let bot = Bot::new(&config.telegram_bot_token);
     info!("Telegram bot initialized");
 
-    // Start processing loop
-    info!("Starting job processing loop");
-    run_worker_loop(db, bot, config).await?;
+    // Run worker using library function (no shutdown token in standalone mode)
+    worker::run_worker(pool, bot, config, None).await?;
 
     Ok(())
-}
-
-/// Main worker processing loop
-async fn run_worker_loop(db: WorkerDb, bot: Bot, config: Config) -> Result<()> {
-    let poll_interval = tokio::time::Duration::from_secs(config.poll_interval_secs);
-
-    loop {
-        // Fetch pending jobs
-        match db.fetch_pending_jobs(config.batch_size).await {
-            Ok(jobs) if jobs.is_empty() => {
-                // No jobs to process, sleep
-                tokio::time::sleep(poll_interval).await;
-                continue;
-            }
-            Ok(jobs) => {
-                info!("Processing {} jobs", jobs.len());
-
-                // Process each job
-                for job in jobs {
-                    process_job(&db, &bot, &config, job).await;
-                }
-
-                // Log queue status
-                if let Ok(pending_count) = db.count_pending().await
-                    && pending_count > 0
-                {
-                    info!("Queue status: {} pending jobs remaining", pending_count);
-                }
-            }
-            Err(e) => {
-                error!("Failed to fetch pending jobs: {}", e);
-                tokio::time::sleep(poll_interval).await;
-            }
-        }
-    }
-}
-
-/// Process a single job
-async fn process_job(db: &WorkerDb, bot: &Bot, config: &Config, job: db::OutboxMessage) {
-    info!(
-        "Processing job {} (type: {}, retry: {})",
-        job.id, job.message_type, job.retry_count
-    );
-
-    match processors::process_message(&job, bot).await {
-        Ok(()) => {
-            // Job succeeded
-            info!("Job {} completed successfully", job.id);
-
-            if let Err(e) = db.mark_completed(job.id).await {
-                error!("Failed to mark job {} as completed: {}", job.id, e);
-            }
-        }
-        Err(e) => {
-            // Job failed
-            warn!("Job {} failed: {}", job.id, e);
-
-            if job.retry_count < config.max_retry_count {
-                // Retry with exponential backoff
-                let backoff_minutes = 2_i64.pow((job.retry_count + 1) as u32);
-                info!(
-                    "Rescheduling job {} for retry {} in {} minutes",
-                    job.id,
-                    job.retry_count + 1,
-                    backoff_minutes
-                );
-
-                if let Err(e) = db.reschedule_message(job.id, job.retry_count).await {
-                    error!("Failed to reschedule job {}: {}", job.id, e);
-                }
-            } else {
-                // Max retries reached, mark as failed
-                error!(
-                    "Job {} exceeded max retries ({}), marking as failed",
-                    job.id, config.max_retry_count
-                );
-
-                if let Err(e) = db.mark_failed(job.id).await {
-                    error!("Failed to mark job {} as failed: {}", job.id, e);
-                }
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_worker_compiles() {
-        // Basic compilation test
-        assert!(true);
-    }
-
-    #[test]
-    fn test_exponential_backoff() {
-        // Test backoff calculation
-        let retry_counts = vec![0, 1, 2, 3, 4];
-        let expected_minutes = vec![1, 2, 4, 8, 16];
-
-        for (retry, expected) in retry_counts.iter().zip(expected_minutes.iter()) {
-            let backoff = 2_i64.pow((retry + 1) as u32);
-            assert_eq!(backoff, *expected);
-        }
-    }
 }

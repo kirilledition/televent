@@ -226,8 +226,13 @@ async fn caldav_report(
     let xml_body = String::from_utf8(body_bytes.to_vec())
         .map_err(|e| ApiError::BadRequest(format!("Invalid UTF-8: {}", e)))?;
 
+    tracing::debug!("REPORT XML body: {}", xml_body);
+
     // Parse report type
-    let report_type = caldav_xml::parse_report_request(&xml_body)?;
+    let report_type = caldav_xml::parse_report_request(&xml_body).map_err(|e| {
+        tracing::error!("Failed to parse REPORT XML: {:?}\nXML body:\n{}", e, xml_body);
+        e
+    })?;
 
     // Get calendar for user
     let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;

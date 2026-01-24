@@ -52,10 +52,11 @@ impl IntoResponse for ApiError {
 
         // Add WWW-Authenticate header for 401 Unauthorized responses
         // Required by RFC 2617 for HTTP Basic Auth
+        // Include helpful hint about using Telegram ID as username
         if status == StatusCode::UNAUTHORIZED {
             return (
                 status,
-                [(header::WWW_AUTHENTICATE, r#"Basic realm="Televent CalDAV""#)],
+                [(header::WWW_AUTHENTICATE, r#"Basic realm="Televent CalDAV - Use Telegram ID as username", charset="UTF-8""#)],
                 body,
             )
                 .into_response();

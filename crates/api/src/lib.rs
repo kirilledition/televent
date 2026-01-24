@@ -69,3 +69,20 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
         .layer(cors)
         .with_state(state)
 }
+
+/// Run the API server
+///
+/// This function starts the HTTP server and blocks until it exits.
+///
+/// # Arguments
+/// * `state` - Application state containing database pool and caches
+/// * `config` - Server configuration
+pub async fn run_api(state: AppState, config: &config::Config) -> Result<(), std::io::Error> {
+    let app = create_router(state, &config.cors_allowed_origin);
+    let addr = format!("{}:{}", config.host, config.port);
+
+    tracing::info!("API server listening on {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    axum::serve(listener, app).await
+}

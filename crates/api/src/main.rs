@@ -1,7 +1,6 @@
 use anyhow::Result;
-use api::{AppState, create_router};
+use api::AppState;
 use moka::future::Cache;
-use sqlx::PgPool;
 use std::time::Duration;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -38,9 +37,16 @@ async fn main() -> Result<()> {
         config.port
     );
 
-    // Create database connection pool
-    let pool = PgPool::connect(&config.database_url).await?;
-    tracing::info!("Database connection pool established");
+    // Create database connection pool with explicit configuration
+    // Standalone API mode: sized for API requests only (~20 connections)
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(20)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .idle_timeout(std::time::Duration::from_secs(300))
+        .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
+        .connect(&config.database_url)
+        .await?;
+    tracing::info!("✓ Database pool established (max_connections: 20)");
 
     // Run migrations
     sqlx::migrate!("../../migrations").run(&pool).await?;
@@ -53,15 +59,8 @@ async fn main() -> Result<()> {
 
     let state = AppState { pool, auth_cache };
 
-    // Build application router
-    let app = create_router(state, &config.cors_allowed_origin);
-
-    // Start server
-    let addr = format!("{}:{}", config.host, config.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!("Server listening on {}", addr);
-
-    axum::serve(listener, app).await?;
+    // Start server using library function
+    api::run_api(state, &config).await?;
 
     Ok(())
 }

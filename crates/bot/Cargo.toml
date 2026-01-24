@@ -6,6 +6,14 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lib]
+name = "bot"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bot"
+path = "src/main.rs"
+
 [dependencies]
 # Internal
 televent-core = { path = "../core" }

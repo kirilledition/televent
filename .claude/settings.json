@@ -18,6 +18,7 @@
       "Bash(PGPASSWORD=dev psql:*)",
       "Bash(sqlx:*)",
       "Bash(tee:*)",
+      "Bash(rg:*)",
       "Bash(grep:*)",
       "Bash(export:*)",
       "Bash(source:*)",
@@ -32,10 +33,8 @@
       "Bash(curl:*)",
       "Bash(sudo service:*)",
       "Bash(sudo -u postgres:*)",
-      "Bash(./test_verify_events.sh:*)",
-      "Bash(/workspace/get_caldav_credentials.sh:*)",
-      "Bash(/workspace/get_caldav_url.sh:*)",
-      "Bash(./test_caldav.sh:*)",
+      "Bash(timeout:*)",
+      "WebFetch(domain:docs.rs)",
       "mcp__serena"
     ]
   }

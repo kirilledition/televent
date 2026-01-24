@@ -120,7 +120,9 @@ fn parse_basic_auth(auth_header: &str) -> Result<(i64, String), ApiError> {
     // Parse telegram_id as i64
     let telegram_id = telegram_id_str
         .parse::<i64>()
-        .map_err(|_| ApiError::Unauthorized("Invalid telegram_id format".to_string()))?;
+        .map_err(|_| ApiError::Unauthorized(
+            "Username must be your Telegram ID (numeric). Get it from the /device command in Telegram bot.".to_string()
+        ))?;
 
     Ok((telegram_id, password.to_string()))
 }

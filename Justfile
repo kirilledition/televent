@@ -38,26 +38,39 @@ db-stop:
 # Run Services
 # ==============================================
 
-# Run Telegram bot
+# Run unified server (all services in one process) - DEFAULT for MVP
+run:
+    #!/usr/bin/env bash
+    unset DATABASE_URL
+    cargo run --bin televent
+
+# Alias for clarity
+server: run
+
+# Build release binary for production
+build-release:
+    cargo build --release --bin televent
+
+# Run Telegram bot (standalone mode)
 bot:
     #!/usr/bin/env bash
     unset DATABASE_URL
     cargo run --bin bot
 
-# Run API server
+# Run API server (standalone mode)
 api:
     #!/usr/bin/env bash
     unset DATABASE_URL
     cargo run --bin api
 
-# Run background worker
+# Run background worker (standalone mode)
 worker:
     #!/usr/bin/env bash
     unset DATABASE_URL
     cargo run --bin worker
 
-# Run all services in parallel (Ctrl+C kills all)
-run:
+# Run all services separately in parallel (legacy mode)
+run-separate:
     #!/usr/bin/env bash
     # 1. Define a cleanup function to kill background jobs when this script exits
     cleanup() {

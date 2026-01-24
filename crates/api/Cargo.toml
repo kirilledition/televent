@@ -43,7 +43,7 @@ tracing-subscriber.workspace = true
 # CalDAV/iCalendar
 icalendar.workspace = true
 quick-xml.workspace = true
-moka = { version = "0.12", features = ["future"] }
+moka.workspace = true
 
 # Utilities
 hex = "0.4"

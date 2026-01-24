@@ -1,45 +1,40 @@
 [package]
-name = "worker"
+name = "server"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 
-[lib]
-name = "worker"
-path = "src/lib.rs"
-
 [[bin]]
-name = "worker"
+name = "televent"
 path = "src/main.rs"
 
 [dependencies]
-# Internal
+# Internal crates as libraries
 televent-core = { path = "../core" }
+api = { path = "../api" }
+bot = { path = "../bot" }
+worker = { path = "../worker" }
 
 # Core
 tokio.workspace = true
-tokio-util.workspace = true
 anyhow.workspace = true
-thiserror.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-uuid.workspace = true
-
-# Email
-lettre.workspace = true
+dotenvy.workspace = true
 
 # Database
 sqlx.workspace = true
 
-# Telegram bot (for notifications)
+# Telegram
 teloxide.workspace = true
-
-# Date/Time
-chrono.workspace = true
 
 # Logging
 tracing.workspace = true
 tracing-subscriber.workspace = true
-dotenvy = "0.15.7"
+tracing-appender.workspace = true
+
+# Shutdown coordination
+tokio-util.workspace = true
+
+# Cache (for API AppState)
+moka.workspace = true
