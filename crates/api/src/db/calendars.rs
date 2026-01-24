@@ -46,3 +46,22 @@ pub async fn increment_sync_token(pool: &PgPool, calendar_id: Uuid) -> Result<St
 
     Ok(result)
 }
+
+/// Increment sync token for a calendar (within transaction)
+pub async fn increment_sync_token_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    calendar_id: Uuid,
+) -> Result<String, ApiError> {
+    let result = sqlx::query_scalar::<_, String>(
+        "UPDATE calendars
+         SET sync_token = (sync_token::bigint + 1)::text,
+             ctag = EXTRACT(EPOCH FROM NOW())::text
+         WHERE id = $1
+         RETURNING sync_token",
+    )
+    .bind(calendar_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    Ok(result)
+}

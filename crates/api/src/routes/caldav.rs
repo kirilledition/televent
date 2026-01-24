@@ -423,8 +423,15 @@ async fn caldav_delete_event(
         }
     }
 
+    // Perform deletion and sync token increment in a transaction
+    // This ensures the trigger in database captures the NEW sync token
+    let mut tx = pool.begin().await?;
+
+    // Increment sync token first so the deletion picks up the new token
+    let _new_sync_token = db::calendars::increment_sync_token_tx(&mut tx, calendar.id).await?;
+
     // Delete event
-    let deleted = db::events::delete_event_by_uid(&pool, calendar.id, &event_uid).await?;
+    let deleted = db::events::delete_event_by_uid_tx(&mut tx, calendar.id, &event_uid).await?;
 
     if !deleted {
         return Err(ApiError::NotFound(format!(
@@ -433,8 +440,7 @@ async fn caldav_delete_event(
         )));
     }
 
-    // Increment sync token
-    let _new_sync_token = db::calendars::increment_sync_token(&pool, calendar.id).await?;
+    tx.commit().await?;
 
     Ok((StatusCode::NO_CONTENT, "").into_response())
 }

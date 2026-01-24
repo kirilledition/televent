@@ -24,7 +24,7 @@ tower-http.workspace = true
 tower_governor.workspace = true
 
 # Database
-sqlx.workspace = true
+sqlx = { workspace = true, features = ["migrate"] }
 
 # Date/Time
 chrono.workspace = true
