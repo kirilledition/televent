@@ -336,43 +336,44 @@ async fn caldav_report(
             
             // Extract UIDs from hrefs
             // Format: /caldav/{user_id}/{uid}.ics or URL-encoded variants
-            let mut events = Vec::new();
-            let mut ical_data = Vec::new();
-
-            for href in hrefs {
+            let mut requested_uids = Vec::new();
+            for href in &hrefs {
                 // Decode URL encoding
-                let decoded_href = urlencoding::decode(&href)
-                    .unwrap_or(std::borrow::Cow::Borrowed(&href));
+                let decoded_href = urlencoding::decode(href)
+                    .unwrap_or(std::borrow::Cow::Borrowed(href));
                 
                 // Extract UID from path: /caldav/{user_id}/{uid}.ics
                 if let Some(uid_with_ics) = decoded_href.rsplit('/').next() {
                     let uid = uid_with_ics.trim_end_matches(".ics");
-                    
-                    // Fetch event by UID
-                    match db::events::get_event_by_uid(&pool, calendar.id, uid).await {
-                        Ok(Some(event)) => {
-                            // Generate iCalendar data
-                            match ical::event_to_ical(&event) {
-                                Ok(ical_str) => {
-                                    ical_data.push((event.uid.clone(), ical_str));
-                                    events.push(event);
-                                }
-                                Err(e) => {
-                                    tracing::warn!("Failed to generate iCalendar for {}: {:?}", uid, e);
-                                }
-                            }
-                        }
-                        Ok(None) => {
-                            tracing::debug!("Event not found for UID {}", uid);
-                            // CalDAV clients expect 404 for missing resources
-                            // We'll skip this event in the response
-                        }
-                        Err(e) => {
-                            tracing::error!("Database error fetching event {}: {:?}", uid, e);
-                        }
+                    if !uid.is_empty() {
+                        requested_uids.push(uid.to_string());
                     }
                 }
             }
+
+            // Fetch events by UIDs in batch
+            let uid_strs: Vec<&str> = requested_uids.iter().map(|s| s.as_str()).collect();
+            let fetched_events = db::events::get_events_by_uids(&pool, calendar.id, &uid_strs).await?;
+
+            let mut events = Vec::new();
+            let mut ical_data = Vec::new();
+
+            for event in fetched_events {
+                // Generate iCalendar data
+                match ical::event_to_ical(&event) {
+                    Ok(ical_str) => {
+                        ical_data.push((event.uid.clone(), ical_str));
+                        events.push(event);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to generate iCalendar for {}: {:?}", event.uid, e);
+                    }
+                }
+            }
+
+            // Note: Missing events are implicitly handled by not being in the list.
+            // CalDAV Multistatus response will just omit them or client will assume 404 if not present in multistatus response (or we should explicitly return 404 propstat).
+            // The previous implementation skipped missing events, so we do the same here.
 
             let response_xml =
                 caldav_xml::generate_calendar_multiget_response(user_id, &events, &ical_data)?;
