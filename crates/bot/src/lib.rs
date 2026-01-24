@@ -12,10 +12,10 @@ use anyhow::Result;
 use commands::Command;
 use db::BotDb;
 use sqlx::PgPool;
+use teloxide::RequestError;
 use teloxide::dispatching::{HandlerExt, UpdateFilterExt, UpdateHandler};
 use teloxide::dptree;
 use teloxide::prelude::*;
-use teloxide::RequestError;
 
 /// Build the message handler tree
 ///

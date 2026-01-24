@@ -1,10 +1,10 @@
 //! Integration tests for bot dispatcher using teloxide_tests
 
 use bot::{build_handler_tree, db::BotDb};
+use chrono::{Duration, Utc};
 use sqlx::PgPool;
-use teloxide_tests::{MockBot, MockMessageText};
 use teloxide::dptree::deps;
-use chrono::{Utc, Duration};
+use teloxide_tests::{MockBot, MockMessageText, MockPrivateChat, MockUser};
 
 /// Test that /start command gets routed correctly and creates a user
 #[sqlx::test(migrations = "../../migrations")]
@@ -12,7 +12,19 @@ async fn test_dispatcher_start_command(pool: PgPool) {
     let db = BotDb::new(pool.clone());
 
     // Create a mocked /start command message
-    let mock_message = MockMessageText::new().text("/start").from().username("testuser").build();
+    let mock_user = MockUser::new()
+        .id(1)
+        .first_name("Test".to_string())
+        .username("testuser".to_string())
+        .build();
+    let mock_chat = MockPrivateChat::new()
+        .id(1)
+        .username("testuser".to_string())
+        .build();
+    let mock_message = MockMessageText::new()
+        .text("/start")
+        .from(mock_user)
+        .chat(mock_chat);
 
     // Create mock bot with our handler tree
     let mut bot = MockBot::new(mock_message, build_handler_tree());
@@ -22,6 +34,9 @@ async fn test_dispatcher_start_command(pool: PgPool) {
 
     // Dispatch the update
     bot.dispatch().await;
+
+    // Give a bit of time for DB tasks to settle
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // Verify response
     let responses = bot.get_responses();
@@ -36,9 +51,10 @@ async fn test_dispatcher_start_command(pool: PgPool) {
     let telegram_id = 1; // Default mock user ID
     let user = sqlx::query!("SELECT * FROM users WHERE telegram_id = $1", telegram_id)
         .fetch_one(&pool)
-        .await;
+        .await
+        .expect("User should be created in database");
 
-    assert!(user.is_ok());
+    assert_eq!(user.telegram_id, telegram_id);
 }
 
 /// Test that /help command gets routed correctly
@@ -58,7 +74,13 @@ async fn test_dispatcher_help_command(pool: PgPool) {
         .last()
         .expect("No sent messages detected");
 
-    assert!(message.message.text().unwrap().contains("Available commands"));
+    assert!(
+        message
+            .message
+            .text()
+            .unwrap()
+            .contains("Televent Commands")
+    );
 }
 
 /// Test that /list command gets routed correctly
@@ -72,9 +94,18 @@ async fn test_dispatcher_list_command(pool: PgPool) {
         .await
         .unwrap();
 
+    let mock_user = MockUser::new()
+        .id(1)
+        .username("listuser".to_string())
+        .build();
+    let mock_chat = MockPrivateChat::new()
+        .id(1)
+        .username("listuser".to_string())
+        .build();
     let mock_message = MockMessageText::new()
         .text("/list")
-        .from().username("listuser").build();
+        .from(mock_user)
+        .chat(mock_chat);
     let mut bot = MockBot::new(mock_message, build_handler_tree());
     bot.dependencies(deps![db]);
 
@@ -102,9 +133,18 @@ async fn test_dispatcher_text_message_event_creation(pool: PgPool) {
     // Multi-line event format
     let event_text = "Team Meeting\nnext monday at 2pm\n60\nDiscuss Q1 roadmap";
 
+    let mock_user = MockUser::new()
+        .id(1)
+        .username("eventuser".to_string())
+        .build();
+    let mock_chat = MockPrivateChat::new()
+        .id(1)
+        .username("eventuser".to_string())
+        .build();
     let mock_message = MockMessageText::new()
         .text(event_text)
-        .from().username("eventuser").build();
+        .from(mock_user)
+        .chat(mock_chat);
     let mut bot = MockBot::new(mock_message, build_handler_tree());
     bot.dependencies(deps![db.clone()]);
 
@@ -118,13 +158,20 @@ async fn test_dispatcher_text_message_event_creation(pool: PgPool) {
 
     // Should confirm event creation
     assert!(
-        message.message.text().unwrap().contains("Event created")
-            || message.message.text().unwrap().contains("created")
+        message.message.text().unwrap().contains("Event Created!")
+            || message.message.text().unwrap().contains("Created!")
     );
 
     // Verify event was created
     let now = Utc::now();
-    let events = db.get_events_for_user(telegram_id, now - Duration::days(1), now + Duration::days(365)).await.unwrap();
+    let events = db
+        .get_events_for_user(
+            telegram_id,
+            now - Duration::days(1),
+            now + Duration::days(365),
+        )
+        .await
+        .unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].summary, "Team Meeting");
 }
@@ -141,9 +188,18 @@ async fn test_dispatcher_invalid_text_message(pool: PgPool) {
         .unwrap();
 
     // Single line - invalid event format
+    let mock_user = MockUser::new()
+        .id(1)
+        .username("testuser".to_string())
+        .build();
+    let mock_chat = MockPrivateChat::new()
+        .id(1)
+        .username("testuser".to_string())
+        .build();
     let mock_message = MockMessageText::new()
-        .text("just some random text")
-        .from().username("testuser").build();
+        .text("Invalid Event\nNot a date")
+        .from(mock_user)
+        .chat(mock_chat);
     let mut bot = MockBot::new(mock_message, build_handler_tree());
     bot.dependencies(deps![db]);
 
@@ -174,9 +230,18 @@ async fn test_dispatcher_device_command(pool: PgPool) {
         .await
         .unwrap();
 
+    let mock_user = MockUser::new()
+        .id(1)
+        .username("deviceuser".to_string())
+        .build();
+    let mock_chat = MockPrivateChat::new()
+        .id(1)
+        .username("deviceuser".to_string())
+        .build();
     let mock_message = MockMessageText::new()
         .text("/device")
-        .from().username("deviceuser").build();
+        .from(mock_user)
+        .chat(mock_chat);
     let mut bot = MockBot::new(mock_message, build_handler_tree());
     bot.dependencies(deps![db]);
 
@@ -201,9 +266,18 @@ async fn test_dispatcher_export_command(pool: PgPool) {
         .await
         .unwrap();
 
+    let mock_user = MockUser::new()
+        .id(1)
+        .username("exportuser".to_string())
+        .build();
+    let mock_chat = MockPrivateChat::new()
+        .id(1)
+        .username("exportuser".to_string())
+        .build();
     let mock_message = MockMessageText::new()
         .text("/export")
-        .from().username("exportuser").build();
+        .from(mock_user)
+        .chat(mock_chat);
     let mut bot = MockBot::new(mock_message, build_handler_tree());
     bot.dependencies(deps![db]);
 
@@ -221,18 +295,32 @@ async fn test_dispatcher_export_command(pool: PgPool) {
 async fn test_dispatcher_multiple_commands(pool: PgPool) {
     let db = BotDb::new(pool.clone());
 
-    // First command: /start
-    let mock_message1 = MockMessageText::new().text("/start").from().username("multiuser").build();
-    let mut bot = MockBot::new(mock_message1, build_handler_tree());
-    bot.dependencies(deps![db.clone()]);
-    bot.dispatch().await;
+    let mock_user = MockUser::new()
+        .id(1)
+        .username("multiuser".to_string())
+        .build();
+    let mock_chat = MockPrivateChat::new()
+        .id(1)
+        .username("multiuser".to_string())
+        .build();
 
-    // Second command: /help (reuse bot with new update)
-    bot.update(MockMessageText::new().text("/help").from().username("multiuser").build());
-    bot.dispatch().await;
+    let updates = vec![
+        MockMessageText::new()
+            .text("/start")
+            .from(mock_user.clone())
+            .chat(mock_chat.clone()),
+        MockMessageText::new()
+            .text("/help")
+            .from(mock_user.clone())
+            .chat(mock_chat.clone()),
+        MockMessageText::new()
+            .text("/list")
+            .from(mock_user)
+            .chat(mock_chat),
+    ];
 
-    // Third command: /list
-    bot.update(MockMessageText::new().text("/list").from().username("multiuser").build());
+    let mut bot = MockBot::new(updates, build_handler_tree());
+    bot.dependencies(deps![db]);
     bot.dispatch().await;
 
     let responses = bot.get_responses();
