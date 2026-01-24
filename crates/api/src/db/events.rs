@@ -117,6 +117,7 @@ pub async fn get_events_by_uids(
 }
 
 /// Delete event by UID
+#[allow(dead_code)]
 pub async fn delete_event_by_uid(
     pool: &PgPool,
     calendar_id: Uuid,

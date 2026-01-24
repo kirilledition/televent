@@ -1038,7 +1038,7 @@ mod tests {
 
     #[test]
     fn test_generate_calendar_query_response() {
-        let user_id = Uuid::new_v4();
+        let _user_id = Uuid::new_v4();
         let now = Utc::now();
         let calendar_id = Uuid::new_v4();
 
@@ -1158,7 +1158,7 @@ mod tests {
     #[test]
     #[ignore] // benchmark
     fn test_benchmark_generate_calendar_query_response() {
-        let user_id = Uuid::new_v4();
+        let _user_id = Uuid::new_v4();
         let now = Utc::now();
         let calendar_id = Uuid::new_v4();
 

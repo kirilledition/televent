@@ -543,7 +543,7 @@ mod tests {
         assert_eq!(parts.status, StatusCode::OK);
 
         // Check DAV header
-        let dav_header = parts.headers.get(&HeaderName::from_static("dav")).unwrap();
+        let dav_header = parts.headers.get(HeaderName::from_static("dav")).unwrap();
         assert_eq!(dav_header, "1, calendar-access");
 
         // Check ALLOW header

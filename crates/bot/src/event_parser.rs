@@ -165,7 +165,7 @@ Line 4: Location (optional)"#
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Timelike;
+    use chrono::{Local, Timelike};
 
     #[test]
     fn test_parse_minimal_event() {
@@ -195,8 +195,8 @@ mod tests {
         let result = parse_event_message(input);
         assert!(result.is_ok());
         let event = result.expect("should parse");
-        assert_eq!(event.start.hour(), 14);
-        assert_eq!(event.start.minute(), 30);
+        assert_eq!(event.start.with_timezone(&Local).hour(), 14);
+        assert_eq!(event.start.with_timezone(&Local).minute(), 30);
     }
 
     #[test]
@@ -240,8 +240,8 @@ mod tests {
         let input = "Event\n2026-01-20 14:00\n90";
         let event = parse_event_message(input).expect("should parse");
         let end = event.end_time();
-        assert_eq!(end.hour(), 15);
-        assert_eq!(end.minute(), 30);
+        assert_eq!(end.with_timezone(&Local).hour(), 15);
+        assert_eq!(end.with_timezone(&Local).minute(), 30);
     }
 
     #[test]
