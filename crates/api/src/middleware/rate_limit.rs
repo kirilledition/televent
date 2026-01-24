@@ -1,15 +1,123 @@
 //! Rate limiting middleware
 //!
-//! TODO: Implement rate limiting with tower-governor or alternative library.
-//! For now, this is a placeholder module that will be implemented in a future update.
-//!
-//! Target rates:
-//! - CalDAV endpoints: 100 requests/minute per user
-//! - REST API endpoints: 300 requests/minute per user
+//! Implements rate limiting using `tower-governor`.
 
-// Placeholder - rate limiting to be implemented
-// The tower_governor 0.4 API has changed and requires additional configuration.
-// This will be properly implemented with either:
-// 1. tower_governor with correct generic parameters
-// 2. Alternative rate limiting middleware
-// 3. Custom implementation using tokio rate limiting primitives
+use axum::{extract::ConnectInfo, http::Request};
+use std::hash::Hash;
+use std::net::{IpAddr, SocketAddr};
+use tower_governor::{
+    key_extractor::KeyExtractor,
+    errors::GovernorError,
+};
+use uuid::Uuid;
+
+// Target rates:
+// - CalDAV: 100 requests/minute = 1 request every 600ms
+pub const CALDAV_PERIOD_MS: u64 = 600;
+pub const CALDAV_BURST_SIZE: u32 = 100;
+
+// - API: 300 requests/minute = 1 request every 200ms
+pub const API_PERIOD_MS: u64 = 200;
+pub const API_BURST_SIZE: u32 = 300;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RateLimitKey {
+    User(Uuid),
+    Ip(IpAddr),
+}
+
+#[derive(Clone)]
+pub struct UserOrIpKeyExtractor;
+
+impl KeyExtractor for UserOrIpKeyExtractor {
+    type Key = RateLimitKey;
+
+    fn extract<B>(&self, req: &Request<B>) -> Result<Self::Key, GovernorError> {
+        if let Some(user_id) = req.extensions().get::<Uuid>() {
+            return Ok(RateLimitKey::User(*user_id));
+        }
+
+        if let Some(ConnectInfo(addr)) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
+            return Ok(RateLimitKey::Ip(addr.ip()));
+        }
+
+        Err(GovernorError::UnableToExtractKey)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use tower::{Service, ServiceBuilder, ServiceExt};
+    use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+    use std::convert::Infallible;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_rate_limit_key_extraction() {
+        let extractor = UserOrIpKeyExtractor;
+
+        // Test User ID extraction
+        let user_id = Uuid::new_v4();
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut().insert(user_id);
+        let key = extractor.extract(&req).unwrap();
+        assert_eq!(key, RateLimitKey::User(user_id));
+
+        // Test IP extraction
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut().insert(ConnectInfo(addr));
+        let key = extractor.extract(&req).unwrap();
+        assert_eq!(key, RateLimitKey::Ip(addr.ip()));
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiting() {
+        // Create a rate limiter with small quota for testing
+        // 2 requests per burst, replenish slowly
+        let config = GovernorConfigBuilder::default()
+            .period(Duration::from_secs(1))
+            .burst_size(2)
+            .key_extractor(UserOrIpKeyExtractor)
+            .finish()
+            .unwrap();
+
+        let mut service = ServiceBuilder::new()
+            .layer(GovernorLayer::new(config))
+            .service_fn(|_req: Request<Body>| async {
+                Ok::<_, Infallible>(axum::response::Response::new(Body::empty()))
+            });
+
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+
+        // 1st request - OK
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut().insert(ConnectInfo(addr));
+        let res = service.ready().await.unwrap().call(req).await.unwrap();
+        assert_eq!(res.status(), 200);
+
+        // 2nd request - OK
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut().insert(ConnectInfo(addr));
+        let res = service.ready().await.unwrap().call(req).await.unwrap();
+        assert_eq!(res.status(), 200);
+
+        // 3rd request - Too Many Requests (burst exceeded)
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut().insert(ConnectInfo(addr));
+
+        // Note: With NoOpMiddleware (default), it might return an error that we need to handle.
+        // But we want to ensure it works.
+        match service.ready().await.unwrap().call(req).await {
+            Ok(res) => {
+                 // If it returns a response, it should be 429
+                 assert_eq!(res.status(), 429);
+            }
+            Err(e) => {
+                panic!("Expected 429 response, got error: {:?}", e);
+            }
+        }
+    }
+}
