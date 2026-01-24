@@ -359,19 +359,33 @@ fn generate_etag(
     status: &EventStatus,
     rrule: Option<&str>,
 ) -> String {
-    let data = format!(
-        "{}|{}|{}|{}|{}|{}|{}|{:?}|{}",
-        uid,
-        summary,
-        description.unwrap_or(""),
-        location.unwrap_or(""),
-        start.to_rfc3339(),
-        end.to_rfc3339(),
-        is_all_day,
-        status,
-        rrule.unwrap_or("")
-    );
-    let hash = Sha256::digest(data.as_bytes());
+    let mut hasher = Sha256::new();
+    hasher.update(uid.as_bytes());
+    hasher.update(b"|");
+    hasher.update(summary.as_bytes());
+    hasher.update(b"|");
+    hasher.update(description.unwrap_or("").as_bytes());
+    hasher.update(b"|");
+    hasher.update(location.unwrap_or("").as_bytes());
+    hasher.update(b"|");
+    hasher.update(start.to_rfc3339().as_bytes());
+    hasher.update(b"|");
+    hasher.update(end.to_rfc3339().as_bytes());
+    hasher.update(b"|");
+    hasher.update(if is_all_day { b"true".as_slice() } else { b"false".as_slice() });
+    hasher.update(b"|");
+
+    let status_bytes = match status {
+        EventStatus::Confirmed => b"Confirmed",
+        EventStatus::Tentative => b"Tentative",
+        EventStatus::Cancelled => b"Cancelled",
+    };
+    hasher.update(status_bytes);
+
+    hasher.update(b"|");
+    hasher.update(rrule.unwrap_or("").as_bytes());
+
+    let hash = hasher.finalize();
     format!("{:x}", hash)
 }
 
@@ -487,5 +501,44 @@ mod tests {
         );
 
         assert_ne!(etag1, etag2);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_benchmark_generate_etag() {
+        let uid = "test-uid-123";
+        let summary = "Test Event with a reasonably long summary to simulate real world data";
+        let description_string = "And here is a description that is also somewhat long so we can see the impact of allocation. ".repeat(10);
+        let description = Some(description_string.as_str());
+        let location = Some("1234 Example St, City, Country");
+        let start = "2026-01-18T10:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let end = "2026-01-18T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let status = EventStatus::Confirmed;
+        let rrule = Some("FREQ=WEEKLY;COUNT=10");
+
+        let iterations = 100_000;
+        let start_time = std::time::Instant::now();
+
+        for _ in 0..iterations {
+            let _ = generate_etag(
+                uid,
+                summary,
+                description.as_deref(),
+                location.as_deref(),
+                &start,
+                &end,
+                false,
+                &status,
+                rrule.as_deref(),
+            );
+        }
+
+        let duration = start_time.elapsed();
+        println!(
+            "Benchmark generate_etag (N={}): {:?} (avg: {:?})",
+            iterations,
+            duration,
+            duration / iterations
+        );
     }
 }
