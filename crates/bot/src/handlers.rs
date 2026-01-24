@@ -438,20 +438,36 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
 }
 
 /// Handle the /export command
-pub async fn handle_export(bot: Bot, msg: Message, _db: BotDb) -> Result<()> {
+pub async fn handle_export(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
     let user = msg
         .from
         .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
     let telegram_id = user.id.0 as i64;
 
-    // TODO: Implement ICS export
-    bot.send_message(
-        msg.chat.id,
-        "📤 Export functionality coming soon! For now, use CalDAV sync to access your calendar.",
-    )
-    .await?;
+    // Fetch all events for the user
+    let events = db.get_all_events_for_user(telegram_id).await?;
 
-    tracing::info!("User {} requested calendar export", telegram_id);
+    if events.is_empty() {
+        bot.send_message(
+            msg.chat.id,
+            "📅 You don't have any events to export yet.",
+        )
+        .await?;
+        return Ok(());
+    }
+
+    // Generate ICS content
+    let ics_content = generate_ics(&events);
+
+    // Send as file
+    let file = teloxide::types::InputFile::memory(ics_content.into_bytes())
+        .file_name("calendar.ics");
+
+    bot.send_document(msg.chat.id, file)
+        .caption("📤 Here is your calendar export.")
+        .await?;
+
+    tracing::info!("User {} exported {} events", telegram_id, events.len());
 
     Ok(())
 }
@@ -912,6 +928,36 @@ pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()
     Ok(())
 }
 
+/// Generate ICS content from a list of events
+fn generate_ics(events: &[crate::db::BotEvent]) -> String {
+    use icalendar::{Calendar, Component, Event, EventLike};
+
+    let mut calendar = Calendar::new();
+    calendar
+        .name("Televent Calendar")
+        .description("Exported from Televent Telegram Bot");
+
+    for event in events {
+        let mut ics_event = Event::new();
+        ics_event
+            .summary(&event.summary)
+            .starts(event.start)
+            .ends(event.end)
+            .uid(&event.id.to_string());
+
+        if let Some(desc) = &event.description {
+            ics_event.description(desc);
+        }
+        if let Some(loc) = &event.location {
+            ics_event.location(loc);
+        }
+
+        calendar.push(ics_event);
+    }
+
+    calendar.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::commands::Command;
@@ -924,5 +970,34 @@ mod tests {
         let cmds_str = cmds.to_string();
         assert!(cmds_str.contains("start"), "Should contain /start command");
         assert!(cmds_str.contains("today"), "Should contain /today command");
+    }
+
+    #[test]
+    fn test_generate_ics() {
+        use crate::db::BotEvent;
+        use chrono::{TimeZone, Utc};
+        use uuid::Uuid;
+
+        let start = Utc.with_ymd_and_hms(2023, 10, 27, 10, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2023, 10, 27, 11, 0, 0).unwrap();
+
+        let event = BotEvent {
+            id: Uuid::new_v4(),
+            summary: "Test Event".to_string(),
+            start,
+            end,
+            location: Some("Online".to_string()),
+            description: Some("Description".to_string()),
+        };
+
+        let ics = super::generate_ics(&[event]);
+
+        assert!(ics.contains("BEGIN:VCALENDAR"));
+        assert!(ics.contains("BEGIN:VEVENT"));
+        assert!(ics.contains("SUMMARY:Test Event"));
+        assert!(ics.contains("LOCATION:Online"));
+        assert!(ics.contains("DESCRIPTION:Description"));
+        assert!(ics.contains("END:VEVENT"));
+        assert!(ics.contains("END:VCALENDAR"));
     }
 }

@@ -154,6 +154,47 @@ impl BotDb {
         Ok(events)
     }
 
+    /// Get all events for a user (for export)
+    pub async fn get_all_events_for_user(
+        &self,
+        telegram_id: i64,
+    ) -> Result<Vec<BotEvent>, sqlx::Error> {
+        // First, get the calendar_id for this user
+        let calendar_row = sqlx::query(
+            r#"
+            SELECT id
+            FROM calendars
+            WHERE user_id = (
+                SELECT id FROM users WHERE telegram_id = $1
+            )
+            "#,
+        )
+        .bind(telegram_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let calendar_id: Uuid = match calendar_row {
+            Some(row) => row.try_get("id")?,
+            None => return Ok(Vec::new()), // No calendar yet
+        };
+
+        // Query events
+        let events = sqlx::query_as::<_, BotEvent>(
+            r#"
+            SELECT id, summary, start, "end", location, description
+            FROM events
+            WHERE calendar_id = $1
+              AND status != 'CANCELLED'
+            ORDER BY start ASC
+            "#,
+        )
+        .bind(calendar_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(events)
+    }
+
     /// Ensure user exists and has a calendar
     pub async fn ensure_user_setup(
         &self,

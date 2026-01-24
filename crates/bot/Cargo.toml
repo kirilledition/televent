@@ -46,3 +46,6 @@ argon2.workspace = true
 rand.workspace = true
 dotenvy.workspace = true
 thiserror.workspace = true
+
+# iCalendar
+icalendar.workspace = true
