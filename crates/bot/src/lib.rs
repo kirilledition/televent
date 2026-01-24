@@ -41,9 +41,7 @@ pub async fn run_bot(pool: PgPool, bot_token: String) -> Result<()> {
                 .endpoint(handle_command),
         )
         // Then handle as text message (for event creation)
-        .branch(
-            dptree::filter(|msg: Message| msg.text().is_some()).endpoint(handle_message),
-        );
+        .branch(dptree::filter(|msg: Message| msg.text().is_some()).endpoint(handle_message));
 
     // Create dispatcher with database dependency
     // Note: NOT using enable_ctrlc_handler() - shutdown is managed by the caller

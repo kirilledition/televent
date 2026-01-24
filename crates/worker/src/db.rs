@@ -83,11 +83,7 @@ impl WorkerDb {
     }
 
     /// Mark a message as failed with error message
-    pub async fn mark_failed(
-        &self,
-        message_id: Uuid,
-        error_msg: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn mark_failed(&self, message_id: Uuid, error_msg: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             UPDATE outbox_messages

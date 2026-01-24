@@ -66,7 +66,6 @@ pub async fn handle_help(bot: Bot, msg: Message) -> Result<()> {
     Ok(())
 }
 
-
 /// Handle the /device command
 pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
     let user = msg
@@ -244,11 +243,8 @@ pub async fn handle_export(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
     let events = db.get_all_events_for_user(telegram_id).await?;
 
     if events.is_empty() {
-        bot.send_message(
-            msg.chat.id,
-            "📅 You don't have any events to export yet.",
-        )
-        .await?;
+        bot.send_message(msg.chat.id, "📅 You don't have any events to export yet.")
+            .await?;
         return Ok(());
     }
 
@@ -256,8 +252,8 @@ pub async fn handle_export(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
     let ics_content = generate_ics(&events);
 
     // Send as file
-    let file = teloxide::types::InputFile::memory(ics_content.into_bytes())
-        .file_name("calendar.ics");
+    let file =
+        teloxide::types::InputFile::memory(ics_content.into_bytes()).file_name("calendar.ics");
 
     bot.send_document(msg.chat.id, file)
         .caption("📤 Here is your calendar export.")
@@ -309,7 +305,10 @@ pub async fn handle_list(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         bot.send_message(msg.chat.id, "📅 No upcoming events in the next 7 days.")
             .await?;
     } else {
-        let mut response = format!("📅 <b>Upcoming Events (Next 7 Days)</b> ({})\n\n", events.len());
+        let mut response = format!(
+            "📅 <b>Upcoming Events (Next 7 Days)</b> ({})\n\n",
+            events.len()
+        );
 
         for (idx, event) in events.iter().enumerate() {
             response.push_str(&format!(
@@ -424,7 +423,10 @@ pub async fn handle_invite(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             None => {
                 bot.send_message(
                     msg.chat.id,
-                    format!("❌ User @{} not found. They need to /start the bot first.", username),
+                    format!(
+                        "❌ User @{} not found. They need to /start the bot first.",
+                        username
+                    ),
                 )
                 .await?;
                 return Ok(());
@@ -501,7 +503,10 @@ pub async fn handle_rsvp(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
     let telegram_id = user.id.0 as i64;
-    let username = user.username.clone().unwrap_or_else(|| format!("User_{}", telegram_id));
+    let username = user
+        .username
+        .clone()
+        .unwrap_or_else(|| format!("User_{}", telegram_id));
 
     // Parse command arguments: /rsvp [<event_id> <status>]
     let text = msg.text().unwrap_or("");
@@ -619,7 +624,10 @@ pub async fn handle_rsvp(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
 
             bot.send_message(
                 msg.chat.id,
-                format!("{} Your response has been recorded: <b>{}</b>", emoji, status),
+                format!(
+                    "{} Your response has been recorded: <b>{}</b>",
+                    emoji, status
+                ),
             )
             .parse_mode(ParseMode::Html)
             .await?;

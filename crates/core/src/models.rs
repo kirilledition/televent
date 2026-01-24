@@ -111,7 +111,7 @@ pub struct AuditLog {
 pub struct EventAttendee {
     pub id: Uuid,
     pub event_id: Uuid,
-    pub email: String, // tg_123@televent.internal or external
+    pub email: String,            // tg_123@televent.internal or external
     pub telegram_id: Option<i64>, // Populated for internal users
     pub role: AttendeeRole,
     pub status: ParticipationStatus,
@@ -279,10 +279,7 @@ mod tests {
         );
         assert_eq!(serde_json::to_string(&accepted).unwrap(), r#""Accepted""#);
         assert_eq!(serde_json::to_string(&declined).unwrap(), r#""Declined""#);
-        assert_eq!(
-            serde_json::to_string(&tentative).unwrap(),
-            r#""Tentative""#
-        );
+        assert_eq!(serde_json::to_string(&tentative).unwrap(), r#""Tentative""#);
 
         // Test deserialization
         let needs_action_de: ParticipationStatus =
@@ -303,10 +300,7 @@ mod tests {
         let attendee = AttendeeRole::Attendee;
 
         // Test JSON serialization
-        assert_eq!(
-            serde_json::to_string(&organizer).unwrap(),
-            r#""Organizer""#
-        );
+        assert_eq!(serde_json::to_string(&organizer).unwrap(), r#""Organizer""#);
         assert_eq!(serde_json::to_string(&attendee).unwrap(), r#""Attendee""#);
 
         // Test deserialization

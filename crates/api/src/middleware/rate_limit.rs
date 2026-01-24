@@ -5,10 +5,7 @@
 use axum::{extract::ConnectInfo, http::Request};
 use std::hash::Hash;
 use std::net::{IpAddr, SocketAddr};
-use tower_governor::{
-    key_extractor::KeyExtractor,
-    errors::GovernorError,
-};
+use tower_governor::{errors::GovernorError, key_extractor::KeyExtractor};
 use uuid::Uuid;
 
 // Target rates:
@@ -49,10 +46,10 @@ impl KeyExtractor for UserOrIpKeyExtractor {
 mod tests {
     use super::*;
     use axum::body::Body;
-    use tower::{Service, ServiceBuilder, ServiceExt};
-    use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
     use std::convert::Infallible;
     use std::time::Duration;
+    use tower::{Service, ServiceBuilder, ServiceExt};
+    use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 
     #[tokio::test]
     async fn test_rate_limit_key_extraction() {
@@ -112,8 +109,8 @@ mod tests {
         // But we want to ensure it works.
         match service.ready().await.unwrap().call(req).await {
             Ok(res) => {
-                 // If it returns a response, it should be 429
-                 assert_eq!(res.status(), 429);
+                // If it returns a response, it should be 429
+                assert_eq!(res.status(), 429);
             }
             Err(e) => {
                 panic!("Expected 429 response, got error: {:?}", e);

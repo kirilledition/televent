@@ -491,10 +491,7 @@ impl BotDb {
     }
 
     /// Get event organizer's telegram_id
-    pub async fn get_event_organizer(
-        &self,
-        event_id: Uuid,
-    ) -> Result<Option<i64>, sqlx::Error> {
+    pub async fn get_event_organizer(&self, event_id: Uuid) -> Result<Option<i64>, sqlx::Error> {
         let row = sqlx::query!(
             r#"
             SELECT u.telegram_id
@@ -577,10 +574,7 @@ impl BotDb {
     }
 
     /// Get calendar ID for a user (creates calendar if missing)
-    pub async fn get_or_create_calendar(
-        &self,
-        telegram_id: i64,
-    ) -> Result<Uuid, sqlx::Error> {
+    pub async fn get_or_create_calendar(&self, telegram_id: i64) -> Result<Uuid, sqlx::Error> {
         // First try to get existing calendar
         let calendar_row = sqlx::query!(
             r#"

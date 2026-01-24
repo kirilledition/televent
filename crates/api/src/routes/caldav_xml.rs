@@ -147,7 +147,8 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
         Ok(ReportType::CalendarMultiget { hrefs })
     } else {
         Err(ApiError::BadRequest(
-            "Unknown REPORT type: expected calendar-query, sync-collection, or calendar-multiget".to_string(),
+            "Unknown REPORT type: expected calendar-query, sync-collection, or calendar-multiget"
+                .to_string(),
         ))
     }
 }
@@ -317,106 +318,48 @@ fn write_event_with_data(
     ical_data: &str,
 ) -> Result<(), ApiError> {
     // <response>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:response")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:response")?;
 
     // <href>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&format!(
-            "/caldav/{}/{}.ics",
-            user_identifier, event.uid
-        ))))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(
+        writer,
+        "d:href",
+        &format!("/caldav/{}/{}.ics", user_identifier, event.uid),
+    )?;
 
     // <propstat>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:propstat")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:propstat")?;
 
     // <prop>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:prop")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:prop")?;
 
     // <getetag>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:getetag")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&format!("\"{}\"", event.etag))))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:getetag")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(writer, "d:getetag", &format!("\"{}\"", event.etag))?;
 
     // <getcontenttype>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:getcontenttype")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new("text/calendar; charset=utf-8")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:getcontenttype")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(writer, "d:getcontenttype", "text/calendar; charset=utf-8")?;
 
     // <getlastmodified> (RFC 2616 HTTP-date format)
-    writer
-        .write_event(Event::Start(BytesStart::new("d:getlastmodified")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    let http_date = event.updated_at.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    writer
-        .write_event(Event::Text(BytesText::new(&http_date)))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:getlastmodified")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    let http_date = event
+        .updated_at
+        .format("%a, %d %b %Y %H:%M:%S GMT")
+        .to_string();
+    write_string_tag(writer, "d:getlastmodified", &http_date)?;
 
     // <calendar-data>
-    writer
-        .write_event(Event::Start(BytesStart::new("cal:calendar-data")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(ical_data)))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("cal:calendar-data")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(writer, "cal:calendar-data", ical_data)?;
 
     // </prop>
-    writer
-        .write_event(Event::End(BytesEnd::new("d:prop")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_end_tag(writer, "d:prop")?;
 
-    // <status>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:status")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new("HTTP/1.1 200 OK")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:status")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    // <status>HTTP/1.1 200 OK</status>
+    write_string_tag(writer, "d:status", "HTTP/1.1 200 OK")?;
 
     // </propstat>
-    writer
-        .write_event(Event::End(BytesEnd::new("d:propstat")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_end_tag(writer, "d:propstat")?;
 
     // </response>
-    writer
-        .write_event(Event::End(BytesEnd::new("d:response")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-
-    Ok(())
+    write_end_tag(writer, "d:response")
 }
 
 /// Write 404 response for deleted event (sync-collection)
@@ -426,41 +369,20 @@ fn write_deleted_event_response(
     uid: &str,
 ) -> Result<(), ApiError> {
     // <response>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:response")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:response")?;
 
     // <href>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&format!(
-            "/caldav/{}/{}.ics",
-            user_identifier, uid
-        ))))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(
+        writer,
+        "d:href",
+        &format!("/caldav/{}/{}.ics", user_identifier, uid),
+    )?;
 
     // <status>HTTP/1.1 404 Not Found</status>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:status")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new("HTTP/1.1 404 Not Found")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:status")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(writer, "d:status", "HTTP/1.1 404 Not Found")?;
 
     // </response>
-    writer
-        .write_event(Event::End(BytesEnd::new("d:response")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-
-    Ok(())
+    write_end_tag(writer, "d:response")
 }
 
 /// Generate CalDAV multistatus response for PROPFIND
@@ -512,223 +434,93 @@ fn write_calendar_response(
     calendar: &Calendar,
 ) -> Result<(), ApiError> {
     // <response>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:response")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:response")?;
 
     // <href>/caldav/{user_id}/</href>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&format!(
-            "/caldav/{}/",
-            user_identifier
-        ))))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(writer, "d:href", &format!("/caldav/{}/", user_identifier))?;
 
     // <propstat>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:propstat")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:propstat")?;
 
     // <prop>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:prop")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:prop")?;
 
     // <resourcetype><collection/><calendar/></resourcetype>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:resourcetype")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Empty(BytesStart::new("d:collection")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Empty(BytesStart::new("cal:calendar")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:resourcetype")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:resourcetype")?;
+    write_empty_tag(writer, "d:collection")?;
+    write_empty_tag(writer, "cal:calendar")?;
+    write_end_tag(writer, "d:resourcetype")?;
 
     // <displayname>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:displayname")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&calendar.name)))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:displayname")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(writer, "d:displayname", &calendar.name)?;
 
     // <getctag>
-    writer
-        .write_event(Event::Start(BytesStart::new("cal:getctag")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&calendar.ctag)))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("cal:getctag")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(writer, "cal:getctag", &calendar.ctag)?;
 
     // <sync-token> (RFC 6578)
-    writer
-        .write_event(Event::Start(BytesStart::new("d:sync-token")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&format!(
-            "http://televent.app/sync/{}",
-            calendar.sync_token
-        ))))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:sync-token")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(
+        writer,
+        "d:sync-token",
+        &format!("http://televent.app/sync/{}", calendar.sync_token),
+    )?;
 
     // <calendar-home-set>
-    writer
-        .write_event(Event::Start(BytesStart::new("cal:calendar-home-set")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Start(BytesStart::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_identifier))))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("cal:calendar-home-set")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "cal:calendar-home-set")?;
+    write_string_tag(writer, "d:href", &format!("/caldav/{}/", user_identifier))?;
+    write_end_tag(writer, "cal:calendar-home-set")?;
 
     // <current-user-principal>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:current-user-principal")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Start(BytesStart::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    // Simplified: principal is the same as calendar home for now (Thunderbird accepts this usually, or purely /caldav/{user_id}/)
-    writer
-        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_identifier))))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:current-user-principal")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:current-user-principal")?;
+    // Simplified: principal is the same as calendar home
+    write_string_tag(writer, "d:href", &format!("/caldav/{}/", user_identifier))?;
+    write_end_tag(writer, "d:current-user-principal")?;
 
     // <owner>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:owner")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Start(BytesStart::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_identifier))))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:owner")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:owner")?;
+    write_string_tag(writer, "d:href", &format!("/caldav/{}/", user_identifier))?;
+    write_end_tag(writer, "d:owner")?;
 
     // <supported-calendar-component-set>
-    writer
-        .write_event(Event::Start(BytesStart::new(
-            "cal:supported-calendar-component-set",
-        )))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "cal:supported-calendar-component-set")?;
+    // We can't use write_empty_tag directly as it needs an attribute
+    // Custom logic for this one small part is fine, or extend helpers, but keeping it simple:
     let mut comp = BytesStart::new("cal:comp");
     comp.push_attribute(("name", "VEVENT"));
     writer
         .write_event(Event::Empty(comp))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new(
-            "cal:supported-calendar-component-set",
-        )))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_end_tag(writer, "cal:supported-calendar-component-set")?;
 
     // <supported-report-set>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:supported-report-set")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    
+    write_start_tag(writer, "d:supported-report-set")?;
+
     // report: calendar-query
-    writer
-        .write_event(Event::Start(BytesStart::new("d:supported-report")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Start(BytesStart::new("d:report")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Empty(BytesStart::new("cal:calendar-query")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:report")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:supported-report")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:supported-report")?;
+    write_start_tag(writer, "d:report")?;
+    write_empty_tag(writer, "cal:calendar-query")?;
+    write_end_tag(writer, "d:report")?;
+    write_end_tag(writer, "d:supported-report")?;
 
     // report: sync-collection
-    writer
-        .write_event(Event::Start(BytesStart::new("d:supported-report")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Start(BytesStart::new("d:report")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Empty(BytesStart::new("d:sync-collection")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:report")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:supported-report")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:supported-report")?;
+    write_start_tag(writer, "d:report")?;
+    write_empty_tag(writer, "d:sync-collection")?;
+    write_end_tag(writer, "d:report")?;
+    write_end_tag(writer, "d:supported-report")?;
 
-    writer
-        .write_event(Event::End(BytesEnd::new("d:supported-report-set")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_end_tag(writer, "d:supported-report-set")?;
 
     // </prop>
-    writer
-        .write_event(Event::End(BytesEnd::new("d:prop")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_end_tag(writer, "d:prop")?;
 
     // <status>HTTP/1.1 200 OK</status>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:status")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new("HTTP/1.1 200 OK")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:status")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(writer, "d:status", "HTTP/1.1 200 OK")?;
 
     // </propstat>
-    writer
-        .write_event(Event::End(BytesEnd::new("d:propstat")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_end_tag(writer, "d:propstat")?;
 
     // </response>
-    writer
-        .write_event(Event::End(BytesEnd::new("d:response")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-
-    Ok(())
+    write_end_tag(writer, "d:response")
 }
 
 /// Write event resource response
@@ -738,95 +530,84 @@ fn write_event_response(
     event: &CalEvent,
 ) -> Result<(), ApiError> {
     // <response>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:response")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:response")?;
 
     // <href>/caldav/{user_id}/{uid}.ics</href>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&format!(
-            "/caldav/{}/{}.ics",
-            user_identifier, event.uid
-        ))))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:href")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(
+        writer,
+        "d:href",
+        &format!("/caldav/{}/{}.ics", user_identifier, event.uid),
+    )?;
 
     // <propstat>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:propstat")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:propstat")?;
 
     // <prop>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:prop")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_start_tag(writer, "d:prop")?;
 
     // <getetag>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:getetag")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&format!("\"{}\"", event.etag))))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:getetag")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(writer, "d:getetag", &format!("\"{}\"", event.etag))?;
 
     // <getcontenttype>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:getcontenttype")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new("text/calendar; charset=utf-8")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:getcontenttype")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(writer, "d:getcontenttype", "text/calendar; charset=utf-8")?;
 
     // <getlastmodified> (RFC 2616 HTTP-date format)
-    writer
-        .write_event(Event::Start(BytesStart::new("d:getlastmodified")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    let http_date = event.updated_at.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    writer
-        .write_event(Event::Text(BytesText::new(&http_date)))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:getlastmodified")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    let http_date = event
+        .updated_at
+        .format("%a, %d %b %Y %H:%M:%S GMT")
+        .to_string();
+    write_string_tag(writer, "d:getlastmodified", &http_date)?;
 
     // </prop>
-    writer
-        .write_event(Event::End(BytesEnd::new("d:prop")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_end_tag(writer, "d:prop")?;
 
     // <status>HTTP/1.1 200 OK</status>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:status")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new("HTTP/1.1 200 OK")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:status")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_string_tag(writer, "d:status", "HTTP/1.1 200 OK")?;
 
     // </propstat>
-    writer
-        .write_event(Event::End(BytesEnd::new("d:propstat")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_end_tag(writer, "d:propstat")?;
 
     // </response>
-    writer
-        .write_event(Event::End(BytesEnd::new("d:response")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    write_end_tag(writer, "d:response")
+}
 
+/// Write a simple XML element with text content: <tag>content</tag>
+fn write_string_tag<W: std::io::Write>(
+    writer: &mut Writer<W>,
+    tag: &str,
+    text: &str,
+) -> Result<(), ApiError> {
+    writer
+        .write_event(Event::Start(BytesStart::new(tag)))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    writer
+        .write_event(Event::Text(BytesText::new(text)))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    writer
+        .write_event(Event::End(BytesEnd::new(tag)))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     Ok(())
+}
+
+/// Start an element: <tag>
+fn write_start_tag<W: std::io::Write>(writer: &mut Writer<W>, tag: &str) -> Result<(), ApiError> {
+    writer
+        .write_event(Event::Start(BytesStart::new(tag)))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))
+}
+
+/// End an element: </tag>
+fn write_end_tag<W: std::io::Write>(writer: &mut Writer<W>, tag: &str) -> Result<(), ApiError> {
+    writer
+        .write_event(Event::End(BytesEnd::new(tag)))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))
+}
+
+/// Write an empty element: <tag/>
+fn write_empty_tag<W: std::io::Write>(writer: &mut Writer<W>, tag: &str) -> Result<(), ApiError> {
+    writer
+        .write_event(Event::Empty(BytesStart::new(tag)))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))
 }
 
 #[cfg(test)]
@@ -1114,7 +895,8 @@ mod tests {
 
         let deleted_uids = vec!["deleted-event".to_string()];
         let xml =
-            generate_sync_collection_response("testuser", &calendar, &[event], &[], &deleted_uids).unwrap();
+            generate_sync_collection_response("testuser", &calendar, &[event], &[], &deleted_uids)
+                .unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -1194,6 +976,9 @@ mod tests {
         let _ = generate_calendar_query_response("testuser", &events, &ical_data).unwrap();
         let duration = start.elapsed();
 
-        println!("Benchmark generate_calendar_query_response (N={}): {:?}", count, duration);
+        println!(
+            "Benchmark generate_calendar_query_response (N={}): {:?}",
+            count, duration
+        );
     }
 }

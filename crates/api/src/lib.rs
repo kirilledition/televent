@@ -10,14 +10,14 @@ use axum::extract::FromRef;
 use axum::{Router, middleware as axum_middleware};
 use moka::future::Cache;
 use sqlx::PgPool;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
 use crate::middleware::caldav_auth::{LoginId, caldav_basic_auth};
 use crate::middleware::rate_limit::{
-    UserOrIpKeyExtractor, API_BURST_SIZE, API_PERIOD_MS, CALDAV_BURST_SIZE, CALDAV_PERIOD_MS,
+    API_BURST_SIZE, API_PERIOD_MS, CALDAV_BURST_SIZE, CALDAV_PERIOD_MS, UserOrIpKeyExtractor,
 };
 
 #[derive(Clone)]
@@ -124,13 +124,17 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
                 .on_request(|_request: &axum::http::Request<_>, _span: &tracing::Span| {
                     tracing::info!("started processing request");
                 })
-                .on_response(|response: &axum::http::Response<_>, latency: std::time::Duration, _span: &tracing::Span| {
-                    tracing::info!(
-                        latency_ms = %latency.as_millis(),
-                        status = %response.status(),
-                        "finished processing request"
-                    );
-                })
+                .on_response(
+                    |response: &axum::http::Response<_>,
+                     latency: std::time::Duration,
+                     _span: &tracing::Span| {
+                        tracing::info!(
+                            latency_ms = %latency.as_millis(),
+                            status = %response.status(),
+                            "finished processing request"
+                        );
+                    },
+                ),
         )
         .with_state(state)
 }
@@ -151,6 +155,7 @@ pub async fn run_api(state: AppState, config: &config::Config) -> Result<(), std
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(
         listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>()
-    ).await
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
 }

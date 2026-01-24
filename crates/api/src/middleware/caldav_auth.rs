@@ -41,25 +41,33 @@ pub async fn caldav_basic_auth(
     let (login_id, password) = parse_basic_auth(auth_header)?;
 
     // Check Cache
-    if let Some(user_id) = state.auth_cache.get(&(login_id.clone(), password.clone())).await {
+    if let Some(user_id) = state
+        .auth_cache
+        .get(&(login_id.clone(), password.clone()))
+        .await
+    {
         request.extensions_mut().insert(user_id);
         return Ok(next.run(request).await);
     }
 
     // Look up user by login_id
     let user_id: Uuid = match &login_id {
-        LoginId::TelegramId(tid) => sqlx::query_scalar("SELECT id FROM users WHERE telegram_id = $1")
-            .bind(tid)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
-            .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?,
-        LoginId::Username(username) => sqlx::query_scalar("SELECT id FROM users WHERE lower(telegram_username) = lower($1)")
-            .bind(username)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
-            .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?,
+        LoginId::TelegramId(tid) => {
+            sqlx::query_scalar("SELECT id FROM users WHERE telegram_id = $1")
+                .bind(tid)
+                .fetch_optional(&state.pool)
+                .await
+                .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
+                .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?
+        }
+        LoginId::Username(username) => {
+            sqlx::query_scalar("SELECT id FROM users WHERE lower(telegram_username) = lower($1)")
+                .bind(username)
+                .fetch_optional(&state.pool)
+                .await
+                .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
+                .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?
+        }
     };
 
     // Get device passwords for this user
@@ -102,10 +110,7 @@ pub async fn caldav_basic_auth(
         .ok();
 
     // Cache success
-    state
-        .auth_cache
-        .insert((login_id, password), user_id)
-        .await;
+    state.auth_cache.insert((login_id, password), user_id).await;
 
     // Attach user_id to request extensions
     request.extensions_mut().insert(user_id);
@@ -147,7 +152,9 @@ fn parse_basic_auth(auth_header: &str) -> Result<(LoginId, String), ApiError> {
         // Remove @ if present (though CalDAV clients usually don't send it)
         let username = login_str.trim_start_matches('@').to_string();
         if username.is_empty() {
-             return Err(ApiError::Unauthorized("Username cannot be empty".to_string()));
+            return Err(ApiError::Unauthorized(
+                "Username cannot be empty".to_string(),
+            ));
         }
         LoginId::Username(username)
     };

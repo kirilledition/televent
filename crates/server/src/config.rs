@@ -37,8 +37,7 @@ impl UnifiedConfig {
                     .unwrap_or_else(|_| "3000".into())
                     .parse()?,
                 jwt_secret: env::var("JWT_SECRET")?,
-                cors_allowed_origin: env::var("CORS_ALLOWED_ORIGIN")
-                    .unwrap_or_else(|_| "*".into()),
+                cors_allowed_origin: env::var("CORS_ALLOWED_ORIGIN").unwrap_or_else(|_| "*".into()),
             },
             worker: WorkerConfig {
                 poll_interval_secs: env::var("WORKER_POLL_INTERVAL_SECS")

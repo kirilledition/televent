@@ -41,110 +41,22 @@ db-stop:
 run:
     cargo run --bin televent
 
-# Alias for clarity
-server: run
-
-# Build release binary for production
-build-release:
-    cargo build --release --bin televent
-
-# Run Telegram bot (standalone mode)
-bot:
-    cargo run --bin bot
-
-# Run API server (standalone mode)
-api:
-    cargo run --bin api
-
-# Run background worker (standalone mode)
-worker:
-    cargo run --bin worker
-
-# Run all services separately in parallel (legacy mode)
-run-separate:
-    #!/usr/bin/env bash
-    # 1. Define a cleanup function to kill background jobs when this script exits
-    cleanup() {
-        echo "🛑 Shutting down all services..."
-        # 'kill 0' sends the signal to every process in the current process group
-        kill 0
-    }
-    
-    # 2. Trap specific signals (SIGINT = Ctrl+C, SIGTERM) to run cleanup
-    trap cleanup SIGINT SIGTERM EXIT
-
-    echo "🚀 Starting Televent Services..."
-    
-    # 3. Start binaries in the background (&)
-    # We use parenthesis to group output if needed, but here we just launch them.
-    (unset DATABASE_URL && cargo run --bin bot) &
-    (unset DATABASE_URL && cargo run --bin api) &
-    (unset DATABASE_URL && cargo run --bin worker) &
-
-    # 4. Wait for all background processes to finish (blocks until you hit Ctrl+C)
-    wait
-
-# Force kill any lingering Televent binaries (useful if something gets stuck)
-kill-all:
-    @echo "🔫 Killing all Televent processes..."
-    @pkill -f "target/debug/bot" || echo "Bot was not running"
-    @pkill -f "target/debug/api" || echo "API was not running"
-    @pkill -f "target/debug/worker" || echo "Worker was not running"
-    @echo "✅ Cleanup complete."
-# ==============================================
-# Testing
-# ==============================================
-
 # Run all tests
 test:
     cargo test --workspace
 
-# Run tests with coverage report
+# Run tests with coverage report (HTML)
 test-coverage:
-    cargo tarpaulin --workspace --out Html --output-dir coverage
-
+    cargo llvm-cov --workspace --html --output-dir logs
+    
 lint:
-    @echo "Checking formatting..."
-    cargo fmt --all --check
-    @echo "Running clippy..."
-    cargo clippy --workspace -- -D warnings
-    @echo "✅ All checks passed!"
-
-# Fix all auto-fixable issues (format + clippy)
-fix:
-    @echo "Formatting code..."
-    cargo fmt --all
-    @echo "Fixing clippy issues..."
-    cargo clippy --workspace --fix --allow-dirty --allow-staged
-    @echo "✅ All fixes applied!"
-
-# ==============================================
-# Building
-# ==============================================
-
-# Build all crates (debug mode)
-build:
-    cargo build --workspace
-
-# Check if code compiles without building
-check:
+    @echo "Checking code..."
     cargo check --workspace
-
-# ==============================================
-# Database Operations
-# ==============================================
-
-# Run database migrations
-db-migrate:
-    sqlx migrate run
-
-# Rollback last migration
-db-rollback:
-    sqlx migrate revert
-
-# Create a new migration file
-db-new-migration name:
-    sqlx migrate add {{name}}
+    @echo "Checking formatting..."
+    cargo fmt --all
+    @echo "Running clippy..."
+    cargo clippy --allow-dirty --allow-staged --fix --workspace -- -D warnings
+    @echo "✅ All checks passed!"
 
 # Reset database (drop, create, migrate)
 db-reset:

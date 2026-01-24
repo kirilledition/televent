@@ -105,13 +105,12 @@ pub async fn get_events_by_uids(
     calendar_id: Uuid,
     uids: &[&str],
 ) -> Result<Vec<Event>, ApiError> {
-    let events = sqlx::query_as::<_, Event>(
-        "SELECT * FROM events WHERE calendar_id = $1 AND uid = ANY($2)",
-    )
-    .bind(calendar_id)
-    .bind(uids)
-    .fetch_all(pool)
-    .await?;
+    let events =
+        sqlx::query_as::<_, Event>("SELECT * FROM events WHERE calendar_id = $1 AND uid = ANY($2)")
+            .bind(calendar_id)
+            .bind(uids)
+            .fetch_all(pool)
+            .await?;
 
     Ok(events)
 }

@@ -3,7 +3,7 @@
 //! Parses multi-line text messages into event data for creation.
 
 use chrono::{DateTime, Duration, Local, Utc};
-use chrono_english::{parse_date_string, Dialect};
+use chrono_english::{Dialect, parse_date_string};
 use thiserror::Error;
 
 /// Errors that can occur during event parsing
@@ -15,7 +15,9 @@ pub enum ParseError {
     #[error("Date/time is required (line 2)")]
     MissingDateTime,
 
-    #[error("Could not parse date/time: {0}. Try formats like 'tomorrow 2pm', 'next Monday 10:00', or '2026-01-25 14:00'")]
+    #[error(
+        "Could not parse date/time: {0}. Try formats like 'tomorrow 2pm', 'next Monday 10:00', or '2026-01-25 14:00'"
+    )]
     InvalidDateTime(String),
 
     #[error("Duration must be a positive number of minutes")]
@@ -130,10 +132,9 @@ fn parse_datetime(input: &str) -> Result<DateTime<Utc>, ParseError> {
         Ok(parsed) => Ok(parsed.with_timezone(&Utc)),
         Err(_) => {
             // Try standard ISO format as fallback
-            if let Ok(dt) = DateTime::parse_from_str(
-                &format!("{} +0000", input),
-                "%Y-%m-%d %H:%M %z",
-            ) {
+            if let Ok(dt) =
+                DateTime::parse_from_str(&format!("{} +0000", input), "%Y-%m-%d %H:%M %z")
+            {
                 return Ok(dt.with_timezone(&Utc));
             }
 

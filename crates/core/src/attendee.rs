@@ -61,19 +61,23 @@ pub fn extract_telegram_id(email: &str) -> Result<Option<i64>, AttendeeError> {
     }
 
     // Extract local part
-    let local_part = email.split('@').next()
+    let local_part = email
+        .split('@')
+        .next()
         .ok_or_else(|| AttendeeError::InvalidFormat(email.to_string()))?;
 
     // Verify tg_ prefix
     if !local_part.starts_with("tg_") {
-        return Err(AttendeeError::InvalidFormat(
-            format!("Expected 'tg_' prefix, got: {}", local_part)
-        ));
+        return Err(AttendeeError::InvalidFormat(format!(
+            "Expected 'tg_' prefix, got: {}",
+            local_part
+        )));
     }
 
     // Parse telegram_id
     let id_str = &local_part[3..];
-    let telegram_id = id_str.parse::<i64>()
+    let telegram_id = id_str
+        .parse::<i64>()
         .map_err(|_| AttendeeError::InvalidTelegramId(id_str.to_string()))?;
 
     Ok(Some(telegram_id))
@@ -103,10 +107,7 @@ mod tests {
             generate_internal_email(123456789),
             "tg_123456789@televent.internal"
         );
-        assert_eq!(
-            generate_internal_email(999),
-            "tg_999@televent.internal"
-        );
+        assert_eq!(generate_internal_email(999), "tg_999@televent.internal");
     }
 
     #[test]
@@ -132,17 +133,26 @@ mod tests {
         // Missing tg_ prefix
         let result = extract_telegram_id("123456789@televent.internal");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AttendeeError::InvalidFormat(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            AttendeeError::InvalidFormat(_)
+        ));
 
         // Invalid telegram_id (not a number)
         let result = extract_telegram_id("tg_abc@televent.internal");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AttendeeError::InvalidTelegramId(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            AttendeeError::InvalidTelegramId(_)
+        ));
 
         // Empty telegram_id
         let result = extract_telegram_id("tg_@televent.internal");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AttendeeError::InvalidTelegramId(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            AttendeeError::InvalidTelegramId(_)
+        ));
     }
 
     #[test]
@@ -174,7 +184,13 @@ mod tests {
         let internal = "tg_123@televent.internal";
         let external = "user@gmail.com";
 
-        assert_eq!(is_internal_email(internal), extract_telegram_id(internal).unwrap().is_some());
-        assert_eq!(is_internal_email(external), extract_telegram_id(external).unwrap().is_some());
+        assert_eq!(
+            is_internal_email(internal),
+            extract_telegram_id(internal).unwrap().is_some()
+        );
+        assert_eq!(
+            is_internal_email(external),
+            extract_telegram_id(external).unwrap().is_some()
+        );
     }
 }

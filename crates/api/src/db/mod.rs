@@ -6,8 +6,8 @@ pub mod events;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{TimeZone, Utc};
     use sqlx::PgPool;
-    use chrono::{Utc, TimeZone};
     use uuid::Uuid;
 
     #[sqlx::test]
@@ -21,7 +21,7 @@ mod tests {
         // 1. Create a User
         let telegram_id = 123456789i64;
         let user_id = sqlx::query_scalar::<_, Uuid>(
-            "INSERT INTO users (telegram_id, telegram_username) VALUES ($1, $2) RETURNING id"
+            "INSERT INTO users (telegram_id, telegram_username) VALUES ($1, $2) RETURNING id",
         )
         .bind(telegram_id)
         .bind("testuser")
@@ -81,7 +81,7 @@ mod tests {
         // 5. Verify deleted_events has the correct token
         // We expect the trigger to have captured "1" (the new token)
         let (deletion_token,): (i64,) = sqlx::query_as(
-            "SELECT deletion_token FROM deleted_events WHERE calendar_id = $1 AND uid = $2"
+            "SELECT deletion_token FROM deleted_events WHERE calendar_id = $1 AND uid = $2",
         )
         .bind(calendar.id)
         .bind(uid)
@@ -98,7 +98,10 @@ mod tests {
         let deleted_since_0 = events::list_deleted_events_since_sync(&pool, calendar.id, 0)
             .await
             .expect("Failed to list deleted events");
-        assert!(deleted_since_0.contains(&uid.to_string()), "Should contain deleted event when syncing from 0");
+        assert!(
+            deleted_since_0.contains(&uid.to_string()),
+            "Should contain deleted event when syncing from 0"
+        );
 
         // Case B: Client syncs from 1 (requesting changes > 1)
         // Should NOT return the deletion (because 1 > 1 is False)
@@ -106,6 +109,9 @@ mod tests {
         let deleted_since_1 = events::list_deleted_events_since_sync(&pool, calendar.id, 1)
             .await
             .expect("Failed to list deleted events");
-        assert!(!deleted_since_1.contains(&uid.to_string()), "Should NOT contain deleted event when syncing from 1");
+        assert!(
+            !deleted_since_1.contains(&uid.to_string()),
+            "Should NOT contain deleted event when syncing from 1"
+        );
     }
 }

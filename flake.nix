@@ -15,7 +15,7 @@
           inherit system overlays;
         };
         rustVersion = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" "rust-analyzer" "rustfmt" "clippy" ];
+          extensions = [ "rust-src" "rust-analyzer" "rustfmt" "clippy" "llvm-tools" ];
         };
       in
       {
@@ -25,6 +25,7 @@
             pkg-config
             openssl
             just
+            cargo-llvm-cov
             sqlx-cli
             docker-compose
             postgresql_16 # for psql client

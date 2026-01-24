@@ -57,10 +57,11 @@ async fn run_worker_loop(
     loop {
         // Check for shutdown signal
         if let Some(ref token) = shutdown
-            && token.is_cancelled() {
-                info!("Worker received shutdown signal");
-                break;
-            }
+            && token.is_cancelled()
+        {
+            info!("Worker received shutdown signal");
+            break;
+        }
 
         // Fetch pending jobs
         match db.fetch_pending_jobs(config.batch_size).await {
@@ -78,12 +79,14 @@ async fn run_worker_loop(
                 }
 
                 // Log queue status
-                if last_status_log_time.elapsed() >= Duration::from_secs(config.status_log_interval_secs)
+                if last_status_log_time.elapsed()
+                    >= Duration::from_secs(config.status_log_interval_secs)
                 {
                     if let Ok(pending_count) = db.count_pending().await
-                        && pending_count > 0 {
-                            info!("Queue status: {} pending jobs remaining", pending_count);
-                        }
+                        && pending_count > 0
+                    {
+                        info!("Queue status: {} pending jobs remaining", pending_count);
+                    }
                     last_status_log_time = Instant::now();
                 }
             }
@@ -151,7 +154,6 @@ async fn process_job(db: &WorkerDb, bot: &Bot, config: &Config, job: db::OutboxM
 
 #[cfg(test)]
 mod tests {
-
 
     #[test]
     fn test_exponential_backoff() {
