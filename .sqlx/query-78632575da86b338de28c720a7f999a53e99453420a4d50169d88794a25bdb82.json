@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO device_passwords (id, user_id, hashed_password, name)\n            VALUES (gen_random_uuid(), $1, $2, $3)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "78632575da86b338de28c720a7f999a53e99453420a4d50169d88794a25bdb82"
+}

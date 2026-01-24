@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at)\n            VALUES (gen_random_uuid(), 'calendar_invite', $1, 'pending', 0, NOW())\n            RETURNING id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bce53608addcff418c58948e382e4b226d35ac05301d03b1d37ccd0b1200aae3"
+}

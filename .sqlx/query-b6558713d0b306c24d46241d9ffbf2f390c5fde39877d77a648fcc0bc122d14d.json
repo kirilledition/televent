@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT e.id AS event_id, e.summary, e.start, e.location,\n                   u.telegram_username AS organizer_username\n            FROM event_attendees ea\n            JOIN events e ON ea.event_id = e.id\n            JOIN calendars c ON e.calendar_id = c.id\n            JOIN users u ON c.user_id = u.id\n            WHERE ea.telegram_id = $1\n              AND ea.status = 'NEEDS-ACTION'\n            ORDER BY e.start ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "summary",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "start",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "location",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "organizer_username",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "b6558713d0b306c24d46241d9ffbf2f390c5fde39877d77a648fcc0bc122d14d"
+}

@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO event_attendees (id, event_id, email, telegram_id, role, status)\n            VALUES (gen_random_uuid(), $1, $2, $3, $4::text::attendee_role, 'NEEDS-ACTION')\n            ON CONFLICT (event_id, email) DO NOTHING\n            RETURNING id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c5f79d30d33ad1090e97719538ef26244027bdbd4e259e94a229df4712f0f705"
+}

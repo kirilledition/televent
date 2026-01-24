@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT ea.email, ea.telegram_id, ea.role::text as \"role!\", ea.status::text as \"status!\",\n                   u.telegram_username\n            FROM event_attendees ea\n            LEFT JOIN users u ON ea.telegram_id = u.telegram_id\n            WHERE ea.event_id = $1\n            ORDER BY\n                CASE ea.role::text\n                    WHEN 'ORGANIZER' THEN 0\n                    ELSE 1\n                END,\n                ea.created_at ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "telegram_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "role!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "telegram_username",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "d3a1fbf98256eba482535478687c5e92b0137744cfbd999ba86fbbca86d5fa28"
+}

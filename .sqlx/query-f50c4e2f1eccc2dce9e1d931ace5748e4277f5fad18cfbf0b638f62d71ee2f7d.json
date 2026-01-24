@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO calendars (id, user_id, name, color, sync_token, ctag)\n            VALUES (gen_random_uuid(), $1, 'My Calendar', '#3B82F6', '1', gen_random_uuid()::text)\n            ON CONFLICT (user_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f50c4e2f1eccc2dce9e1d931ace5748e4277f5fad18cfbf0b638f62d71ee2f7d"
+}

@@ -1,12 +1,9 @@
 //! Database operations for the bot
 //!
 //! Handles all database queries needed by bot command handlers
-//!
-//! TODO: Once database is set up in dev environment, run `cargo sqlx prepare`
-//! to generate offline query cache for compile-time verification.
 
 use chrono::{DateTime, Utc};
-use sqlx::{FromRow, PgPool, Row};
+use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 /// Generate a random alphanumeric password
@@ -115,7 +112,7 @@ impl BotDb {
         end: DateTime<Utc>,
     ) -> Result<Vec<BotEvent>, sqlx::Error> {
         // First, get the calendar_id for this user
-        let calendar_row = sqlx::query(
+        let calendar_row = sqlx::query!(
             r#"
             SELECT id
             FROM calendars
@@ -123,18 +120,19 @@ impl BotDb {
                 SELECT id FROM users WHERE telegram_id = $1
             )
             "#,
+            telegram_id
         )
-        .bind(telegram_id)
         .fetch_optional(&self.pool)
         .await?;
 
         let calendar_id: Uuid = match calendar_row {
-            Some(row) => row.try_get("id")?,
+            Some(row) => row.id,
             None => return Ok(Vec::new()), // No calendar yet
         };
 
         // Query events in the date range
-        let events = sqlx::query_as::<_, BotEvent>(
+        let events = sqlx::query_as!(
+            BotEvent,
             r#"
             SELECT id, summary, start, "end", location, description
             FROM events
@@ -144,10 +142,10 @@ impl BotDb {
               AND status != 'CANCELLED'
             ORDER BY start ASC
             "#,
+            calendar_id,
+            start,
+            end
         )
-        .bind(calendar_id)
-        .bind(start)
-        .bind(end)
         .fetch_all(&self.pool)
         .await?;
 
@@ -202,38 +200,38 @@ impl BotDb {
         username: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         // Create user if doesn't exist
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO users (id, telegram_id, telegram_username, timezone)
             VALUES (gen_random_uuid(), $1, $2, 'UTC')
             ON CONFLICT (telegram_id) DO NOTHING
             "#,
+            telegram_id,
+            username
         )
-        .bind(telegram_id)
-        .bind(username)
         .execute(&self.pool)
         .await?;
 
         // Create calendar if doesn't exist
-        let user_row = sqlx::query(
+        let user_row = sqlx::query!(
             r#"
             SELECT id FROM users WHERE telegram_id = $1
             "#,
+            telegram_id
         )
-        .bind(telegram_id)
         .fetch_one(&self.pool)
         .await?;
 
-        let user_id: Uuid = user_row.try_get("id")?;
+        let user_id = user_row.id;
 
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO calendars (id, user_id, name, color, sync_token, ctag)
             VALUES (gen_random_uuid(), $1, 'My Calendar', '#3B82F6', '1', gen_random_uuid()::text)
             ON CONFLICT (user_id) DO NOTHING
             "#,
+            user_id
         )
-        .bind(user_id)
         .execute(&self.pool)
         .await?;
 
@@ -247,16 +245,16 @@ impl BotDb {
         device_name: &str,
     ) -> Result<String, sqlx::Error> {
         // Get user_id
-        let user_row = sqlx::query(
+        let user_row = sqlx::query!(
             r#"
             SELECT id FROM users WHERE telegram_id = $1
             "#,
+            telegram_id
         )
-        .bind(telegram_id)
         .fetch_one(&self.pool)
         .await?;
 
-        let user_id: Uuid = user_row.try_get("id")?;
+        let user_id = user_row.id;
 
         // Generate random password (16 characters, alphanumeric) before any await
         // Use a simpler approach that's Send-safe
@@ -282,15 +280,15 @@ impl BotDb {
         .map_err(|e| sqlx::Error::Decode(format!("Task join error: {}", e).into()))??;
 
         // Store device password
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO device_passwords (id, user_id, hashed_password, name)
             VALUES (gen_random_uuid(), $1, $2, $3)
             "#,
+            user_id,
+            password_hash,
+            device_name
         )
-        .bind(user_id)
-        .bind(&password_hash)
-        .bind(device_name)
         .execute(&self.pool)
         .await?;
 
@@ -302,7 +300,8 @@ impl BotDb {
         &self,
         telegram_id: i64,
     ) -> Result<Vec<DevicePasswordInfo>, sqlx::Error> {
-        let devices = sqlx::query_as::<_, DevicePasswordInfo>(
+        let devices = sqlx::query_as!(
+            DevicePasswordInfo,
             r#"
             SELECT dp.id, dp.name, dp.created_at, dp.last_used_at
             FROM device_passwords dp
@@ -310,8 +309,8 @@ impl BotDb {
             WHERE u.telegram_id = $1
             ORDER BY dp.created_at DESC
             "#,
+            telegram_id
         )
-        .bind(telegram_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -324,15 +323,15 @@ impl BotDb {
         telegram_id: i64,
         device_id: Uuid,
     ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             DELETE FROM device_passwords
             WHERE id = $1
               AND user_id = (SELECT id FROM users WHERE telegram_id = $2)
             "#,
+            device_id,
+            telegram_id
         )
-        .bind(device_id)
-        .bind(telegram_id)
         .execute(&self.pool)
         .await?;
 
@@ -344,14 +343,16 @@ impl BotDb {
         &self,
         username: &str,
     ) -> Result<Option<UserInfo>, sqlx::Error> {
-        let user = sqlx::query_as::<_, UserInfo>(
+        let username_param = username.trim_start_matches('@');
+        let user = sqlx::query_as!(
+            UserInfo,
             r#"
             SELECT id, telegram_id, telegram_username
             FROM users
             WHERE telegram_username = $1
             "#,
+            username_param
         )
-        .bind(username.trim_start_matches('@'))
         .fetch_optional(&self.pool)
         .await?;
 
@@ -364,7 +365,8 @@ impl BotDb {
         event_id: Uuid,
         telegram_id: i64,
     ) -> Result<Option<EventInfo>, sqlx::Error> {
-        let event = sqlx::query_as::<_, EventInfo>(
+        let event = sqlx::query_as!(
+            EventInfo,
             r#"
             SELECT e.id, e.summary, e.start, e."end", e.location, c.user_id
             FROM events e
@@ -372,9 +374,9 @@ impl BotDb {
             JOIN users u ON c.user_id = u.id
             WHERE e.id = $1 AND u.telegram_id = $2
             "#,
+            event_id,
+            telegram_id
         )
-        .bind(event_id)
-        .bind(telegram_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -389,23 +391,23 @@ impl BotDb {
         telegram_id: Option<i64>,
         role: &str,
     ) -> Result<Uuid, sqlx::Error> {
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r#"
             INSERT INTO event_attendees (id, event_id, email, telegram_id, role, status)
-            VALUES (gen_random_uuid(), $1, $2, $3, $4::attendee_role, 'NEEDS-ACTION')
+            VALUES (gen_random_uuid(), $1, $2, $3, $4::text::attendee_role, 'NEEDS-ACTION')
             ON CONFLICT (event_id, email) DO NOTHING
             RETURNING id
             "#,
+            event_id,
+            email,
+            telegram_id,
+            role
         )
-        .bind(event_id)
-        .bind(email)
-        .bind(telegram_id)
-        .bind(role)
         .fetch_optional(&self.pool)
         .await?;
 
         match row {
-            Some(r) => Ok(r.try_get("id")?),
+            Some(r) => Ok(r.id),
             None => Err(sqlx::Error::RowNotFound), // Duplicate invite
         }
     }
@@ -417,16 +419,16 @@ impl BotDb {
         telegram_id: i64,
         status: &str,
     ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             UPDATE event_attendees
-            SET status = $3::participation_status, updated_at = NOW()
+            SET status = $3::text::participation_status, updated_at = NOW()
             WHERE event_id = $1 AND telegram_id = $2
             "#,
+            event_id,
+            telegram_id,
+            status
         )
-        .bind(event_id)
-        .bind(telegram_id)
-        .bind(status)
         .execute(&self.pool)
         .await?;
 
@@ -438,7 +440,8 @@ impl BotDb {
         &self,
         telegram_id: i64,
     ) -> Result<Vec<PendingInvite>, sqlx::Error> {
-        let invites = sqlx::query_as::<_, PendingInvite>(
+        let invites = sqlx::query_as!(
+            PendingInvite,
             r#"
             SELECT e.id AS event_id, e.summary, e.start, e.location,
                    u.telegram_username AS organizer_username
@@ -450,8 +453,8 @@ impl BotDb {
               AND ea.status = 'NEEDS-ACTION'
             ORDER BY e.start ASC
             "#,
+            telegram_id
         )
-        .bind(telegram_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -464,9 +467,10 @@ impl BotDb {
         &self,
         event_id: Uuid,
     ) -> Result<Vec<AttendeeInfo>, sqlx::Error> {
-        let attendees = sqlx::query_as::<_, AttendeeInfo>(
+        let attendees = sqlx::query_as!(
+            AttendeeInfo,
             r#"
-            SELECT ea.email, ea.telegram_id, ea.role::text, ea.status::text,
+            SELECT ea.email, ea.telegram_id, ea.role::text as "role!", ea.status::text as "status!",
                    u.telegram_username
             FROM event_attendees ea
             LEFT JOIN users u ON ea.telegram_id = u.telegram_id
@@ -478,8 +482,8 @@ impl BotDb {
                 END,
                 ea.created_at ASC
             "#,
+            event_id
         )
-        .bind(event_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -491,7 +495,7 @@ impl BotDb {
         &self,
         event_id: Uuid,
     ) -> Result<Option<i64>, sqlx::Error> {
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r#"
             SELECT u.telegram_id
             FROM events e
@@ -499,13 +503,13 @@ impl BotDb {
             JOIN users u ON c.user_id = u.id
             WHERE e.id = $1
             "#,
+            event_id
         )
-        .bind(event_id)
         .fetch_optional(&self.pool)
         .await?;
 
         match row {
-            Some(r) => Ok(Some(r.try_get("telegram_id")?)),
+            Some(r) => Ok(Some(r.telegram_id)),
             None => Ok(None),
         }
     }
@@ -529,18 +533,18 @@ impl BotDb {
             "event_location": event_location,
         });
 
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r#"
             INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at)
             VALUES (gen_random_uuid(), 'calendar_invite', $1, 'pending', 0, NOW())
             RETURNING id
             "#,
+            payload
         )
-        .bind(payload)
         .fetch_one(&self.pool)
         .await?;
 
-        row.try_get("id")
+        Ok(row.id)
     }
 
     /// Queue RSVP notification to event organizer
@@ -558,18 +562,18 @@ impl BotDb {
             "message": format!("📅 {} {} your invite to: {}", attendee_name, rsvp_status, event_summary),
         });
 
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r#"
             INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at)
             VALUES (gen_random_uuid(), 'telegram_notification', $1, 'pending', 0, NOW())
             RETURNING id
             "#,
+            payload
         )
-        .bind(payload)
         .fetch_one(&self.pool)
         .await?;
 
-        row.try_get("id")
+        Ok(row.id)
     }
 
     /// Get calendar ID for a user (creates calendar if missing)
@@ -578,20 +582,20 @@ impl BotDb {
         telegram_id: i64,
     ) -> Result<Uuid, sqlx::Error> {
         // First try to get existing calendar
-        let calendar_row = sqlx::query(
+        let calendar_row = sqlx::query!(
             r#"
             SELECT c.id
             FROM calendars c
             JOIN users u ON c.user_id = u.id
             WHERE u.telegram_id = $1
             "#,
+            telegram_id
         )
-        .bind(telegram_id)
         .fetch_optional(&self.pool)
         .await?;
 
         if let Some(row) = calendar_row {
-            return row.try_get("id");
+            return Ok(row.id);
         }
 
         // Calendar doesn't exist - this shouldn't happen if user ran /start
@@ -599,19 +603,19 @@ impl BotDb {
         self.ensure_user_setup(telegram_id, None).await?;
 
         // Now fetch the calendar
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r#"
             SELECT c.id
             FROM calendars c
             JOIN users u ON c.user_id = u.id
             WHERE u.telegram_id = $1
             "#,
+            telegram_id
         )
-        .bind(telegram_id)
         .fetch_one(&self.pool)
         .await?;
 
-        row.try_get("id")
+        Ok(row.id)
     }
 
     /// Create a new event
@@ -646,7 +650,8 @@ impl BotDb {
         let etag = format!("{:x}", hash);
 
         // Insert event
-        let event = sqlx::query_as::<_, BotEvent>(
+        let event = sqlx::query_as!(
+            BotEvent,
             r#"
             INSERT INTO events (
                 calendar_id, uid, summary, description, location,
@@ -655,16 +660,16 @@ impl BotDb {
             VALUES ($1, $2, $3, $4, $5, $6, $7, false, 'CONFIRMED', $8, $9)
             RETURNING id, summary, start, "end", location, description
             "#,
+            calendar_id,
+            uid,
+            summary,
+            description,
+            location,
+            start,
+            end,
+            timezone,
+            etag
         )
-        .bind(calendar_id)
-        .bind(uid)
-        .bind(summary)
-        .bind(description)
-        .bind(location)
-        .bind(start)
-        .bind(end)
-        .bind(timezone)
-        .bind(&etag)
         .fetch_one(&self.pool)
         .await?;
 

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at)\n            VALUES (gen_random_uuid(), 'telegram_notification', $1, 'pending', 0, NOW())\n            RETURNING id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4fe636f250f1bc445e56f9164a2c0500f03145a77d077cf07b41a45b975d8524"
+}
