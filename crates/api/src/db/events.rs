@@ -151,6 +151,35 @@ pub async fn list_events(
     Ok(events)
 }
 
+/// List UIDs of events deleted since a specific time
+///
+/// Note: sync_token is treated as a timestamp in some contexts, but here we assume it maps roughly
+/// to versioning. For deletions, we need to map the sync_token to a timestamp or use the token directly
+/// if we store deletion tokens.
+/// For this implementation, we'll assume the sync_token implies we want deletions that happened
+/// "recently". However, since our sync_token is just an integer counter, mapping it to deleted_events
+/// (which has a timestamp) is tricky without a "deletion version".
+///
+/// TODO: In a robust implementation, `deleted_events` should store the `sync_token` at the time of deletion.
+/// For now, we will fetch ALL deleted events if sync_token > 0.
+/// This is a simplification. A proper fix requires adding `deletion_token` to `deleted_events`.
+pub async fn list_deleted_events_since_sync(
+    pool: &PgPool,
+    calendar_id: Uuid,
+    _sync_token: i64,
+) -> Result<Vec<String>, ApiError> {
+    // MVP: Return all deleted events for this calendar.
+    // Client will ignore ones it doesn't know about.
+    let uids = sqlx::query_scalar::<_, String>(
+        "SELECT uid FROM deleted_events WHERE calendar_id = $1",
+    )
+    .bind(calendar_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(uids)
+}
+
 /// List events modified since a specific sync token
 ///
 /// Used for CalDAV sync-collection REPORT

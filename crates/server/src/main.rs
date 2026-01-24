@@ -21,15 +21,22 @@ async fn main() -> Result<()> {
     tracing::info!("✓ Configuration loaded");
 
     // Create shared database pool with explicit configuration
-    // Sized for unified server: API (20) + Bot (10) + Worker (10) + overhead (10) = 50
+    let max_connections = std::env::var("DATABASE_MAX_CONNECTIONS")
+        .unwrap_or_else(|_| "50".to_string())
+        .parse()
+        .unwrap_or(50);
+
     let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(50)
+        .max_connections(max_connections)
         .acquire_timeout(std::time::Duration::from_secs(10))
         .idle_timeout(std::time::Duration::from_secs(300))
         .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
         .connect(&config.core.database_url)
         .await?;
-    tracing::info!("✓ Database pool established (max_connections: 50)");
+    tracing::info!(
+        "✓ Database pool established (max_connections: {})",
+        max_connections
+    );
 
     // Run migrations ONCE
     sqlx::migrate!("../../migrations").run(&pool).await?;

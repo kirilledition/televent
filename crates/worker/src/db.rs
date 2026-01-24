@@ -82,17 +82,23 @@ impl WorkerDb {
         Ok(())
     }
 
-    /// Mark a message as failed
-    pub async fn mark_failed(&self, message_id: Uuid) -> Result<(), sqlx::Error> {
+    /// Mark a message as failed with error message
+    pub async fn mark_failed(
+        &self,
+        message_id: Uuid,
+        error_msg: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             UPDATE outbox_messages
             SET status = 'failed',
-                processed_at = NOW()
+                processed_at = NOW(),
+                error_message = $2
             WHERE id = $1
             "#,
         )
         .bind(message_id)
+        .bind(error_msg)
         .execute(&self.pool)
         .await?;
 
@@ -106,6 +112,7 @@ impl WorkerDb {
         &self,
         message_id: Uuid,
         current_retry_count: i32,
+        error_msg: &str,
     ) -> Result<(), sqlx::Error> {
         // Calculate backoff: 2^retry_count minutes (1m, 2m, 4m, 8m, 16m)
         let backoff_minutes = 2_i64.pow((current_retry_count + 1) as u32);
@@ -116,12 +123,14 @@ impl WorkerDb {
             UPDATE outbox_messages
             SET status = 'pending',
                 retry_count = retry_count + 1,
-                scheduled_at = $2
+                scheduled_at = $2,
+                error_message = $3
             WHERE id = $1
             "#,
         )
         .bind(message_id)
         .bind(next_scheduled)
+        .bind(error_msg)
         .execute(&self.pool)
         .await?;
 
