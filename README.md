@@ -1,66 +1,10 @@
-explore the codebase. it consists of a lot of documentation files. some of them in docs folder, some of them in readme. i want it all to be in a more optimal way. probably even in one structured readme file. i want you to update readme with all the documentation so all the other files are redundant. i dont like usage of emoji, i want readme to be llm ai agent friendly so agent can consult with it. when you are done with that, i want you to check documentation for being up to date, update state, architechture, commands, all the stuff.
-
 # Televent
 
-> **Telegram-native calendar management with seamless CalDAV synchronization.**
+Telegram-native calendar management with seamless CalDAV synchronization.
 
-This repository contains the backend infrastructure for Televent, a system that bridges Telegram's conversational interface with standard CalDAV clients (Apple Calendar, Thunderbird, etc.).
+Televent bridges Telegram's conversational interface with standard CalDAV clients (Apple Calendar, Thunderbird, etc.), allowing for unified calendar management across platforms.
 
-## User Commands
-
-### Account Setup
-- `/start` - Initialize account and show setup instructions
-- `/device add <name>` - Generate CalDAV password for a device
-- `/device list` - Show all device passwords
-- `/device revoke <id>` - Delete a device password
-
-### Event Management
-- `/create` - Create event (guided conversation flow)
-- `/today` - List today's events
-- `/tomorrow` - List tomorrow's events
-- `/week` - List this week's events
-- `/cancel <event_id>` - Cancel an event
-
-### GDPR & Privacy
-- `/export` - Request GDPR data export
-- `/delete_account` - Initiate account deletion (30-day grace period)
-
-## Command Details
-
-### /create - Event Creation Flow
-
-Interactive conversation to create events:
-
-```
-User: /create
-Bot: "Event title?"
-User: "Team standup"
-Bot: "When? (e.g., 'tomorrow 10am' or '2026-01-20 14:00')"
-User: "tomorrow 10am"
-Bot: "Duration? (e.g., '30m', '1h')"
-User: "30m"
-Bot: "Description? (or /skip)"
-User: "Weekly sync meeting"
-Bot: ✅ "Event created: Team standup, Jan 19 10:00-10:30"
-```
-
-### Natural Language Date Parsing
-
-Supported formats:
-- `tomorrow 10am`
-- `next monday 14:00`
-- `2026-01-25 14:00`
-- `in 2 hours`
-- `at 3pm`
-
-### Duration Format
-
-- `30m` - 30 minutes
-- `1h` - 1 hour
-- `1h30m` - 1 hour 30 minutes
-- `90m` - 90 minutes
-
-## 🏗 System Architecture
+## System Architecture
 
 The system follows a monorepo structure with shared core domain logic and multiple runtime services.
 
@@ -69,22 +13,25 @@ flowchart TB
     subgraph Clients
         TG["Telegram App"]
         CAL["Calendar Apps"]
+        WEB["Web Browser"]
     end
 
     subgraph "Televent Services"
-        API["Axum API Server<br/>(CalDAV + REST)"]
-        BOT["Telegram Bot<br/>(Teloxide)"]
-        WORKER["Background Worker<br/>(Outbox Processor)"]
+        API["Axum API Server (CalDAV + REST)"]
+        BOT["Telegram Bot (Teloxide)"]
+        WORKER["Background Worker (Outbox Processor)"]
+        WEBAPP["Dioxus Web App"]
     end
 
     subgraph Shared
-        CORE["Core Domain<br/>(Models, Logic)"]
-        DB[("PostgreSQL")]
+        CORE["Core Domain (Models, Logic)"]
+        DB[("PostgreSQL 16")]
     end
 
-    %% Connections
     TG --> BOT
     CAL -->|CalDAV| API
+    WEB --> WEBAPP
+    WEBAPP --> API
     
     BOT --> CORE
     API --> CORE
@@ -95,66 +42,105 @@ flowchart TB
     WORKER --> DB
 ```
 
----
-
-## 🚨 Zero Tolerance Rules (Agent Instructions)
-
-**If you are an AI agent working on this codebase, you MUST adhere to these rules:**
-
-1.  **NO `unwrap()` / `expect()`**:
-    *   **Why:** We manage user calendar data. Panics cause data loss or sync corruption.
-    *   **Do:** Use `?` propagation or explicit `match` handling.
-
-2.  **NO `println!`**:
-    *   **Why:** Production logs must be structured for Jaeger/Grafana ingestion.
-    *   **Do:** Use `tracing::info!`, `tracing::warn!`, or `tracing::error!`.
-
-3.  **Type Safety is Paramount**:
-    *   **Why:** CalDAV has complex ID requirements. Mixing up a `CalendarId` and an `EventId` is fatal.
-    *   **Do:** Use newtypes (`UserId(Uuid)`), not raw `Uuid`.
-
-4.  **Async Runtime = Tokio**:
-    *   **Why:** The entire stack (Axum, SQLx, Teloxide) is built on Tokio.
-
-5.  **Database Migrations**:
-    *   **Rule:** If you touch `core/src/models.rs`, you **must** create a migration.
-    *   **Command:** `just db-new-migration <name>`
-
----
-
-## 📂 Project Structure
+### Component Breakdown
 
 | Path | Description | Key Tech |
 |------|-------------|----------|
-| `crates/core` | **Domain Logic**. Pure Rust, no I/O. Models, Errors, Timezone logic. | `chrono`, `uuid` |
-| `crates/api` | **HTTP Server**. Handles CalDAV protocol and REST endpoints. | `axum`, `tower` |
-| `crates/bot` | **Telegram Interface**. Command parsing and conversational FSM. | `teloxide` |
-| `crates/worker` | **Job Processor**. Handles emails, notifications, and cleanups. | `tokio`, `lettre` |
-| `crates/web` | **Frontend (Planned)**. Web dashboard for settings. | `dioxus` |
-| `migrations/` | **Database Schema**. SQLx migration files. | `sql` |
+| crates/core | Domain Logic. Pure Rust, no I/O. Models, Errors, Timezone logic. | chrono, uuid |
+| crates/api | HTTP Server. Handles CalDAV protocol and REST endpoints. | axum, tower |
+| crates/bot | Telegram Interface. Command parsing and conversational FSM. | teloxide |
+| crates/worker | Job Processor. Handles emails, notifications, and cleanups. | tokio, lettre |
+| crates/web | Frontend. Web dashboard for settings. | dioxus |
+| migrations/ | Database Schema. SQLx migration files. | sql |
 
----
+## Bot Commands
 
-## 🧠 Key Architectural Patterns
+### Account Setup
+- /start - Initialize account and show setup instructions
+- /device add <name> - Generate CalDAV password for a device
+- /device list - Show all device passwords
+- /device revoke <id> - Delete a device password
 
-### 1. The "Interceptor" (Current Focus)
-We invite users via Telegram, not Email. The system generates "internal" emails (`tg_123@televent.internal`). The worker intercepts these emails and routes them to the Telegram Bot API as messages instead of sending them via SMTP.
+### Event Management
+- /create - Create event (either via instructions or direct message)
+- /today - List today's events
+- /tomorrow - List tomorrow's events
+- /week - List this week's events
+- /cancel <event_id> - Cancel an event
 
-### 2. Outbox Pattern
-We never send side effects (emails, TG messages) inside a database transaction.
-1.  **Transaction:** Insert Event + Insert `outbox_message` (Pending).
-2.  **Worker:** Polls `outbox_messages`, sends actual message, marks Complete.
-*Guarantees atomicity and retry-ability.*
+### Coordination
+- /invite <user> - Invite a user to an event
+- /rsvp <event_id> <status> - Respond to an event invitation
 
-### 3. CalDAV Concurrency (ETags)
-*   **ETag Source:** SHA256 hash of the serialized event fields.
-*   **NOT Timestamp:** Timestamps are unreliable due to client clock skew.
-*   **Optimistic Locking:** All updates require `If-Match: <etag>`.
+### Privacy
+- /export - Request GDPR data export
+- /delete_account - Initiate account deletion (30-day grace period)
 
----
+### Event Creation Format
+To create an event, send a message with the following format:
+```text
+Event Title
+Date/Time (e.g., 'tomorrow 10am', 'next monday 14:00', '2026-01-25 14:00')
+Duration in minutes (optional, default: 60)
+Location (optional)
+```
 
-## 📚 Documentation Index
+## Technical Implementation Details
 
-*   [**CLAUDE.md**](CLAUDE.md) - **The Law**. Detailed coding standards and operational commands.
-*   [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) - Deep dive into data flows, sequence diagrams, and database schema.
-*   [**docs/DEVELOPMENT_ROADMAP.md**](docs/DEVELOPMENT_ROADMAP.md) - Current phase and future plans.
+### Interceptor Pattern
+The system generates internal email addresses (tg_telegramid@televent.internal). The background worker intercepts invites to these addresses and routes them to the Telegram Bot API as messages instead of sending them via SMTP.
+
+### Outbox Pattern
+Database transactions include both the data change and a pending record in the `outbox_messages` table. The background worker polls this table to perform side effects (emails, TG messages), ensuring atomicity and reliability.
+
+### CalDAV Protocol
+- ETag: SHA256 hash of the serialized event fields (clock-skew resistant).
+- Sync Token: Atomic counter incremented on changes (Postgres sequence/RETURNING).
+- Optimistic Locking: Updates require a matching ETag via If-Match header.
+
+## Development and Operations
+
+### Common Commands
+- just setup - Start Docker and run migrations
+- just test - Run all tests
+- just dev-api - Hot-reload API server
+- just dev-bot - Hot-reload bot
+- just db-reset - Drop and recreate database
+
+### Agent Rules
+- No unwrap() or expect(): Use explicit error handling to prevent data loss.
+- No println!(): Use tracing macros for structured production logs.
+- Newtypes for IDs: Use specific wrappers (e.g., UserId(Uuid)) to prevent ID confusion.
+- Tokio Runtime: The entire stack is built on the Tokio async runtime.
+- Migrations: Changes to core/src/models.rs REQUIRE a database migration.
+
+## Project Roadmap
+
+### Phase 2: Internal Invites (Current)
+- Database schema for attendees and RSVPs.
+- Implementation of the Interceptor logic in the worker.
+- Bot commands for RSVP management.
+
+### Phase 3: Staging and QA
+- Validation against Supabase (production-like Postgres).
+- Full end-to-end testing with GUI CalDAV clients.
+
+### Phase 4: Production Deployment
+- Railway deployment (api, bot, worker).
+- Live environment manual QA.
+
+### Phase 5 & 6: Future
+- Dioxus-based web calendar interface.
+- SMTP integration for external (non-Televent) invites.
+
+## Current Status
+
+### Working
+- PostgreSQL Database infrastructure.
+- Axum API Server with CalDAV support (RFC 4791 compliant).
+- Telegram Bot core commands and event creation parsing.
+- Background worker for outbox processing.
+- CalDAV basic auth and event synchronization (verified with curl/cadaver).
+
+### Known Issues / Blockers
+- CalDAV GUI client compatibility (e.g., Thunderbird display issues) - Under active investigation.
