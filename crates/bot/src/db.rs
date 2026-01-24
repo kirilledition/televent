@@ -3,7 +3,7 @@
 //! Handles all database queries needed by bot command handlers
 
 use chrono::{DateTime, Utc};
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Row};
 use uuid::Uuid;
 
 /// Generate a random alphanumeric password

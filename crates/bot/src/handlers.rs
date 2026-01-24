@@ -32,13 +32,10 @@ pub async fn handle_start(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
     let welcome_text = "👋 <b>Welcome to Televent!</b>\n\n\
          Your Telegram-native calendar with CalDAV sync.\n\n\
          <b>Quick Commands:</b>\n\
-         /today - View today's events\n\
-         /tomorrow - View tomorrow's events\n\
-         /week - View this week's events\n\
-         /create - Create a new event\n\
+         /list - View upcoming events\n\
          /device - Manage CalDAV device passwords\n\
          /help - Show all commands\n\n\
-         Your account is ready! Get started by creating your first event with /create";
+         Your account is ready! Get started by sending a message to create your first event.";
 
     bot.send_message(msg.chat.id, welcome_text)
         .parse_mode(ParseMode::Html)
@@ -53,12 +50,8 @@ pub async fn handle_start(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
 pub async fn handle_help(bot: Bot, msg: Message) -> Result<()> {
     let help_text = "<b>Televent Commands</b>\n\n\
          <b>Event Management:</b>\n\
-         /today - Show today's events\n\
-         /tomorrow - Show tomorrow's events\n\
-         /week - Show this week's events\n\
-         /create - Create a new event\n\
-         /cancel - Cancel an event\n\
-         /list - List events in a date range\n\n\
+         /list - List upcoming events\n\
+         /cancel - Cancel an event\n\n\
          <b>CalDAV Sync:</b>\n\
          /device - Manage device passwords for CalDAV clients\n\
          /export - Export calendar as .ics file\n\n\
@@ -73,203 +66,6 @@ pub async fn handle_help(bot: Bot, msg: Message) -> Result<()> {
     Ok(())
 }
 
-/// Handle the /today command
-pub async fn handle_today(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
-    let user = msg
-        .from
-        .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
-    let telegram_id = user.id.0 as i64;
-
-    // Get today's date range
-    let now = Utc::now();
-    let start_of_day = now
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .ok_or_else(|| anyhow::anyhow!("Invalid time"))?
-        .and_utc();
-    let end_of_day = start_of_day + Duration::days(1);
-
-    // Query events from database
-    let events = db
-        .get_events_for_user(telegram_id, start_of_day, end_of_day)
-        .await?;
-
-    if events.is_empty() {
-        bot.send_message(msg.chat.id, "📅 No events today. Enjoy your free time!")
-            .await?;
-    } else {
-        let mut response = format!("📅 <b>Today's Events</b> ({})\n\n", events.len());
-
-        for (idx, event) in events.iter().enumerate() {
-            response.push_str(&format!(
-                "{}. <b>{}</b>\n   🕐 {}\n",
-                idx + 1,
-                event.summary,
-                event.start.format("%H:%M")
-            ));
-
-            if let Some(location) = &event.location {
-                response.push_str(&format!("   📍 {}\n", location));
-            }
-
-            response.push('\n');
-        }
-
-        bot.send_message(msg.chat.id, response)
-            .parse_mode(ParseMode::Html)
-            .await?;
-    }
-
-    tracing::info!(
-        "User {} queried today's events: {} found",
-        telegram_id,
-        events.len()
-    );
-
-    Ok(())
-}
-
-/// Handle the /tomorrow command
-pub async fn handle_tomorrow(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
-    let user = msg
-        .from
-        .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
-    let telegram_id = user.id.0 as i64;
-
-    // Get tomorrow's date range
-    let tomorrow = Utc::now() + Duration::days(1);
-    let start_of_day = tomorrow
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .ok_or_else(|| anyhow::anyhow!("Invalid time"))?
-        .and_utc();
-    let end_of_day = start_of_day + Duration::days(1);
-
-    // Query events from database
-    let events = db
-        .get_events_for_user(telegram_id, start_of_day, end_of_day)
-        .await?;
-
-    if events.is_empty() {
-        bot.send_message(msg.chat.id, "📅 No events tomorrow.")
-            .await?;
-    } else {
-        let mut response = format!("📅 <b>Tomorrow's Events</b> ({})\n\n", events.len());
-
-        for (idx, event) in events.iter().enumerate() {
-            response.push_str(&format!(
-                "{}. <b>{}</b>\n   🕐 {}\n",
-                idx + 1,
-                event.summary,
-                event.start.format("%H:%M")
-            ));
-
-            if let Some(location) = &event.location {
-                response.push_str(&format!("   📍 {}\n", location));
-            }
-
-            response.push('\n');
-        }
-
-        bot.send_message(msg.chat.id, response)
-            .parse_mode(ParseMode::Html)
-            .await?;
-    }
-
-    tracing::info!(
-        "User {} queried tomorrow's events: {} found",
-        telegram_id,
-        events.len()
-    );
-
-    Ok(())
-}
-
-/// Handle the /week command
-pub async fn handle_week(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
-    let user = msg
-        .from
-        .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
-    let telegram_id = user.id.0 as i64;
-
-    // Get this week's date range (next 7 days)
-    let now = Utc::now();
-    let start = now
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .ok_or_else(|| anyhow::anyhow!("Invalid time"))?
-        .and_utc();
-    let end = start + Duration::days(7);
-
-    // Query events from database
-    let events = db.get_events_for_user(telegram_id, start, end).await?;
-
-    if events.is_empty() {
-        bot.send_message(msg.chat.id, "📅 No events this week.")
-            .await?;
-    } else {
-        let mut response = format!("📅 <b>This Week's Events</b> ({})\n\n", events.len());
-
-        for (idx, event) in events.iter().enumerate() {
-            response.push_str(&format!(
-                "{}. <b>{}</b>\n   📆 {}\n   🕐 {}\n",
-                idx + 1,
-                event.summary,
-                event.start.format("%a, %b %d"),
-                event.start.format("%H:%M")
-            ));
-
-            if let Some(location) = &event.location {
-                response.push_str(&format!("   📍 {}\n", location));
-            }
-
-            response.push('\n');
-        }
-
-        bot.send_message(msg.chat.id, response)
-            .parse_mode(ParseMode::Html)
-            .await?;
-    }
-
-    tracing::info!(
-        "User {} queried week's events: {} found",
-        telegram_id,
-        events.len()
-    );
-
-    Ok(())
-}
-
-/// Handle the /create command
-pub async fn handle_create(bot: Bot, msg: Message) -> Result<()> {
-    let response = "🎯 <b>Create New Event</b>\n\n\
-                    To create an event, send a message in this format:\n\n\
-                    <code>Event Title</code>\n\
-                    <code>Date/Time</code>\n\
-                    <code>Duration in minutes (optional, default: 60)</code>\n\
-                    <code>Location (optional)</code>\n\n\
-                    <b>Example 1 - Natural language:</b>\n\
-                    Team Meeting\n\
-                    tomorrow 2pm\n\
-                    60\n\
-                    Conference Room A\n\n\
-                    <b>Example 2 - ISO format:</b>\n\
-                    Sprint Planning\n\
-                    2026-01-25 14:00\n\
-                    90\n\n\
-                    <b>Supported date formats:</b>\n\
-                    • <code>tomorrow 2pm</code>\n\
-                    • <code>next Monday 10:00</code>\n\
-                    • <code>friday 3pm</code>\n\
-                    • <code>2026-01-25 14:00</code>\n\
-                    • <code>2 hours</code> (from now)";
-
-    bot.send_message(msg.chat.id, response)
-        .parse_mode(ParseMode::Html)
-        .await?;
-
-    Ok(())
-}
 
 /// Handle the /device command
 pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
@@ -491,17 +287,56 @@ pub async fn handle_delete_account(bot: Bot, msg: Message) -> Result<()> {
 }
 
 /// Handle the /list command
-pub async fn handle_list(bot: Bot, msg: Message) -> Result<()> {
-    let response = "📋 <b>List Events</b>\n\n\
-                    Use these commands for quick lists:\n\
-                    /today - Today's events\n\
-                    /tomorrow - Tomorrow's events\n\
-                    /week - Next 7 days\n\n\
-                    For custom date ranges, use the web UI.";
+pub async fn handle_list(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
+    let user = msg
+        .from
+        .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
+    let telegram_id = user.id.0 as i64;
 
-    bot.send_message(msg.chat.id, response)
-        .parse_mode(ParseMode::Html)
-        .await?;
+    // Get upcoming events (next 7 days)
+    let now = Utc::now();
+    let start = now
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| anyhow::anyhow!("Invalid time"))?
+        .and_utc();
+    let end = start + Duration::days(7);
+
+    // Query events from database
+    let events = db.get_events_for_user(telegram_id, start, end).await?;
+
+    if events.is_empty() {
+        bot.send_message(msg.chat.id, "📅 No upcoming events in the next 7 days.")
+            .await?;
+    } else {
+        let mut response = format!("📅 <b>Upcoming Events (Next 7 Days)</b> ({})\n\n", events.len());
+
+        for (idx, event) in events.iter().enumerate() {
+            response.push_str(&format!(
+                "{}. <b>{}</b>\n   📆 {}\n   🕐 {}\n",
+                idx + 1,
+                event.summary,
+                event.start.format("%a, %b %d"),
+                event.start.format("%H:%M")
+            ));
+
+            if let Some(location) = &event.location {
+                response.push_str(&format!("   📍 {}\n", location));
+            }
+
+            response.push('\n');
+        }
+
+        bot.send_message(msg.chat.id, response)
+            .parse_mode(ParseMode::Html)
+            .await?;
+    }
+
+    tracing::info!(
+        "User {} queried list events: {} found",
+        telegram_id,
+        events.len()
+    );
 
     Ok(())
 }
@@ -874,7 +709,7 @@ pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()
                          📌 <b>{}</b>\n\
                          📅 {}\n\
                          🕐 {} - {} ({} min){}\n\n\
-                         Use /today, /tomorrow, or /week to view your events.",
+                         Use /list to view your upcoming events.",
                         event.summary,
                         event.start.format("%A, %B %d, %Y"),
                         event.start.format("%H:%M"),
@@ -969,7 +804,7 @@ mod tests {
         let cmds = Command::descriptions();
         let cmds_str = cmds.to_string();
         assert!(cmds_str.contains("start"), "Should contain /start command");
-        assert!(cmds_str.contains("today"), "Should contain /today command");
+        assert!(cmds_str.contains("list"), "Should contain /list command");
     }
 
     #[test]
