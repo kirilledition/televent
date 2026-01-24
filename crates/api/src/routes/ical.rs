@@ -59,6 +59,7 @@ pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
 
     // Build calendar container
     let mut calendar = Calendar::new();
+    calendar.prodid("-//Televent//Televent//EN");
     calendar.push(ical_event);
 
     Ok(calendar.to_string())

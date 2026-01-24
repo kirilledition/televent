@@ -48,3 +48,7 @@ tarpaulin-report.html
 *.db
 *.db-shm
 *.db-wal
+
+# Logs
+logs/
+*.log

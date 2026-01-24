@@ -10,6 +10,10 @@ async fn main() -> Result<()> {
     // Load environment variables from .env file
     dotenvy::dotenv().ok();
 
+    // Create file appender
+    let file_appender = tracing_appender::rolling::daily("logs", "app.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
@@ -17,6 +21,11 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| "info,api=debug,sqlx=warn".into()),
         )
         .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(non_blocking),
+        )
         .init();
 
     tracing::info!("Starting Televent API server");
