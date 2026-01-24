@@ -11,6 +11,7 @@ use axum::{Router, middleware as axum_middleware};
 use moka::future::Cache;
 use sqlx::PgPool;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
 use crate::middleware::caldav_auth::{LoginId, caldav_basic_auth};
@@ -67,6 +68,47 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
                 )),
         )
         .layer(cors)
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<_>| {
+                    let remote_addr = request
+                        .extensions()
+                        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                        .map(|ci| ci.0.to_string())
+                        .unwrap_or_else(|| "unknown".into());
+
+                    let user_agent = request
+                        .headers()
+                        .get(axum::http::header::USER_AGENT)
+                        .and_then(|h| h.to_str().ok())
+                        .unwrap_or("unknown");
+
+                    let forwarded_for = request
+                        .headers()
+                        .get("x-forwarded-for")
+                        .and_then(|h| h.to_str().ok());
+
+                    tracing::info_span!(
+                        "request",
+                        method = %request.method(),
+                        uri = %request.uri(),
+                        version = ?request.version(),
+                        remote_addr = %remote_addr,
+                        forwarded_for = ?forwarded_for,
+                        user_agent = %user_agent,
+                    )
+                })
+                .on_request(|_request: &axum::http::Request<_>, _span: &tracing::Span| {
+                    tracing::info!("started processing request");
+                })
+                .on_response(|response: &axum::http::Response<_>, latency: std::time::Duration, _span: &tracing::Span| {
+                    tracing::info!(
+                        latency_ms = %latency.as_millis(),
+                        status = %response.status(),
+                        "finished processing request"
+                    );
+                })
+        )
         .with_state(state)
 }
 
@@ -84,5 +126,8 @@ pub async fn run_api(state: AppState, config: &config::Config) -> Result<(), std
     tracing::info!("API server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>()
+    ).await
 }
