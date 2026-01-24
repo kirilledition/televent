@@ -359,19 +359,31 @@ fn generate_etag(
     status: &EventStatus,
     rrule: Option<&str>,
 ) -> String {
-    let data = format!(
-        "{}|{}|{}|{}|{}|{}|{}|{:?}|{}",
-        uid,
-        summary,
-        description.unwrap_or(""),
-        location.unwrap_or(""),
-        start.to_rfc3339(),
-        end.to_rfc3339(),
-        is_all_day,
-        status,
-        rrule.unwrap_or("")
-    );
-    let hash = Sha256::digest(data.as_bytes());
+    let mut hasher = Sha256::new();
+    hasher.update(uid);
+    hasher.update("|");
+    hasher.update(summary);
+    hasher.update("|");
+    hasher.update(description.unwrap_or(""));
+    hasher.update("|");
+    hasher.update(location.unwrap_or(""));
+    hasher.update("|");
+    // to_rfc3339 allocates, but it's small compared to the full string
+    hasher.update(start.to_rfc3339());
+    hasher.update("|");
+    hasher.update(end.to_rfc3339());
+    hasher.update("|");
+    hasher.update(if is_all_day { "true" } else { "false" });
+    hasher.update("|");
+    match status {
+        EventStatus::Confirmed => hasher.update("Confirmed"),
+        EventStatus::Tentative => hasher.update("Tentative"),
+        EventStatus::Cancelled => hasher.update("Cancelled"),
+    }
+    hasher.update("|");
+    hasher.update(rrule.unwrap_or(""));
+
+    let hash = hasher.finalize();
     format!("{:x}", hash)
 }
 
