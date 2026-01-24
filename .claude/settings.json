@@ -34,8 +34,15 @@
       "Bash(sudo service:*)",
       "Bash(sudo -u postgres:*)",
       "Bash(timeout:*)",
+      "Bash(cadaver:*)",
       "WebFetch(domain:docs.rs)",
-      "mcp__serena"
+      "mcp__serena",
+      "mcp__db",
+      "mcp__context7",
+      "Bash(pkill:*)",
+      "Bash(kill:*)",
+      "Bash(ps:*)",
+      "Bash(sqlite3:*)"
     ]
   }
 }

@@ -22,6 +22,8 @@ pub enum ReportType {
     },
     /// sync-collection: Get changes since sync-token
     SyncCollection { sync_token: Option<String> },
+    /// calendar-multiget: Fetch multiple specific calendar resources
+    CalendarMultiget { hrefs: Vec<String> },
 }
 
 /// Parse CalDAV REPORT request XML
@@ -31,11 +33,14 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
 
     let mut in_calendar_query = false;
     let mut in_sync_collection = false;
+    let mut in_calendar_multiget = false;
     let mut in_sync_token = false;
+    let mut in_href = false;
     let mut _in_time_range = false;
     let mut sync_token: Option<String> = None;
     let mut time_range_start: Option<DateTime<Utc>> = None;
     let mut time_range_end: Option<DateTime<Utc>> = None;
+    let mut hrefs: Vec<String> = Vec::new();
 
     loop {
         match reader.read_event() {
@@ -46,6 +51,8 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
                 match name {
                     "calendar-query" => in_calendar_query = true,
                     "sync-collection" => in_sync_collection = true,
+                    "calendar-multiget" => in_calendar_multiget = true,
+                    "href" => in_href = true,
                     "time-range" => {
                         _in_time_range = true;
                         // Parse start/end attributes
@@ -77,6 +84,7 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
                 match name {
                     "calendar-query" => in_calendar_query = true,
                     "sync-collection" => in_sync_collection = true,
+                    "calendar-multiget" => in_calendar_multiget = true,
                     "time-range" => {
                         // Parse start/end attributes
                         for attr in e.attributes().flatten() {
@@ -99,11 +107,11 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
                 }
             }
             Ok(Event::Text(e)) => {
-                if in_sync_token {
-                    let text = std::str::from_utf8(e.as_ref()).unwrap_or("");
-                    if !text.is_empty() {
-                        sync_token = Some(text.to_string());
-                    }
+                let text = std::str::from_utf8(e.as_ref()).unwrap_or("");
+                if in_sync_token && !text.is_empty() {
+                    sync_token = Some(text.to_string());
+                } else if in_href && !text.is_empty() {
+                    hrefs.push(text.to_string());
                 }
             }
             Ok(Event::End(e)) => {
@@ -112,6 +120,7 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
                 match name {
                     "time-range" => _in_time_range = false,
                     "sync-token" => in_sync_token = false,
+                    "href" => in_href = false,
                     _ => {}
                 }
             }
@@ -133,9 +142,11 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
         })
     } else if in_sync_collection {
         Ok(ReportType::SyncCollection { sync_token })
+    } else if in_calendar_multiget {
+        Ok(ReportType::CalendarMultiget { hrefs })
     } else {
         Err(ApiError::BadRequest(
-            "Unknown REPORT type: expected calendar-query or sync-collection".to_string(),
+            "Unknown REPORT type: expected calendar-query, sync-collection, or calendar-multiget".to_string(),
         ))
     }
 }
@@ -194,6 +205,7 @@ pub fn generate_sync_collection_response(
     user_id: Uuid,
     calendar: &Calendar,
     events: &[CalEvent],
+    ical_data: &[(String, String)], // (uid, ical_string)
     deleted_uids: &[String],
 ) -> Result<String, ApiError> {
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
@@ -212,9 +224,14 @@ pub fn generate_sync_collection_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
-    // Write response for changed/new events
+    // Write response for changed/new events with calendar-data
     for event in events {
-        write_event_response(&mut writer, user_id, event)?;
+        let ical = ical_data
+            .iter()
+            .find(|(uid, _)| uid == &event.uid)
+            .map(|(_, data)| data.as_str())
+            .unwrap_or("");
+        write_event_with_data(&mut writer, user_id, event, ical)?;
     }
 
     // Write 404 response for deleted events
@@ -235,6 +252,47 @@ pub fn generate_sync_collection_response(
     writer
         .write_event(Event::End(BytesEnd::new("d:sync-token")))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+
+    // </multistatus>
+    writer
+        .write_event(Event::End(BytesEnd::new("d:multistatus")))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+
+    let result = writer.into_inner().into_inner();
+    String::from_utf8(result).map_err(|e| ApiError::Internal(format!("UTF-8 error: {}", e)))
+}
+
+/// Generate CalDAV multistatus response for REPORT calendar-multiget
+pub fn generate_calendar_multiget_response(
+    user_id: Uuid,
+    events: &[CalEvent],
+    ical_data: &[(String, String)], // (uid, ical_string)
+) -> Result<String, ApiError> {
+    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+
+    // XML declaration
+    writer
+        .write_event(Event::Decl(BytesDecl::new("1.0", Some("utf-8"), None)))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+
+    // <multistatus>
+    let mut multistatus = BytesStart::new("d:multistatus");
+    multistatus.push_attribute(("xmlns:d", "DAV:"));
+    multistatus.push_attribute(("xmlns:cal", "urn:ietf:params:xml:ns:caldav"));
+    multistatus.push_attribute(("xmlns:cs", "http://calendarserver.org/ns/"));
+    writer
+        .write_event(Event::Start(multistatus))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+
+    // Write response for each event with calendar-data
+    for event in events {
+        let ical = ical_data
+            .iter()
+            .find(|(uid, _)| uid == &event.uid)
+            .map(|(_, data)| data.as_str())
+            .unwrap_or("");
+        write_event_with_data(&mut writer, user_id, event, ical)?;
+    }
 
     // </multistatus>
     writer

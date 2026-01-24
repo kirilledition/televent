@@ -241,6 +241,8 @@ async fn caldav_report(
         caldav_xml::ReportType::CalendarQuery { start, end } => {
             // Query events with optional time range
             let events = db::events::list_events(&pool, calendar.id, start, end).await?;
+            
+            tracing::info!("CalendarQuery: returning {} events (range: {:?} to {:?})", events.len(), start, end);
 
             // Generate iCalendar data for each event
             let mut ical_data = Vec::new();
@@ -251,6 +253,8 @@ async fn caldav_report(
 
             let response_xml =
                 caldav_xml::generate_calendar_query_response(user_id, &events, &ical_data)?;
+            
+            tracing::debug!("CalendarQuery response XML (first 500 chars): {}", &response_xml.chars().take(500).collect::<String>());
 
             Ok((
                 StatusCode::MULTI_STATUS,
@@ -266,6 +270,8 @@ async fn caldav_report(
                 .and_then(|s| s.rsplit('/').next())
                 .and_then(|s| s.parse::<i64>().ok())
                 .unwrap_or(0);
+            
+            tracing::info!("SyncCollection: sync_token={:?}, parsed={}", sync_token, last_sync_token);
 
             // Get events modified since last sync
             // For now, if sync_token is 0 or missing, return all events
@@ -274,6 +280,19 @@ async fn caldav_report(
             } else {
                 db::events::list_events_since_sync(&pool, calendar.id, last_sync_token).await?
             };
+            
+            tracing::info!("SyncCollection: returning {} events, calendar sync_token={}", events.len(), calendar.sync_token);
+
+            // Generate iCalendar data for each event
+            let mut ical_data = Vec::new();
+            for event in &events {
+                let ical_str = ical::event_to_ical(event)?;
+                if events.len() > 0 && ical_data.is_empty() {
+                    // Log first event's iCal data for debugging
+                    tracing::info!("Sample iCal data for {}: \n{}", event.uid, ical_str);
+                }
+                ical_data.push((event.uid.clone(), ical_str));
+            }
 
             // TODO: Track deleted events in a separate table for proper sync-collection
             // For now, we don't report deleted events
@@ -283,8 +302,69 @@ async fn caldav_report(
                 user_id,
                 &calendar,
                 &events,
+                &ical_data,
                 &deleted_uids,
             )?;
+            
+            // Log the actual XML response for debugging
+            if events.len() > 0 {
+                tracing::info!("SyncCollection XML response (first 2000 chars):\n{}", &response_xml.chars().take(2000).collect::<String>());
+            }
+
+            Ok((
+                StatusCode::MULTI_STATUS,
+                [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
+                response_xml,
+            )
+                .into_response())
+        }
+        caldav_xml::ReportType::CalendarMultiget { hrefs } => {
+            tracing::info!("CalendarMultiget: {} hrefs requested", hrefs.len());
+            
+            // Extract UIDs from hrefs
+            // Format: /caldav/{user_id}/{uid}.ics or URL-encoded variants
+            let mut events = Vec::new();
+            let mut ical_data = Vec::new();
+
+            for href in hrefs {
+                // Decode URL encoding
+                let decoded_href = urlencoding::decode(&href)
+                    .unwrap_or(std::borrow::Cow::Borrowed(&href));
+                
+                // Extract UID from path: /caldav/{user_id}/{uid}.ics
+                if let Some(uid_with_ics) = decoded_href.rsplit('/').next() {
+                    let uid = uid_with_ics.trim_end_matches(".ics");
+                    
+                    // Fetch event by UID
+                    match db::events::get_event_by_uid(&pool, calendar.id, uid).await {
+                        Ok(Some(event)) => {
+                            // Generate iCalendar data
+                            match ical::event_to_ical(&event) {
+                                Ok(ical_str) => {
+                                    ical_data.push((event.uid.clone(), ical_str));
+                                    events.push(event);
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to generate iCalendar for {}: {:?}", uid, e);
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            tracing::debug!("Event not found for UID {}", uid);
+                            // CalDAV clients expect 404 for missing resources
+                            // We'll skip this event in the response
+                        }
+                        Err(e) => {
+                            tracing::error!("Database error fetching event {}: {:?}", uid, e);
+                        }
+                    }
+                }
+            }
+
+            let response_xml =
+                caldav_xml::generate_calendar_multiget_response(user_id, &events, &ical_data)?;
+            
+            tracing::info!("CalendarMultiget: returning {} events", events.len());
 
             Ok((
                 StatusCode::MULTI_STATUS,
