@@ -1,3 +1,5 @@
+explore the codebase. it consists of a lot of documentation files. some of them in docs folder, some of them in readme. i want it all to be in a more optimal way. probably even in one structured readme file. i want you to update readme with all the documentation so all the other files are redundant. i dont like usage of emoji, i want readme to be llm ai agent friendly so agent can consult with it. when you are done with that, i want you to check documentation for being up to date, update state, architechture, commands, all the stuff.
+
 # Televent
 
 > **Telegram-native calendar management with seamless CalDAV synchronization.**
