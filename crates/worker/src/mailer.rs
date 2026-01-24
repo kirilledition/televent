@@ -19,7 +19,7 @@ pub enum MailerError {
 pub type Result<T> = std::result::Result<T, MailerError>;
 
 use lettre::{
-    Message, SmtpTransport, Transport, message::header::ContentType,
+    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::header::ContentType,
     transport::smtp::authentication::Credentials,
 };
 
@@ -56,12 +56,12 @@ pub async fn send_email(to: &str, subject: &str, body: &str) -> Result<()> {
         .map_err(|e| MailerError::SendFailed(format!("Failed to build message: {}", e)))?;
 
     // Configure SMTP transport
-    let mailer = if let (Ok(username), Ok(password)) = (
+    let mailer: AsyncSmtpTransport<Tokio1Executor> = if let (Ok(username), Ok(password)) = (
         std::env::var("SMTP_USERNAME"),
         std::env::var("SMTP_PASSWORD"),
     ) {
         // Authenticated SMTP
-        SmtpTransport::relay(&smtp_host)
+        AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)
             .map_err(|e| {
                 MailerError::ConnectionFailed(format!("Failed to create transport: {}", e))
             })?
@@ -70,14 +70,15 @@ pub async fn send_email(to: &str, subject: &str, body: &str) -> Result<()> {
             .build()
     } else {
         // Unauthenticated SMTP (for local testing)
-        SmtpTransport::builder_dangerous(&smtp_host)
+        AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&smtp_host)
             .port(smtp_port)
             .build()
     };
 
     // Send email
     mailer
-        .send(&email)
+        .send(email)
+        .await
         .map_err(|e| MailerError::SendFailed(format!("Failed to send email: {}", e)))?;
 
     tracing::info!("Email sent successfully to {}", to);
