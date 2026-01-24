@@ -5,6 +5,7 @@
 mod commands;
 mod config;
 mod db;
+mod event_parser;
 mod handlers;
 
 use anyhow::Result;
@@ -12,6 +13,8 @@ use commands::Command;
 use config::Config;
 use db::BotDb;
 use sqlx::PgPool;
+use teloxide::dispatching::{HandlerExt, UpdateFilterExt};
+use teloxide::dptree;
 use teloxide::prelude::*;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -48,42 +51,65 @@ async fn main() -> Result<()> {
 
     // Initialize bot
     let bot = Bot::new(&config.telegram_bot_token);
-    tracing::info!("Bot initialized, starting command handler");
+    tracing::info!("Bot initialized, starting dispatcher");
 
-    // Set up command handler
-    Command::repl(bot, move |bot: Bot, msg: Message, cmd: Command| {
-        let db = bot_db.clone();
-        async move {
-            let result = handle_command(bot, msg, cmd, db).await;
-            if let Err(e) = result {
-                tracing::error!("Error handling command: {}", e);
-            }
-            Ok(())
-        }
-    })
-    .await;
+    // Build the message handler schema
+    let handler = Update::filter_message()
+        // First try to handle as a command
+        .branch(
+            dptree::entry()
+                .filter_command::<Command>()
+                .endpoint(handle_command),
+        )
+        // Then handle as text message (for event creation)
+        .branch(
+            dptree::filter(|msg: Message| msg.text().is_some()).endpoint(handle_message),
+        );
+
+    // Create dispatcher with database dependency
+    Dispatcher::builder(bot, handler)
+        .dependencies(dptree::deps![bot_db])
+        .enable_ctrlc_handler()
+        .build()
+        .dispatch()
+        .await;
 
     Ok(())
 }
 
 /// Route commands to their handlers
-async fn handle_command(bot: Bot, msg: Message, cmd: Command, db: BotDb) -> Result<()> {
+async fn handle_command(bot: Bot, msg: Message, cmd: Command, db: BotDb) -> ResponseResult<()> {
     tracing::info!("Handling command: {:?}", cmd);
 
-    match cmd {
-        Command::Start => handlers::handle_start(bot, msg, db).await?,
-        Command::Help => handlers::handle_help(bot, msg).await?,
-        Command::Today => handlers::handle_today(bot, msg, db).await?,
-        Command::Tomorrow => handlers::handle_tomorrow(bot, msg, db).await?,
-        Command::Week => handlers::handle_week(bot, msg, db).await?,
-        Command::Create => handlers::handle_create(bot, msg).await?,
-        Command::List => handlers::handle_list(bot, msg).await?,
-        Command::Cancel => handlers::handle_cancel(bot, msg).await?,
-        Command::Device => handlers::handle_device(bot, msg, db).await?,
-        Command::Export => handlers::handle_export(bot, msg, db).await?,
-        Command::Invite => handlers::handle_invite(bot, msg, db).await?,
-        Command::Rsvp => handlers::handle_rsvp(bot, msg, db).await?,
-        Command::DeleteAccount => handlers::handle_delete_account(bot, msg).await?,
+    let result = match cmd {
+        Command::Start => handlers::handle_start(bot, msg, db).await,
+        Command::Help => handlers::handle_help(bot, msg).await,
+        Command::Today => handlers::handle_today(bot, msg, db).await,
+        Command::Tomorrow => handlers::handle_tomorrow(bot, msg, db).await,
+        Command::Week => handlers::handle_week(bot, msg, db).await,
+        Command::Create => handlers::handle_create(bot, msg).await,
+        Command::List => handlers::handle_list(bot, msg).await,
+        Command::Cancel => handlers::handle_cancel(bot, msg).await,
+        Command::Device => handlers::handle_device(bot, msg, db).await,
+        Command::Export => handlers::handle_export(bot, msg, db).await,
+        Command::Invite => handlers::handle_invite(bot, msg, db).await,
+        Command::Rsvp => handlers::handle_rsvp(bot, msg, db).await,
+        Command::DeleteAccount => handlers::handle_delete_account(bot, msg).await,
+    };
+
+    if let Err(e) = result {
+        tracing::error!("Error handling command: {}", e);
+    }
+
+    Ok(())
+}
+
+/// Handle non-command text messages (event creation)
+async fn handle_message(bot: Bot, msg: Message, db: BotDb) -> ResponseResult<()> {
+    let result = handlers::handle_text_message(bot, msg, db).await;
+
+    if let Err(e) = result {
+        tracing::error!("Error handling text message: {}", e);
     }
 
     Ok(())

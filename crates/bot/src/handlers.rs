@@ -3,6 +3,7 @@
 //! Implementation of all bot command handlers
 
 use crate::db::BotDb;
+use crate::event_parser::{format_example, parse_event_message};
 use anyhow::Result;
 use chrono::{Duration, Utc};
 use teloxide::prelude::*;
@@ -244,15 +245,24 @@ pub async fn handle_create(bot: Bot, msg: Message) -> Result<()> {
     let response = "🎯 <b>Create New Event</b>\n\n\
                     To create an event, send a message in this format:\n\n\
                     <code>Event Title</code>\n\
-                    <code>YYYY-MM-DD HH:MM</code>\n\
-                    <code>Duration in minutes (optional)</code>\n\
+                    <code>Date/Time</code>\n\
+                    <code>Duration in minutes (optional, default: 60)</code>\n\
                     <code>Location (optional)</code>\n\n\
-                    <b>Example:</b>\n\
+                    <b>Example 1 - Natural language:</b>\n\
                     Team Meeting\n\
-                    2026-01-20 14:00\n\
+                    tomorrow 2pm\n\
                     60\n\
                     Conference Room A\n\n\
-                    Or use the web UI for a better experience!";
+                    <b>Example 2 - ISO format:</b>\n\
+                    Sprint Planning\n\
+                    2026-01-25 14:00\n\
+                    90\n\n\
+                    <b>Supported date formats:</b>\n\
+                    • <code>tomorrow 2pm</code>\n\
+                    • <code>next Monday 10:00</code>\n\
+                    • <code>friday 3pm</code>\n\
+                    • <code>2026-01-25 14:00</code>\n\
+                    • <code>2 hours</code> (from now)";
 
     bot.send_message(msg.chat.id, response)
         .parse_mode(ParseMode::Html)
@@ -781,6 +791,121 @@ pub async fn handle_rsvp(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                 "❌ Failed to update your response. Please try again later.",
             )
             .await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle non-command text messages (event creation)
+///
+/// This handler processes multi-line text messages as potential event creation requests.
+/// Messages must have at least 2 lines (title and date/time) to be considered.
+pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
+    let text = match msg.text() {
+        Some(t) => t,
+        None => return Ok(()), // Not a text message
+    };
+
+    // Skip commands
+    if text.starts_with('/') {
+        return Ok(());
+    }
+
+    // Skip messages with fewer than 2 lines (not enough for event creation)
+    let line_count = text.lines().count();
+    if line_count < 2 {
+        return Ok(());
+    }
+
+    let user = msg
+        .from
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
+    let telegram_id = user.id.0 as i64;
+
+    // Try to parse as event
+    match parse_event_message(text) {
+        Ok(parsed_event) => {
+            // Generate unique UID for the event
+            let uid = format!("{}@televent.bot", uuid::Uuid::new_v4());
+            let end_time = parsed_event.end_time();
+
+            // Create event in database
+            match db
+                .create_event(
+                    telegram_id,
+                    &uid,
+                    &parsed_event.title,
+                    None, // description
+                    parsed_event.location.as_deref(),
+                    parsed_event.start,
+                    end_time,
+                    "UTC",
+                )
+                .await
+            {
+                Ok(event) => {
+                    // Format confirmation message
+                    let location_text = parsed_event
+                        .location
+                        .as_ref()
+                        .map(|loc| format!("\n📍 <b>Location:</b> {}", loc))
+                        .unwrap_or_default();
+
+                    let response = format!(
+                        "✅ <b>Event Created!</b>\n\n\
+                         📌 <b>{}</b>\n\
+                         📅 {}\n\
+                         🕐 {} - {} ({} min){}\n\n\
+                         Use /today, /tomorrow, or /week to view your events.",
+                        event.summary,
+                        event.start.format("%A, %B %d, %Y"),
+                        event.start.format("%H:%M"),
+                        end_time.format("%H:%M"),
+                        parsed_event.duration_minutes,
+                        location_text
+                    );
+
+                    bot.send_message(msg.chat.id, response)
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+
+                    tracing::info!(
+                        "User {} created event: {} at {}",
+                        telegram_id,
+                        event.summary,
+                        event.start
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create event for user {}: {}", telegram_id, e);
+
+                    bot.send_message(
+                        msg.chat.id,
+                        "❌ Failed to create event. Please try again later.",
+                    )
+                    .await?;
+                }
+            }
+        }
+        Err(parse_error) => {
+            // Send helpful error message
+            let response = format!(
+                "❌ <b>Could not create event</b>\n\n{}\n\n{}",
+                parse_error,
+                format_example()
+            );
+
+            bot.send_message(msg.chat.id, response)
+                .parse_mode(ParseMode::Html)
+                .await?;
+
+            tracing::info!(
+                "User {} sent invalid event format: {}",
+                telegram_id,
+                parse_error
+            );
         }
     }
 

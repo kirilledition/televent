@@ -59,19 +59,24 @@ pub struct DevicePasswordInfo {
 /// User information for lookups
 #[derive(Debug, Clone, FromRow)]
 pub struct UserInfo {
+    #[allow(dead_code)]
     pub id: Uuid,
     pub telegram_id: i64,
+    #[allow(dead_code)]
     pub telegram_username: Option<String>,
 }
 
 /// Event information with ownership check
 #[derive(Debug, Clone, FromRow)]
 pub struct EventInfo {
+    #[allow(dead_code)]
     pub id: Uuid,
     pub summary: String,
     pub start: DateTime<Utc>,
+    #[allow(dead_code)]
     pub end: DateTime<Utc>,
     pub location: Option<String>,
+    #[allow(dead_code)]
     pub user_id: Uuid,
 }
 
@@ -86,6 +91,7 @@ pub struct PendingInvite {
 }
 
 /// Attendee information for display
+#[allow(dead_code)]
 #[derive(Debug, Clone, FromRow)]
 pub struct AttendeeInfo {
     pub email: String,
@@ -406,6 +412,7 @@ impl BotDb {
     }
 
     /// Get all attendees for an event
+    #[allow(dead_code)]
     pub async fn get_event_attendees(
         &self,
         event_id: Uuid,
@@ -486,7 +493,7 @@ impl BotDb {
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(row.try_get("id")?)
+        row.try_get("id")
     }
 
     /// Queue RSVP notification to event organizer
@@ -515,7 +522,106 @@ impl BotDb {
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(row.try_get("id")?)
+        row.try_get("id")
+    }
+
+    /// Get calendar ID for a user (creates calendar if missing)
+    pub async fn get_or_create_calendar(
+        &self,
+        telegram_id: i64,
+    ) -> Result<Uuid, sqlx::Error> {
+        // First try to get existing calendar
+        let calendar_row = sqlx::query(
+            r#"
+            SELECT c.id
+            FROM calendars c
+            JOIN users u ON c.user_id = u.id
+            WHERE u.telegram_id = $1
+            "#,
+        )
+        .bind(telegram_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(row) = calendar_row {
+            return row.try_get("id");
+        }
+
+        // Calendar doesn't exist - this shouldn't happen if user ran /start
+        // but we'll handle it gracefully by ensuring user setup
+        self.ensure_user_setup(telegram_id, None).await?;
+
+        // Now fetch the calendar
+        let row = sqlx::query(
+            r#"
+            SELECT c.id
+            FROM calendars c
+            JOIN users u ON c.user_id = u.id
+            WHERE u.telegram_id = $1
+            "#,
+        )
+        .bind(telegram_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        row.try_get("id")
+    }
+
+    /// Create a new event
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_event(
+        &self,
+        telegram_id: i64,
+        uid: &str,
+        summary: &str,
+        description: Option<&str>,
+        location: Option<&str>,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        timezone: &str,
+    ) -> Result<BotEvent, sqlx::Error> {
+        use sha2::{Digest, Sha256};
+
+        // Get calendar for user
+        let calendar_id = self.get_or_create_calendar(telegram_id).await?;
+
+        // Generate ETag (SHA256 of event data)
+        let etag_data = format!(
+            "{}|{}|{}|{}|{}|{}|false|Confirmed|",
+            uid,
+            summary,
+            description.unwrap_or(""),
+            location.unwrap_or(""),
+            start.to_rfc3339(),
+            end.to_rfc3339()
+        );
+        let hash = Sha256::digest(etag_data.as_bytes());
+        let etag = format!("{:x}", hash);
+
+        // Insert event
+        let event = sqlx::query_as::<_, BotEvent>(
+            r#"
+            INSERT INTO events (
+                calendar_id, uid, summary, description, location,
+                start, "end", is_all_day, status, timezone, etag
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, false, 'CONFIRMED', $8, $9)
+            RETURNING id, summary, start, "end", location, description
+            "#,
+        )
+        .bind(calendar_id)
+        .bind(uid)
+        .bind(summary)
+        .bind(description)
+        .bind(location)
+        .bind(start)
+        .bind(end)
+        .bind(timezone)
+        .bind(&etag)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(event)
     }
 }
 
