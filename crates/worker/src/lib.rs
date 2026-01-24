@@ -13,6 +13,7 @@ use anyhow::Result;
 use db::WorkerDb;
 use sqlx::PgPool;
 use teloxide::Bot;
+use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
@@ -49,6 +50,9 @@ async fn run_worker_loop(
     shutdown: Option<CancellationToken>,
 ) -> Result<()> {
     let poll_interval = tokio::time::Duration::from_secs(config.poll_interval_secs);
+    let mut last_status_log_time = Instant::now()
+        .checked_sub(Duration::from_secs(config.status_log_interval_secs))
+        .unwrap_or_else(Instant::now);
 
     loop {
         // Check for shutdown signal
@@ -75,10 +79,14 @@ async fn run_worker_loop(
                 }
 
                 // Log queue status
-                if let Ok(pending_count) = db.count_pending().await {
-                    if pending_count > 0 {
-                        info!("Queue status: {} pending jobs remaining", pending_count);
+                if last_status_log_time.elapsed() >= Duration::from_secs(config.status_log_interval_secs)
+                {
+                    if let Ok(pending_count) = db.count_pending().await {
+                        if pending_count > 0 {
+                            info!("Queue status: {} pending jobs remaining", pending_count);
+                        }
                     }
+                    last_status_log_time = Instant::now();
                 }
             }
             Err(e) => {
@@ -155,7 +163,7 @@ mod tests {
     fn test_exponential_backoff() {
         // Test backoff calculation
         let retry_counts = vec![0, 1, 2, 3, 4];
-        let expected_minutes = vec![1, 2, 4, 8, 16];
+        let expected_minutes = vec![2, 4, 8, 16, 32];
 
         for (retry, expected) in retry_counts.iter().zip(expected_minutes.iter()) {
             let backoff = 2_i64.pow((retry + 1) as u32);

@@ -21,6 +21,9 @@ pub struct Config {
 
     /// Batch size for processing jobs
     pub batch_size: i64,
+
+    /// Interval in seconds for logging queue status (COUNT(*))
+    pub status_log_interval_secs: u64,
 }
 
 impl Config {
@@ -44,6 +47,11 @@ impl Config {
                 .unwrap_or_else(|_| "10".to_string())
                 .parse()
                 .context("WORKER_BATCH_SIZE must be a valid integer")?,
+
+            status_log_interval_secs: env::var("WORKER_STATUS_LOG_INTERVAL_SECS")
+                .unwrap_or_else(|_| "60".to_string())
+                .parse()
+                .context("WORKER_STATUS_LOG_INTERVAL_SECS must be a valid integer")?,
         })
     }
 }
@@ -72,6 +80,7 @@ mod tests {
             poll_interval_secs: 10,
             max_retry_count: 5,
             batch_size: 10,
+            status_log_interval_secs: 60,
         };
     }
 }
