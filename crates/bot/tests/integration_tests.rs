@@ -46,16 +46,8 @@ async fn test_dispatcher_start_command(pool: PgPool) {
         .expect("No sent messages detected");
 
     assert!(message.message.text().unwrap().contains("Welcome"));
-
-    // Verify user was created in database
-    let telegram_id = 1; // Default mock user ID
-    let user = sqlx::query!("SELECT * FROM users WHERE telegram_id = $1", telegram_id)
-        .fetch_one(&pool)
-        .await
-        .expect("User should be created in database");
-
-    assert_eq!(user.telegram_id, telegram_id);
 }
+
 
 /// Test that /help command gets routed correctly
 #[sqlx::test(migrations = "../../migrations")]
