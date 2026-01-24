@@ -99,6 +99,23 @@ pub async fn get_event_by_uid(
     Ok(event)
 }
 
+/// Get multiple events by UIDs and calendar ID
+pub async fn get_events_by_uids(
+    pool: &PgPool,
+    calendar_id: Uuid,
+    uids: &[&str],
+) -> Result<Vec<Event>, ApiError> {
+    let events = sqlx::query_as::<_, Event>(
+        "SELECT * FROM events WHERE calendar_id = $1 AND uid = ANY($2)",
+    )
+    .bind(calendar_id)
+    .bind(uids)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(events)
+}
+
 /// Delete event by UID
 pub async fn delete_event_by_uid(
     pool: &PgPool,
