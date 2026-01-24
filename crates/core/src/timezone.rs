@@ -175,4 +175,20 @@ mod tests {
         let tz = default_timezone();
         assert_eq!(tz.name(), "UTC");
     }
+
+    #[test]
+    fn test_timezone_struct_valid() {
+        let tz = Timezone::new("America/New_York");
+        assert!(tz.is_ok());
+        let tz = tz.unwrap();
+        assert_eq!(tz.as_str(), "America/New_York");
+        assert_eq!(tz.to_string(), "America/New_York");
+        assert_eq!(tz.into_inner(), "America/New_York");
+    }
+
+    #[test]
+    fn test_timezone_struct_invalid() {
+        let tz = Timezone::new("Invalid/Zone");
+        assert!(tz.is_err());
+    }
 }

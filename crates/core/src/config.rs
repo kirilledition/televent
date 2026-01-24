@@ -30,3 +30,35 @@ impl CoreConfig {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+    use std::env;
+
+    #[test]
+    #[serial]
+    fn test_core_config_from_env() {
+        // Set env vars
+        unsafe {
+            env::set_var("DATABASE_URL", "postgres://test:test@localhost:5432/test");
+            env::set_var("TELEGRAM_BOT_TOKEN", "test_token");
+        }
+
+        let config = CoreConfig::from_env();
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(
+            config.database_url,
+            "postgres://test:test@localhost:5432/test"
+        );
+        assert_eq!(config.telegram_bot_token, "test_token");
+
+        // Clean up
+        unsafe {
+            env::remove_var("DATABASE_URL");
+            env::remove_var("TELEGRAM_BOT_TOKEN");
+        }
+    }
+}

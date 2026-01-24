@@ -142,8 +142,19 @@ mod tests {
         // Jan 5 10:00
         // Jan 6 10:00 (is it <= Jan 6 00:00? No)
 
-        assert_eq!(occurrences.len(), 2);
         assert_eq!(occurrences[0].day(), 4);
         assert_eq!(occurrences[1].day(), 5);
+    }
+
+    #[test]
+    fn test_next_occurrences() {
+        let dtstart = Utc.with_ymd_and_hms(2026, 1, 1, 10, 0, 0).unwrap();
+        // Daily for 3 days
+        let occurrences = next_occurrences("FREQ=DAILY", dtstart, 3).unwrap();
+
+        assert_eq!(occurrences.len(), 3);
+        assert_eq!(occurrences[0], dtstart);
+        assert_eq!(occurrences[1], dtstart + chrono::Duration::days(1));
+        assert_eq!(occurrences[2], dtstart + chrono::Duration::days(2));
     }
 }

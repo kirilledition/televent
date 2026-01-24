@@ -73,6 +73,12 @@ impl UnifiedConfig {
             max_retry_count: self.worker.max_retry_count,
             batch_size: self.worker.batch_size,
             status_log_interval_secs: self.worker.status_log_interval_secs,
+            // Defaults/Placeholders as not exposed in UnifiedConfig yet
+            smtp_host: "localhost".to_string(),
+            smtp_port: 1025,
+            smtp_username: None,
+            smtp_password: None,
+            smtp_from: "noreply@televent.app".to_string(),
         }
     }
 }

@@ -51,3 +51,5 @@ tarpaulin-report.html
 # Logs
 logs/
 *.log
+
+coverage.txt

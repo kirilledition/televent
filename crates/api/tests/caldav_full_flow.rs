@@ -1,0 +1,241 @@
+use api::{AppState, create_router};
+use argon2::{
+    Argon2,
+    password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
+};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode, header},
+};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use moka::future::Cache;
+use sqlx::PgPool;
+use std::time::Duration;
+use tower::ServiceExt;
+
+async fn setup_user_and_auth(pool: &PgPool) -> (i64, String, String) {
+    // 1. Create User
+    let telegram_id = rand::random::<i64>().abs();
+    let username = format!("user_{}", telegram_id);
+
+    let user_id: uuid::Uuid = sqlx::query_scalar("INSERT INTO users (telegram_id, telegram_username, created_at) VALUES ($1, $2, NOW()) RETURNING id")
+        .bind(telegram_id)
+        .bind(&username)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+
+    // 2. Create Device Password
+    let password = "test_password";
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let password_hash = argon2
+        .hash_password(password.as_bytes(), &salt)
+        .unwrap()
+        .to_string();
+
+    sqlx::query("INSERT INTO device_passwords (id, user_id, hashed_password, name, created_at) VALUES ($1, $2, $3, $4, NOW())")
+        .bind(uuid::Uuid::new_v4())
+        .bind(user_id)
+        .bind(password_hash)
+        .bind("test_device")
+        .execute(pool)
+        .await
+        .unwrap();
+
+    // 3. Generate Auth Header
+    let credentials = format!("{}:{}", telegram_id, password);
+    let encoded = STANDARD.encode(credentials.as_bytes());
+    let auth_header = format!("Basic {}", encoded);
+
+    (telegram_id, username, auth_header)
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn test_caldav_full_flow(pool: PgPool) {
+    let (telegram_id, _username, auth_header) = setup_user_and_auth(&pool).await;
+
+    let auth_cache = Cache::builder()
+        .time_to_live(Duration::from_secs(300))
+        .build();
+
+    let state = AppState {
+        pool: pool.clone(),
+        auth_cache,
+    };
+    let app = create_router(state, "*");
+
+    // 1. PROPFIND /caldav/{telegram_id}/ (Depth: 0)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PROPFIND")
+                .uri(format!("/caldav/{}/", telegram_id))
+                .header(header::AUTHORIZATION, &auth_header)
+                .header("Depth", "0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::MULTI_STATUS);
+
+    // 1b. PROPFIND /caldav/{telegram_id}/ (Depth: 1)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PROPFIND")
+                .uri(format!("/caldav/{}/", telegram_id))
+                .header(header::AUTHORIZATION, &auth_header)
+                .header("Depth", "1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::MULTI_STATUS);
+
+    // 2. PUT Create Event
+    let event_uid = uuid::Uuid::new_v4().to_string();
+    let ics_body = format!(
+        "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:{}\nSUMMARY:Test Event\nDTSTART:20240101T000000Z\nDTEND:20240101T010000Z\nEND:VEVENT\nEND:VCALENDAR",
+        event_uid
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/caldav/{}/{}.ics", telegram_id, event_uid))
+                .header(header::AUTHORIZATION, &auth_header)
+                .body(Body::from(ics_body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let etag_val = response
+        .headers()
+        .get(header::ETAG)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    // 3. GET Event
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/caldav/{}/{}.ics", telegram_id, event_uid))
+                .header(header::AUTHORIZATION, &auth_header)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 4. REPORT Calendar Query
+    let report_body = r#"<C:calendar-query xmlns:C="urn:ietf:params:xml:ns:caldav">
+<C:filter>
+<C:comp-filter name="VCALENDAR">
+<C:comp-filter name="VEVENT"/>
+</C:comp-filter>
+</C:filter>
+</C:calendar-query>"#;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("REPORT")
+                .uri(format!("/caldav/{}/", telegram_id))
+                .header(header::AUTHORIZATION, &auth_header)
+                .body(Body::from(report_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::MULTI_STATUS);
+
+    // 5. REPORT Sync Collection
+    let sync_body = r#"<D:sync-collection xmlns:D="DAV:">
+<D:sync-token/>
+<D:sync-level>1</D:sync-level>
+<D:prop>
+    <D:getetag/>
+</D:prop>
+</D:sync-collection>"#;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("REPORT")
+                .uri(format!("/caldav/{}/", telegram_id))
+                .header(header::AUTHORIZATION, &auth_header)
+                .body(Body::from(sync_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::MULTI_STATUS);
+
+    // 5b. REPORT Calendar Multiget
+    let multiget_body = format!(
+        r#"<C:calendar-multiget xmlns:C="urn:ietf:params:xml:ns:caldav">
+<D:prop xmlns:D="DAV:">
+<D:getetag/>
+<C:calendar-data/>
+</D:prop>
+<C:href>/caldav/{}/{}.ics</C:href>
+</C:calendar-multiget>"#,
+        telegram_id, event_uid
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("REPORT")
+                .uri(format!("/caldav/{}/", telegram_id))
+                .header(header::AUTHORIZATION, &auth_header)
+                .body(Body::from(multiget_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::MULTI_STATUS);
+
+    // 6. DELETE Event
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/caldav/{}/{}.ics", telegram_id, event_uid))
+                .header(header::AUTHORIZATION, &auth_header)
+                .header(header::IF_MATCH, &etag_val)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // 7. Verify Deletion
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/caldav/{}/{}.ics", telegram_id, event_uid))
+                .header(header::AUTHORIZATION, &auth_header)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

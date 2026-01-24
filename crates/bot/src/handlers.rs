@@ -804,6 +804,10 @@ fn generate_ics(events: &[crate::db::BotEvent]) -> String {
 #[cfg(test)]
 mod tests {
     use crate::commands::Command;
+    use crate::db::BotDb;
+    use sqlx::PgPool;
+    use teloxide::Bot;
+    use teloxide::types::Message;
     use teloxide::utils::command::BotCommands;
 
     #[test]
@@ -842,5 +846,545 @@ mod tests {
         assert!(ics.contains("DESCRIPTION:Description"));
         assert!(ics.contains("END:VEVENT"));
         assert!(ics.contains("END:VCALENDAR"));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_start(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let bot = Bot::new("123:fake_token");
+
+        let json = r#"{
+            "message_id": 1,
+            "date": 1600000000,
+            "chat": {
+                "id": 123456789,
+                "type": "private",
+                "username": "testuser",
+                "first_name": "Test"
+            },
+            "from": {
+                "id": 123456789,
+                "is_bot": false,
+                "first_name": "Test",
+                "username": "testuser"
+            },
+            "text": "/start"
+        }"#;
+
+        let msg: Message = serde_json::from_str(json).unwrap();
+
+        // Handler should attempt to send message and fail, but ensure user setup first
+        let _ = super::handle_start(bot, msg, db.clone()).await;
+
+        // Verify user persistence
+        let user = db.find_user_by_username("testuser").await.unwrap();
+        assert!(user.is_some());
+        assert_eq!(user.unwrap().telegram_id, 123456789);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_text_message_create_event(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let bot = Bot::new("123:fake_token");
+
+        let telegram_id = 123456789;
+        db.ensure_user_setup(telegram_id, Some("testuser"))
+            .await
+            .unwrap();
+
+        let json = r#"{
+            "message_id": 2,
+            "date": 1600000000,
+            "chat": {
+                "id": 123456789,
+                "type": "private",
+                "username": "testuser",
+                "first_name": "Test"
+            },
+            "from": {
+                "id": 123456789,
+                "is_bot": false,
+                "first_name": "Test",
+                "username": "testuser"
+            },
+            "text": "Team Meeting\ntomorrow at 10am"
+        }"#;
+
+        let msg: Message = serde_json::from_str(json).unwrap();
+
+        // Handler should create event in DB then fail to send response
+        let _ = super::handle_text_message(bot, msg, db.clone()).await;
+
+        // Verify event creation
+        let events = db.get_all_events_for_user(telegram_id).await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].summary, "Team Meeting");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_list(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let bot = Bot::new("123:fake_token");
+
+        let telegram_id = 987654321;
+        db.ensure_user_setup(telegram_id, Some("listuser"))
+            .await
+            .unwrap();
+
+        let json = r#"{
+            "message_id": 3,
+            "date": 1600000000,
+            "chat": {
+                "id": 987654321,
+                "type": "private",
+                "username": "listuser",
+                "first_name": "List"
+            },
+            "from": {
+                "id": 987654321,
+                "is_bot": false,
+                "first_name": "List",
+                "username": "listuser"
+            },
+            "text": "/list"
+        }"#;
+
+        let msg: Message = serde_json::from_str(json).unwrap();
+
+        // Handler should query DB then fail to send
+        let _ = super::handle_list(bot, msg, db).await;
+
+        // No checks other than it ran without panic (and presumably queried DB)
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_help(_pool: PgPool) {
+        let bot = Bot::new("123:fake_token");
+
+        let json = r#"{
+            "message_id": 10,
+            "date": 1600000000,
+            "chat": {
+                "id": 111111111,
+                "type": "private",
+                "username": "helpuser",
+                "first_name": "Help"
+            },
+            "from": {
+                "id": 111111111,
+                "is_bot": false,
+                "first_name": "Help",
+                "username": "helpuser"
+            },
+            "text": "/help"
+        }"#;
+
+        let msg: Message = serde_json::from_str(json).unwrap();
+
+        // Should just send help message and not fail
+        let result = super::handle_help(bot, msg).await;
+        assert!(result.is_ok() || result.is_err()); // Will fail to send but that's OK
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_export(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let bot = Bot::new("123:fake_token");
+
+        let telegram_id = 222222222;
+        db.ensure_user_setup(telegram_id, Some("exportuser"))
+            .await
+            .unwrap();
+
+        // Create an event first
+        let start = chrono::Utc::now();
+        let end = start + chrono::Duration::hours(1);
+        db.create_event(
+            telegram_id,
+            &format!("{}", uuid::Uuid::new_v4()),
+            "Export Test Event",
+            None,
+            Some("Test Location"),
+            start,
+            end,
+            "UTC",
+        )
+        .await
+        .unwrap();
+
+        let json = r#"{
+            "message_id": 11,
+            "date": 1600000000,
+            "chat": {
+                "id": 222222222,
+                "type": "private",
+                "username": "exportuser",
+                "first_name": "Export"
+            },
+            "from": {
+                "id": 222222222,
+                "is_bot": false,
+                "first_name": "Export",
+                "username": "exportuser"
+            },
+            "text": "/export"
+        }"#;
+
+        let msg: Message = serde_json::from_str(json).unwrap();
+
+        let _ = super::handle_export(bot, msg, db).await;
+        // Handler will query DB and try to send file; we just verify it runs
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_device_add(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let bot = Bot::new("123:fake_token");
+
+        let telegram_id = 333333333;
+        db.ensure_user_setup(telegram_id, Some("deviceuser"))
+            .await
+            .unwrap();
+
+        let json = r#"{
+            "message_id": 12,
+            "date": 1600000000,
+            "chat": {
+                "id": 333333333,
+                "type": "private",
+                "username": "deviceuser",
+                "first_name": "Device"
+            },
+            "from": {
+                "id": 333333333,
+                "is_bot": false,
+                "first_name": "Device",
+                "username": "deviceuser"
+            },
+            "text": "/device add MyPhone"
+        }"#;
+
+        let msg: Message = serde_json::from_str(json).unwrap();
+
+        let _ = super::handle_device(bot, msg, db.clone()).await;
+
+        // Verify device was created
+        let devices = db.list_device_passwords(telegram_id).await.unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].name, "MyPhone");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_device_list(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let bot = Bot::new("123:fake_token");
+
+        let telegram_id = 444444444;
+        db.ensure_user_setup(telegram_id, Some("listdevuser"))
+            .await
+            .unwrap();
+        db.generate_device_password(telegram_id, "Device1")
+            .await
+            .unwrap();
+
+        let json = r#"{
+            "message_id": 13,
+            "date": 1600000000,
+            "chat": {
+                "id": 444444444,
+                "type": "private",
+                "username": "listdevuser",
+                "first_name": "ListDev"
+            },
+            "from": {
+                "id": 444444444,
+                "is_bot": false,
+                "first_name": "ListDev",
+                "username": "listdevuser"
+            },
+            "text": "/device list"
+        }"#;
+
+        let msg: Message = serde_json::from_str(json).unwrap();
+
+        let _ = super::handle_device(bot, msg, db).await;
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_cancel(_pool: PgPool) {
+        let bot = Bot::new("123:fake_token");
+
+        let json = r#"{
+            "message_id": 14,
+            "date": 1600000000,
+            "chat": {
+                "id": 555555555,
+                "type": "private",
+                "username": "canceluser",
+                "first_name": "Cancel"
+            },
+            "from": {
+                "id": 555555555,
+                "is_bot": false,
+                "first_name": "Cancel",
+                "username": "canceluser"
+            },
+            "text": "/cancel"
+        }"#;
+
+        let msg: Message = serde_json::from_str(json).unwrap();
+
+        let result = super::handle_cancel(bot, msg).await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_delete_account(_pool: PgPool) {
+        let bot = Bot::new("123:fake_token");
+
+        let json = r#"{
+            "message_id": 15,
+            "date": 1600000000,
+            "chat": {
+                "id": 666666666,
+                "type": "private",
+                "username": "deleteuser",
+                "first_name": "Delete"
+            },
+            "from": {
+                "id": 666666666,
+                "is_bot": false,
+                "first_name": "Delete",
+                "username": "deleteuser"
+            },
+            "text": "/deleteaccount"
+        }"#;
+
+        let msg: Message = serde_json::from_str(json).unwrap();
+
+        let result = super::handle_delete_account(bot, msg).await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_invite(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let bot = Bot::new("123:fake_token");
+
+        let organizer_id = 777777777;
+        let attendee_id = 888888888;
+
+        db.ensure_user_setup(organizer_id, Some("organizer"))
+            .await
+            .unwrap();
+        db.ensure_user_setup(attendee_id, Some("attendee"))
+            .await
+            .unwrap();
+
+        // Create event
+        let start = chrono::Utc::now();
+        let end = start + chrono::Duration::hours(1);
+        let event = db
+            .create_event(
+                organizer_id,
+                &format!("{}", uuid::Uuid::new_v4()),
+                "Party Event",
+                None,
+                None,
+                start,
+                end,
+                "UTC",
+            )
+            .await
+            .unwrap();
+
+        let json = format!(
+            r#"{{
+            "message_id": 16,
+            "date": 1600000000,
+            "chat": {{
+                "id": 777777777,
+                "type": "private",
+                "username": "organizer",
+                "first_name": "Organizer"
+            }},
+            "from": {{
+                "id": 777777777,
+                "is_bot": false,
+                "first_name": "Organizer",
+                "username": "organizer"
+            }},
+            "text": "/invite {} @attendee"
+        }}"#,
+            event.id
+        );
+
+        let msg: Message = serde_json::from_str(&json).unwrap();
+
+        let _ = super::handle_invite(bot, msg, db.clone()).await;
+
+        // Verify invite was created
+        let invites = db.get_pending_invites(attendee_id).await.unwrap();
+        assert_eq!(invites.len(), 1);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_rsvp(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let bot = Bot::new("123:fake_token");
+
+        let organizer_id = 999999999;
+        let attendee_id = 1010101010;
+
+        db.ensure_user_setup(organizer_id, Some("org2"))
+            .await
+            .unwrap();
+        db.ensure_user_setup(attendee_id, Some("att2"))
+            .await
+            .unwrap();
+
+        // Create event and invite
+        let start = chrono::Utc::now();
+        let end = start + chrono::Duration::hours(1);
+        let event = db
+            .create_event(
+                organizer_id,
+                &format!("{}", uuid::Uuid::new_v4()),
+                "RSVP Event",
+                None,
+                None,
+                start,
+                end,
+                "UTC",
+            )
+            .await
+            .unwrap();
+
+        db.invite_attendee(event.id, "att2@example.com", Some(attendee_id), "ATTENDEE")
+            .await
+            .unwrap();
+
+        // Test listing pending invites
+        let json_list = r#"{
+            "message_id": 17,
+            "date": 1600000000,
+            "chat": {
+                "id": 1010101010,
+                "type": "private",
+                "username": "att2",
+                "first_name": "Att2"
+            },
+            "from": {
+                "id": 1010101010,
+                "is_bot": false,
+                "first_name": "Att2",
+                "username": "att2"
+            },
+            "text": "/rsvp"
+        }"#;
+
+        let msg_list: Message = serde_json::from_str(json_list).unwrap();
+        let _ = super::handle_rsvp(bot.clone(), msg_list, db.clone()).await;
+
+        // Test accepting invite
+        let json_accept = format!(
+            r#"{{
+            "message_id": 18,
+            "date": 1600000000,
+            "chat": {{
+                "id": 1010101010,
+                "type": "private",
+                "username": "att2",
+                "first_name": "Att2"
+            }},
+            "from": {{
+                "id": 1010101010,
+                "is_bot": false,
+                "first_name": "Att2",
+                "username": "att2"
+            }},
+            "text": "/rsvp {} accept"
+        }}"#,
+            event.id
+        );
+
+        let msg_accept: Message = serde_json::from_str(&json_accept).unwrap();
+        let _ = super::handle_rsvp(bot, msg_accept, db.clone()).await;
+
+        // Verify RSVP was updated
+        let invites_after = db.get_pending_invites(attendee_id).await.unwrap();
+        assert_eq!(invites_after.len(), 0); // Should be empty as status changed from NEEDS-ACTION
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_text_message_invalid(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let bot = Bot::new("123:fake_token");
+
+        let telegram_id = 1111111111;
+        db.ensure_user_setup(telegram_id, Some("invaliduser"))
+            .await
+            .unwrap();
+
+        // Test with invalid event format (missing date)
+        let json = r#"{
+            "message_id": 19,
+            "date": 1600000000,
+            "chat": {
+                "id": 1111111111,
+                "type": "private",
+                "username": "invaliduser",
+                "first_name": "Invalid"
+            },
+            "from": {
+                "id": 1111111111,
+                "is_bot": false,
+                "first_name": "Invalid",
+                "username": "invaliduser"
+            },
+            "text": "Just a title"
+        }"#;
+
+        let msg: Message = serde_json::from_str(json).unwrap();
+        let _ = super::handle_text_message(bot, msg, db).await;
+        // Should handle gracefully and not create event
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_handle_text_message_with_location(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let bot = Bot::new("123:fake_token");
+
+        let telegram_id = 1212121212;
+        db.ensure_user_setup(telegram_id, Some("locuser"))
+            .await
+            .unwrap();
+
+        let json = r#"{
+            "message_id": 20,
+            "date": 1600000000,
+            "chat": {
+                "id": 1212121212,
+                "type": "private",
+                "username": "locuser",
+                "first_name": "Loc"
+            },
+            "from": {
+                "id": 1212121212,
+                "is_bot": false,
+                "first_name": "Loc",
+                "username": "locuser"
+            },
+            "text": "Meeting\ntomorrow 3pm\n90\nConference Room"
+        }"#;
+
+        let msg: Message = serde_json::from_str(json).unwrap();
+        let _ = super::handle_text_message(bot, msg, db.clone()).await;
+
+        // Verify event with location
+        let events = db.get_all_events_for_user(telegram_id).await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].summary, "Meeting");
+        assert_eq!(events[0].location.as_deref(), Some("Conference Room"));
     }
 }

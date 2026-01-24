@@ -674,11 +674,256 @@ impl BotDb {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_user_setup_and_calendar_creation(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let telegram_id = 1001;
+
+        // Ensure user is set up
+        let result = db.ensure_user_setup(telegram_id, Some("testuser")).await;
+        assert!(result.is_ok());
+
+        // Verify we can get the calendar ID
+        let calendar_id = db.get_or_create_calendar(telegram_id).await;
+        assert!(calendar_id.is_ok());
+
+        // Ensure idempotency
+        let result2 = db.ensure_user_setup(telegram_id, Some("testuser")).await;
+        assert!(result2.is_ok());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_event_lifecycle(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let telegram_id = 1002;
+        db.ensure_user_setup(telegram_id, None)
+            .await
+            .expect("Failed setup");
+
+        let start = Utc::now();
+        let end = start + Duration::hours(1);
+        let uid = format!("{}", Uuid::new_v4());
+
+        // Create event
+        let event = db
+            .create_event(
+                telegram_id,
+                &uid,
+                "Test Event",
+                Some("Description"),
+                Some("Location"),
+                start,
+                end,
+                "UTC",
+            )
+            .await
+            .expect("Failed to create event");
+
+        assert_eq!(event.summary, "Test Event");
+        assert_eq!(event.location.as_deref(), Some("Location"));
+
+        // Retrieve event via get_events_for_user (checking range)
+        let events = db
+            .get_events_for_user(
+                telegram_id,
+                start - Duration::minutes(10),
+                end + Duration::minutes(10),
+            )
+            .await
+            .expect("Failed to get events");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].summary, "Test Event");
+
+        // Retrieve event via get_all_events_for_user
+        let all_events = db
+            .get_all_events_for_user(telegram_id)
+            .await
+            .expect("Failed to get all events");
+        assert_eq!(all_events.len(), 1);
+
+        // Retrieve event info
+        let info = db
+            .get_event_info(event.id, telegram_id)
+            .await
+            .expect("Failed to get info");
+        assert!(info.is_some());
+        assert_eq!(info.unwrap().summary, "Test Event");
+
+        // Check non-existent event or wrong user
+        let info_none = db
+            .get_event_info(event.id, 99999)
+            .await
+            .expect("Failed to query");
+        assert!(info_none.is_none());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_device_password_management(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let telegram_id = 1003;
+        db.ensure_user_setup(telegram_id, None)
+            .await
+            .expect("Setup failed");
+
+        // Create device password
+        let password = db
+            .generate_device_password(telegram_id, "Test Device")
+            .await
+            .expect("Generate failed");
+        assert_eq!(password.len(), 16);
+
+        // List passwords
+        let devices = db
+            .list_device_passwords(telegram_id)
+            .await
+            .expect("List failed");
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].name, "Test Device");
+
+        // Revoke password
+        let revoked = db
+            .revoke_device_password(telegram_id, devices[0].id)
+            .await
+            .expect("Revoke failed");
+        assert!(revoked);
+
+        // Revoke again (should be false)
+        let revoked2 = db
+            .revoke_device_password(telegram_id, devices[0].id)
+            .await
+            .expect("Revoke2 failed");
+        assert!(!revoked2);
+
+        // List again
+        let devices_after = db
+            .list_device_passwords(telegram_id)
+            .await
+            .expect("List failed");
+        assert!(devices_after.is_empty());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_invites_and_rsvps(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let organizer_id = 1004;
+        let attendee_id = 1005;
+
+        db.ensure_user_setup(organizer_id, Some("organizer"))
+            .await
+            .expect("Org setup failed");
+        db.ensure_user_setup(attendee_id, Some("attendee"))
+            .await
+            .expect("Att setup failed");
+
+        // Organizer creates event
+        let start = Utc::now();
+        let end = start + Duration::hours(1);
+        let uid = format!("{}", Uuid::new_v4());
+
+        let event = db
+            .create_event(organizer_id, &uid, "Party", None, None, start, end, "UTC")
+            .await
+            .expect("Create event failed");
+
+        // Invite attendee
+        let _invite_id = db
+            .invite_attendee(
+                event.id,
+                "attendee@example.com",
+                Some(attendee_id),
+                "ATTENDEE",
+            )
+            .await
+            .expect("Invite failed");
+
+        // Check pending invites
+        let pending = db
+            .get_pending_invites(attendee_id)
+            .await
+            .expect("Get pending failed");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].summary, "Party");
+
+        // RSVPs
+        let updated = db
+            .update_rsvp_status(event.id, attendee_id, "ACCEPTED")
+            .await
+            .expect("RSVP failed");
+        assert!(updated);
+
+        // Check pending again (should be empty as handled - get_pending_invites filters by NEEDS-ACTION)
+        let pending_after = db
+            .get_pending_invites(attendee_id)
+            .await
+            .expect("Get pending failed");
+        assert!(pending_after.is_empty());
+
+        // Get attendees list
+        let attendees = db
+            .get_event_attendees(event.id)
+            .await
+            .expect("Get attendees");
+        assert!(!attendees.is_empty());
+        let att = attendees
+            .iter()
+            .find(|a| a.telegram_id == Some(attendee_id))
+            .expect("Attendee not found");
+        assert_eq!(att.status, "ACCEPTED");
+
+        // Get organizer id from event
+        let org_id_check = db
+            .get_event_organizer(event.id)
+            .await
+            .expect("Get org")
+            .unwrap();
+        assert_eq!(org_id_check, organizer_id);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_user_lookup_and_outbox(pool: PgPool) {
+        let db = BotDb::new(pool);
+        let telegram_id = 1006;
+        let username = "someuser";
+
+        db.ensure_user_setup(telegram_id, Some(username))
+            .await
+            .expect("Setup failed");
+
+        // Lookup user
+        let user = db
+            .find_user_by_username(username)
+            .await
+            .expect("Lookup failed");
+        assert!(user.is_some());
+        assert_eq!(user.unwrap().telegram_id, telegram_id);
+
+        // Queue invite
+        let invite_msg_id = db
+            .queue_calendar_invite(
+                "test@test.com",
+                Some(telegram_id),
+                "Event",
+                Utc::now(),
+                None,
+            )
+            .await
+            .expect("Queue invite");
+        assert!(!invite_msg_id.is_nil());
+
+        // Queue notification
+        let notif_msg_id = db
+            .queue_rsvp_notification(telegram_id, "Attendee", "Event", "ACCEPTED")
+            .await
+            .expect("Queue notif");
+        assert!(!notif_msg_id.is_nil());
+    }
 
     #[test]
     fn test_bot_db_creation() {
         // This is a compile-time test to ensure BotDb can be created
-        // Actual database tests would require a test database
     }
 
     #[test]
