@@ -68,6 +68,34 @@ pub fn default_timezone() -> Tz {
     Tz::UTC
 }
 
+/// A validated IANA timezone
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Timezone(String);
+
+impl Timezone {
+    /// Create a new Timezone if valid
+    pub fn new(tz: &str) -> CalendarResult<Self> {
+        validate_timezone(tz)?;
+        Ok(Self(tz.to_string()))
+    }
+
+    /// Get the inner string
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Get the inner string
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl std::fmt::Display for Timezone {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -45,10 +45,12 @@ async fn caldav_options() -> Response {
 /// - Depth: 1 - Calendar metadata + event list (hrefs)
 async fn caldav_propfind(
     State(pool): State<PgPool>,
-    Path(user_id): Path<Uuid>,
+    Path(user_identifier): Path<String>,
     headers: HeaderMap,
     _body: Body,
 ) -> Result<Response, ApiError> {
+    let user_id = resolve_user_id(&pool, &user_identifier).await?;
+
     // Get Depth header (default to 0)
     let depth = headers
         .get("Depth")
@@ -56,7 +58,8 @@ async fn caldav_propfind(
         .unwrap_or("0");
 
     tracing::debug!(
-        "PROPFIND request for user {} with Depth: {}",
+        "PROPFIND request for user {} ({}) with Depth: {}",
+        user_identifier,
         user_id,
         depth
     );
@@ -88,8 +91,10 @@ async fn caldav_propfind(
 /// Returns a single event in iCalendar format
 async fn caldav_get_event(
     State(pool): State<PgPool>,
-    Path((user_id, event_uid)): Path<(Uuid, String)>,
+    Path((user_identifier, event_uid)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
+    let user_id = resolve_user_id(&pool, &user_identifier).await?;
+
     tracing::debug!("GET event {} for user {}", event_uid, user_id);
 
     // Get calendar for user
@@ -123,10 +128,12 @@ const MAX_CALDAV_BODY_SIZE: usize = 1024 * 1024;
 /// Creates or updates an event from iCalendar data
 async fn caldav_put_event(
     State(pool): State<PgPool>,
-    Path((user_id, event_uid)): Path<(Uuid, String)>,
+    Path((user_identifier, event_uid)): Path<(String, String)>,
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, ApiError> {
+    let user_id = resolve_user_id(&pool, &user_identifier).await?;
+
     tracing::debug!("PUT event {} for user {}", event_uid, user_id);
 
     // Get calendar for user
@@ -214,9 +221,11 @@ async fn caldav_put_event(
 /// Handles calendar-query and sync-collection reports (RFC 4791, RFC 6578)
 async fn caldav_report(
     State(pool): State<PgPool>,
-    Path(user_id): Path<Uuid>,
+    Path(user_identifier): Path<String>,
     body: Body,
 ) -> Result<Response, ApiError> {
+    let user_id = resolve_user_id(&pool, &user_identifier).await?;
+
     tracing::debug!("REPORT request for user {}", user_id);
 
     // Read body
@@ -287,16 +296,20 @@ async fn caldav_report(
             let mut ical_data = Vec::new();
             for event in &events {
                 let ical_str = ical::event_to_ical(event)?;
-                if events.len() > 0 && ical_data.is_empty() {
+                if !events.is_empty() && ical_data.is_empty() {
                     // Log first event's iCal data for debugging
                     tracing::info!("Sample iCal data for {}: \n{}", event.uid, ical_str);
                 }
                 ical_data.push((event.uid.clone(), ical_str));
             }
 
-            // TODO: Track deleted events in a separate table for proper sync-collection
-            // For now, we don't report deleted events
-            let deleted_uids: Vec<String> = vec![];
+            // Fetch deleted events
+            let deleted_uids = if last_sync_token > 0 {
+                db::events::list_deleted_events_since_sync(&pool, calendar.id, last_sync_token)
+                    .await?
+            } else {
+                Vec::new()
+            };
 
             let response_xml = caldav_xml::generate_sync_collection_response(
                 user_id,
@@ -307,7 +320,7 @@ async fn caldav_report(
             )?;
             
             // Log the actual XML response for debugging
-            if events.len() > 0 {
+            if !events.is_empty() {
                 tracing::info!("SyncCollection XML response (first 2000 chars):\n{}", &response_xml.chars().take(2000).collect::<String>());
             }
 
@@ -381,9 +394,11 @@ async fn caldav_report(
 /// Deletes an event
 async fn caldav_delete_event(
     State(pool): State<PgPool>,
-    Path((user_id, event_uid)): Path<(Uuid, String)>,
+    Path((user_identifier, event_uid)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    let user_id = resolve_user_id(&pool, &user_identifier).await?;
+
     tracing::debug!("DELETE event {} for user {}", event_uid, user_id);
 
     // Get calendar for user
@@ -423,6 +438,30 @@ async fn caldav_delete_event(
     Ok((StatusCode::NO_CONTENT, "").into_response())
 }
 
+/// Resolve user identifier (numeric ID or username) to internal UUID
+async fn resolve_user_id(pool: &PgPool, identifier: &str) -> Result<Uuid, ApiError> {
+    // Try as numeric ID first
+    if let Ok(telegram_id) = identifier.parse::<i64>() {
+        let user_id = sqlx::query_scalar("SELECT id FROM users WHERE telegram_id = $1")
+            .bind(telegram_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
+            .ok_or_else(|| ApiError::NotFound(format!("User not found: {identifier}")))?;
+        return Ok(user_id);
+    }
+
+    // Try as username
+    let user_id = sqlx::query_scalar("SELECT id FROM users WHERE lower(telegram_username) = lower($1)")
+        .bind(identifier)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
+        .ok_or_else(|| ApiError::NotFound(format!("User not found: {identifier}")))?;
+
+    Ok(user_id)
+}
+
 /// CalDAV routes
 pub fn routes<S>() -> Router<S>
 where
@@ -431,15 +470,15 @@ where
 {
     Router::new()
         // Calendar collection endpoints
-        .route("/{user_id}/", any(caldav_handler))
+        .route("/{user_identifier}/", any(caldav_handler))
         // Event resource endpoints
-        .route("/{user_id}/{*event_uid}", any(event_handler))
+        .route("/{user_identifier}/{*event_uid}", any(event_handler))
 }
 
 /// Main CalDAV collection handler
 async fn caldav_handler(
     State(pool): State<PgPool>,
-    Path(user_id): Path<Uuid>,
+    Path(user_identifier): Path<String>,
     headers: HeaderMap,
     method: Method,
     body: Body,
@@ -447,8 +486,8 @@ async fn caldav_handler(
     // Handle WebDAV methods
     match method.as_str() {
         "OPTIONS" => Ok(caldav_options().await),
-        "PROPFIND" => caldav_propfind(State(pool), Path(user_id), headers, body).await,
-        "REPORT" => caldav_report(State(pool), Path(user_id), body).await,
+        "PROPFIND" => caldav_propfind(State(pool), Path(user_identifier), headers, body).await,
+        "REPORT" => caldav_report(State(pool), Path(user_identifier), body).await,
         _ => Err(ApiError::BadRequest(format!(
             "Method {} not supported for calendar collection",
             method
@@ -459,7 +498,7 @@ async fn caldav_handler(
 /// Event resource handler
 async fn event_handler(
     State(pool): State<PgPool>,
-    Path((user_id, event_uid_raw)): Path<(Uuid, String)>,
+    Path((user_identifier, event_uid_raw)): Path<(String, String)>,
     headers: HeaderMap,
     method: Method,
     body: Body,
@@ -471,12 +510,12 @@ async fn event_handler(
         .to_string();
     
     match method {
-        Method::GET => caldav_get_event(State(pool), Path((user_id, event_uid))).await,
+        Method::GET => caldav_get_event(State(pool), Path((user_identifier, event_uid))).await,
         Method::PUT => {
-            caldav_put_event(State(pool), Path((user_id, event_uid)), headers, body).await
+            caldav_put_event(State(pool), Path((user_identifier, event_uid)), headers, body).await
         }
         Method::DELETE => {
-            caldav_delete_event(State(pool), Path((user_id, event_uid)), headers).await
+            caldav_delete_event(State(pool), Path((user_identifier, event_uid)), headers).await
         }
         _ => Err(ApiError::BadRequest(format!(
             "Method {} not supported for event resource",

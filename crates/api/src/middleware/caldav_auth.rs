@@ -14,9 +14,16 @@ use axum::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use uuid::Uuid;
 
+/// Login identifier: either a numeric Telegram ID or a username (without @)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum LoginId {
+    TelegramId(i64),
+    Username(String),
+}
+
 /// CalDAV Basic Auth middleware
 ///
-/// Expects Authorization header with format: "Basic base64(telegram_id:password)"
+/// Expects Authorization header with format: "Basic base64(login_id:password)"
 /// Verifies password against device_passwords table using Argon2id
 pub async fn caldav_basic_auth(
     State(state): State<AppState>,
@@ -31,33 +38,49 @@ pub async fn caldav_basic_auth(
         .ok_or_else(|| ApiError::Unauthorized("Missing Authorization header".to_string()))?;
 
     // Parse Basic Auth
-    let (telegram_id, password) = parse_basic_auth(auth_header)?;
+    let (login_id, password) = parse_basic_auth(auth_header)?;
 
     // Check Cache
-    if let Some(user_id) = state.auth_cache.get(&(telegram_id, password.clone())).await {
+    if let Some(user_id) = state.auth_cache.get(&(login_id.clone(), password.clone())).await {
         request.extensions_mut().insert(user_id);
         return Ok(next.run(request).await);
     }
 
-    // Look up user by telegram_id
-    let user_id: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE telegram_id = $1")
-        .bind(telegram_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?;
+    // Look up user by login_id
+    let user_id: Uuid = match &login_id {
+        LoginId::TelegramId(tid) => sqlx::query_scalar("SELECT id FROM users WHERE telegram_id = $1")
+            .bind(tid)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
+            .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?,
+        LoginId::Username(username) => sqlx::query_scalar("SELECT id FROM users WHERE lower(telegram_username) = lower($1)")
+            .bind(username)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
+            .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?,
+    };
 
     // Get device passwords for this user
-    let device_passwords: Vec<(Uuid, String)> =
-        sqlx::query_as("SELECT id, hashed_password FROM device_passwords WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_all(&state.pool)
-            .await
-            .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?;
+    // Optimization: Limit to 10 devices to prevent DoS
+    // We order by last_used_at to prioritize active devices
+    let device_passwords: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, hashed_password FROM device_passwords \
+         WHERE user_id = $1 \
+         ORDER BY last_used_at DESC NULLS LAST, created_at DESC \
+         LIMIT 10",
+    )
+    .bind(user_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?;
 
     // Verify password against each device password
     let mut verified_device_id: Option<Uuid> = None;
     for (device_id, hashed_password) in device_passwords {
+        // Argon2 verification is expensive, so this loop is the critical path.
+        // We limit it to 10 iterations above.
         if verify_password(&password, &hashed_password)? {
             verified_device_id = Some(device_id);
             break;
@@ -81,7 +104,7 @@ pub async fn caldav_basic_auth(
     // Cache success
     state
         .auth_cache
-        .insert((telegram_id, password), user_id)
+        .insert((login_id, password), user_id)
         .await;
 
     // Attach user_id to request extensions
@@ -92,9 +115,9 @@ pub async fn caldav_basic_auth(
 
 /// Parse HTTP Basic Auth header
 ///
-/// Expected format: "Basic base64(telegram_id:password)"
-/// Returns (telegram_id, password)
-fn parse_basic_auth(auth_header: &str) -> Result<(i64, String), ApiError> {
+/// Expected format: "Basic base64(login_id:password)"
+/// Returns (login_id, password)
+fn parse_basic_auth(auth_header: &str) -> Result<(LoginId, String), ApiError> {
     // Check for "Basic " prefix
     let encoded = auth_header
         .strip_prefix("Basic ")
@@ -110,21 +133,26 @@ fn parse_basic_auth(auth_header: &str) -> Result<(i64, String), ApiError> {
 
     // Split on first colon
     let mut parts = credentials.splitn(2, ':');
-    let telegram_id_str = parts
+    let login_str = parts
         .next()
-        .ok_or_else(|| ApiError::Unauthorized("Missing telegram_id".to_string()))?;
+        .ok_or_else(|| ApiError::Unauthorized("Missing username".to_string()))?;
     let password = parts
         .next()
         .ok_or_else(|| ApiError::Unauthorized("Missing password".to_string()))?;
 
-    // Parse telegram_id as i64
-    let telegram_id = telegram_id_str
-        .parse::<i64>()
-        .map_err(|_| ApiError::Unauthorized(
-            "Username must be your Telegram ID (numeric). Get it from the /device command in Telegram bot.".to_string()
-        ))?;
+    // Try to parse as numeric ID, otherwise treat as username
+    let login_id = if let Ok(tid) = login_str.parse::<i64>() {
+        LoginId::TelegramId(tid)
+    } else {
+        // Remove @ if present (though CalDAV clients usually don't send it)
+        let username = login_str.trim_start_matches('@').to_string();
+        if username.is_empty() {
+             return Err(ApiError::Unauthorized("Username cannot be empty".to_string()));
+        }
+        LoginId::Username(username)
+    };
 
-    Ok((telegram_id, password.to_string()))
+    Ok((login_id, password.to_string()))
 }
 
 /// Verify password using Argon2id
@@ -146,7 +174,7 @@ mod tests {
     };
 
     #[test]
-    fn test_parse_basic_auth_valid() {
+    fn test_parse_basic_auth_valid_numeric() {
         let credentials = "123456789:my_password";
         let encoded = STANDARD.encode(credentials.as_bytes());
         let auth_header = format!("Basic {}", encoded);
@@ -154,8 +182,36 @@ mod tests {
         let result = parse_basic_auth(&auth_header);
         assert!(result.is_ok());
 
-        let (telegram_id, password) = result.unwrap();
-        assert_eq!(telegram_id, 123456789);
+        let (login_id, password) = result.unwrap();
+        assert_eq!(login_id, LoginId::TelegramId(123456789));
+        assert_eq!(password, "my_password");
+    }
+
+    #[test]
+    fn test_parse_basic_auth_valid_username() {
+        let credentials = "prince:my_password";
+        let encoded = STANDARD.encode(credentials.as_bytes());
+        let auth_header = format!("Basic {}", encoded);
+
+        let result = parse_basic_auth(&auth_header);
+        assert!(result.is_ok());
+
+        let (login_id, password) = result.unwrap();
+        assert_eq!(login_id, LoginId::Username("prince".to_string()));
+        assert_eq!(password, "my_password");
+    }
+
+    #[test]
+    fn test_parse_basic_auth_valid_username_with_at() {
+        let credentials = "@prince:my_password";
+        let encoded = STANDARD.encode(credentials.as_bytes());
+        let auth_header = format!("Basic {}", encoded);
+
+        let result = parse_basic_auth(&auth_header);
+        assert!(result.is_ok());
+
+        let (login_id, password) = result.unwrap();
+        assert_eq!(login_id, LoginId::Username("prince".to_string()));
         assert_eq!(password, "my_password");
     }
 
@@ -168,8 +224,8 @@ mod tests {
         let result = parse_basic_auth(&auth_header);
         assert!(result.is_ok());
 
-        let (telegram_id, password) = result.unwrap();
-        assert_eq!(telegram_id, 123456789);
+        let (login_id, password) = result.unwrap();
+        assert_eq!(login_id, LoginId::TelegramId(123456789));
         assert_eq!(password, "pass:word:with:colons");
     }
 
@@ -213,22 +269,6 @@ mod tests {
         match result {
             Err(ApiError::Unauthorized(msg)) => {
                 assert!(msg.contains("Missing password"));
-            }
-            _ => panic!("Expected Unauthorized error"),
-        }
-    }
-
-    #[test]
-    fn test_parse_basic_auth_invalid_telegram_id() {
-        let credentials = "not_a_number:my_password";
-        let encoded = STANDARD.encode(credentials.as_bytes());
-        let auth_header = format!("Basic {}", encoded);
-
-        let result = parse_basic_auth(&auth_header);
-        assert!(result.is_err());
-        match result {
-            Err(ApiError::Unauthorized(msg)) => {
-                assert!(msg.contains("Invalid telegram_id format"));
             }
             _ => panic!("Expected Unauthorized error"),
         }

@@ -13,12 +13,12 @@ use sqlx::PgPool;
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 
-use crate::middleware::caldav_auth::caldav_basic_auth;
+use crate::middleware::caldav_auth::{LoginId, caldav_basic_auth};
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
-    pub auth_cache: Cache<(i64, String), Uuid>,
+    pub auth_cache: Cache<(LoginId, String), Uuid>,
 }
 
 impl FromRef<AppState> for PgPool {

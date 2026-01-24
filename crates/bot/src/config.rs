@@ -8,6 +8,7 @@ use televent_core::config::CoreConfig;
 
 /// Bot configuration
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Config {
     /// Core configuration (database, bot token)
     pub core: CoreConfig,
@@ -15,6 +16,7 @@ pub struct Config {
 
 impl Config {
     /// Load configuration from environment variables
+    #[allow(dead_code)]
     pub fn from_env() -> Result<Self> {
         Ok(Self {
             core: CoreConfig::from_env()?,

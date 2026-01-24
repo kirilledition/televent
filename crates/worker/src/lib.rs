@@ -75,10 +75,10 @@ async fn run_worker_loop(
                 }
 
                 // Log queue status
-                if let Ok(pending_count) = db.count_pending().await
-                    && pending_count > 0
-                {
-                    info!("Queue status: {} pending jobs remaining", pending_count);
+                if let Ok(pending_count) = db.count_pending().await {
+                    if pending_count > 0 {
+                        info!("Queue status: {} pending jobs remaining", pending_count);
+                    }
                 }
             }
             Err(e) => {
@@ -110,6 +110,7 @@ async fn process_job(db: &WorkerDb, bot: &Bot, config: &Config, job: db::OutboxM
         Err(e) => {
             // Job failed
             warn!("Job {} failed: {}", job.id, e);
+            let error_msg = e.to_string();
 
             if job.retry_count < config.max_retry_count {
                 // Retry with exponential backoff
@@ -121,7 +122,10 @@ async fn process_job(db: &WorkerDb, bot: &Bot, config: &Config, job: db::OutboxM
                     backoff_minutes
                 );
 
-                if let Err(e) = db.reschedule_message(job.id, job.retry_count).await {
+                if let Err(e) = db
+                    .reschedule_message(job.id, job.retry_count, &error_msg)
+                    .await
+                {
                     error!("Failed to reschedule job {}: {}", job.id, e);
                 }
             } else {
@@ -131,7 +135,7 @@ async fn process_job(db: &WorkerDb, bot: &Bot, config: &Config, job: db::OutboxM
                     job.id, config.max_retry_count
                 );
 
-                if let Err(e) = db.mark_failed(job.id).await {
+                if let Err(e) = db.mark_failed(job.id, &error_msg).await {
                     error!("Failed to mark job {} as failed: {}", job.id, e);
                 }
             }
