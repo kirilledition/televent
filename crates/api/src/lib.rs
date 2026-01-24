@@ -10,11 +10,15 @@ use axum::extract::FromRef;
 use axum::{Router, middleware as axum_middleware};
 use moka::future::Cache;
 use sqlx::PgPool;
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
 use crate::middleware::caldav_auth::{LoginId, caldav_basic_auth};
+use crate::middleware::rate_limit::{
+    UserOrIpKeyExtractor, API_BURST_SIZE, API_PERIOD_MS, CALDAV_BURST_SIZE, CALDAV_PERIOD_MS,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -54,11 +58,30 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
 
     Router::new()
         .merge(routes::health::routes())
-        .nest("/api", routes::events::routes())
-        .nest("/api", routes::devices::routes())
+        .nest(
+            "/api",
+            routes::events::routes()
+                .merge(routes::devices::routes())
+                .layer(GovernorLayer::new(
+                    GovernorConfigBuilder::default()
+                        .period(std::time::Duration::from_millis(API_PERIOD_MS))
+                        .burst_size(API_BURST_SIZE)
+                        .key_extractor(UserOrIpKeyExtractor)
+                        .finish()
+                        .expect("Failed to create API governor config"),
+                )),
+        )
         .nest(
             "/caldav",
             routes::caldav::routes()
+                .layer(GovernorLayer::new(
+                    GovernorConfigBuilder::default()
+                        .period(std::time::Duration::from_millis(CALDAV_PERIOD_MS))
+                        .burst_size(CALDAV_BURST_SIZE)
+                        .key_extractor(UserOrIpKeyExtractor)
+                        .finish()
+                        .expect("Failed to create CalDAV governor config"),
+                ))
                 .layer(axum_middleware::from_fn_with_state(
                     state.clone(),
                     caldav_basic_auth,
