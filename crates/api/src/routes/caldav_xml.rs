@@ -1070,7 +1070,7 @@ mod tests {
 
         let deleted_uids = vec!["deleted-event".to_string()];
         let xml =
-            generate_sync_collection_response(user_id, &calendar, &[event], &deleted_uids).unwrap();
+            generate_sync_collection_response(user_id, &calendar, &[event], &[], &deleted_uids).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -1101,7 +1101,7 @@ mod tests {
             updated_at: now,
         };
 
-        let xml = generate_sync_collection_response(user_id, &calendar, &[], &[]).unwrap();
+        let xml = generate_sync_collection_response(user_id, &calendar, &[], &[], &[]).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
