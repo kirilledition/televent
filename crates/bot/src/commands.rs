@@ -14,19 +14,7 @@ pub enum Command {
     #[command(description = "Start the bot and see welcome message")]
     Start,
 
-    #[command(description = "Show today's events")]
-    Today,
-
-    #[command(description = "Show tomorrow's events")]
-    Tomorrow,
-
-    #[command(description = "Show this week's events")]
-    Week,
-
-    #[command(description = "Create a new event (interactive)")]
-    Create,
-
-    #[command(description = "List all events in a date range")]
+    #[command(description = "List upcoming events")]
     List,
 
     #[command(description = "Cancel/delete an event")]

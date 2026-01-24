@@ -63,11 +63,7 @@ async fn handle_command(bot: Bot, msg: Message, cmd: Command, db: BotDb) -> Resp
     let result = match cmd {
         Command::Start => handlers::handle_start(bot, msg, db).await,
         Command::Help => handlers::handle_help(bot, msg).await,
-        Command::Today => handlers::handle_today(bot, msg, db).await,
-        Command::Tomorrow => handlers::handle_tomorrow(bot, msg, db).await,
-        Command::Week => handlers::handle_week(bot, msg, db).await,
-        Command::Create => handlers::handle_create(bot, msg).await,
-        Command::List => handlers::handle_list(bot, msg).await,
+        Command::List => handlers::handle_list(bot, msg, db).await,
         Command::Cancel => handlers::handle_cancel(bot, msg).await,
         Command::Device => handlers::handle_device(bot, msg, db).await,
         Command::Export => handlers::handle_export(bot, msg, db).await,

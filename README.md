@@ -62,10 +62,7 @@ flowchart TB
 - /device revoke <id> - Delete a device password
 
 ### Event Management
-- /create - Create event (either via instructions or direct message)
-- /today - List today's events
-- /tomorrow - List tomorrow's events
-- /week - List this week's events
+- /list - List upcoming events (next 7 days)
 - /cancel <event_id> - Cancel an event
 
 ### Coordination
