@@ -10,7 +10,9 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     // Create file appender
-    let file_appender = tracing_appender::rolling::daily("logs", "app.log");
+    let now = chrono::Local::now().format("%y-%m-%d-%H-%M-%S").to_string();
+    let filename = format!("televent.log.{}.jsonl", now);
+    let file_appender = tracing_appender::rolling::never("logs", filename);
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // Initialize tracing

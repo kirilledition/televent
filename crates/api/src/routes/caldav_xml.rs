@@ -9,7 +9,7 @@ use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use std::collections::HashMap;
 use std::io::Cursor;
 use televent_core::models::{Calendar, Event as CalEvent};
-use uuid::Uuid;
+// use uuid::Uuid;
 
 use crate::error::ApiError;
 
@@ -162,7 +162,7 @@ fn parse_caldav_datetime(s: &str) -> Option<DateTime<Utc>> {
 
 /// Generate CalDAV multistatus response for REPORT calendar-query
 pub fn generate_calendar_query_response(
-    user_id: Uuid,
+    user_identifier: &str,
     events: &[CalEvent],
     ical_data: &[(String, String)], // (uid, ical_string)
 ) -> Result<String, ApiError> {
@@ -188,7 +188,7 @@ pub fn generate_calendar_query_response(
     // Write response for each event with calendar-data
     for event in events {
         let ical = ical_map.get(event.uid.as_str()).copied().unwrap_or("");
-        write_event_with_data(&mut writer, user_id, event, ical)?;
+        write_event_with_data(&mut writer, user_identifier, event, ical)?;
     }
 
     // </multistatus>
@@ -202,7 +202,7 @@ pub fn generate_calendar_query_response(
 
 /// Generate CalDAV multistatus response for REPORT sync-collection
 pub fn generate_sync_collection_response(
-    user_id: Uuid,
+    user_identifier: &str,
     calendar: &Calendar,
     events: &[CalEvent],
     ical_data: &[(String, String)], // (uid, ical_string)
@@ -230,12 +230,12 @@ pub fn generate_sync_collection_response(
     // Write response for changed/new events with calendar-data
     for event in events {
         let ical = ical_map.get(event.uid.as_str()).copied().unwrap_or("");
-        write_event_with_data(&mut writer, user_id, event, ical)?;
+        write_event_with_data(&mut writer, user_identifier, event, ical)?;
     }
 
     // Write 404 response for deleted events
     for uid in deleted_uids {
-        write_deleted_event_response(&mut writer, user_id, uid)?;
+        write_deleted_event_response(&mut writer, user_identifier, uid)?;
     }
 
     // <sync-token>
@@ -263,7 +263,7 @@ pub fn generate_sync_collection_response(
 
 /// Generate CalDAV multistatus response for REPORT calendar-multiget
 pub fn generate_calendar_multiget_response(
-    user_id: Uuid,
+    user_identifier: &str,
     events: &[CalEvent],
     ical_data: &[(String, String)], // (uid, ical_string)
 ) -> Result<String, ApiError> {
@@ -289,7 +289,7 @@ pub fn generate_calendar_multiget_response(
     // Write response for each event with calendar-data
     for event in events {
         let ical = ical_map.get(event.uid.as_str()).copied().unwrap_or("");
-        write_event_with_data(&mut writer, user_id, event, ical)?;
+        write_event_with_data(&mut writer, user_identifier, event, ical)?;
     }
 
     // </multistatus>
@@ -312,7 +312,7 @@ fn build_uid_map(ical_data: &[(String, String)]) -> HashMap<&str, &str> {
 /// Write event response with calendar-data (for REPORT)
 fn write_event_with_data(
     writer: &mut Writer<Cursor<Vec<u8>>>,
-    user_id: Uuid,
+    user_identifier: &str,
     event: &CalEvent,
     ical_data: &str,
 ) -> Result<(), ApiError> {
@@ -328,7 +328,7 @@ fn write_event_with_data(
     writer
         .write_event(Event::Text(BytesText::new(&format!(
             "/caldav/{}/{}.ics",
-            user_id, event.uid
+            user_identifier, event.uid
         ))))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
@@ -354,6 +354,29 @@ fn write_event_with_data(
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
         .write_event(Event::End(BytesEnd::new("d:getetag")))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+
+    // <getcontenttype>
+    writer
+        .write_event(Event::Start(BytesStart::new("d:getcontenttype")))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    writer
+        .write_event(Event::Text(BytesText::new("text/calendar; charset=utf-8")))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    writer
+        .write_event(Event::End(BytesEnd::new("d:getcontenttype")))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+
+    // <getlastmodified> (RFC 2616 HTTP-date format)
+    writer
+        .write_event(Event::Start(BytesStart::new("d:getlastmodified")))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    let http_date = event.updated_at.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    writer
+        .write_event(Event::Text(BytesText::new(&http_date)))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    writer
+        .write_event(Event::End(BytesEnd::new("d:getlastmodified")))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
     // <calendar-data>
@@ -399,7 +422,7 @@ fn write_event_with_data(
 /// Write 404 response for deleted event (sync-collection)
 fn write_deleted_event_response(
     writer: &mut Writer<Cursor<Vec<u8>>>,
-    user_id: Uuid,
+    user_identifier: &str,
     uid: &str,
 ) -> Result<(), ApiError> {
     // <response>
@@ -414,7 +437,7 @@ fn write_deleted_event_response(
     writer
         .write_event(Event::Text(BytesText::new(&format!(
             "/caldav/{}/{}.ics",
-            user_id, uid
+            user_identifier, uid
         ))))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
@@ -442,7 +465,7 @@ fn write_deleted_event_response(
 
 /// Generate CalDAV multistatus response for PROPFIND
 pub fn generate_propfind_multistatus(
-    user_id: Uuid,
+    user_identifier: &str,
     calendar: &Calendar,
     events: &[CalEvent],
     depth: &str,
@@ -464,12 +487,12 @@ pub fn generate_propfind_multistatus(
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
     // Calendar collection response
-    write_calendar_response(&mut writer, user_id, calendar)?;
+    write_calendar_response(&mut writer, user_identifier, calendar)?;
 
     // Event responses (only for Depth: 1)
     if depth == "1" {
         for event in events {
-            write_event_response(&mut writer, user_id, event)?;
+            write_event_response(&mut writer, user_identifier, event)?;
         }
     }
 
@@ -485,7 +508,7 @@ pub fn generate_propfind_multistatus(
 /// Write calendar collection response
 fn write_calendar_response(
     writer: &mut Writer<Cursor<Vec<u8>>>,
-    user_id: Uuid,
+    user_identifier: &str,
     calendar: &Calendar,
 ) -> Result<(), ApiError> {
     // <response>
@@ -500,7 +523,7 @@ fn write_calendar_response(
     writer
         .write_event(Event::Text(BytesText::new(&format!(
             "/caldav/{}/",
-            user_id
+            user_identifier
         ))))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
@@ -553,6 +576,20 @@ fn write_calendar_response(
         .write_event(Event::End(BytesEnd::new("cal:getctag")))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
+    // <sync-token> (RFC 6578)
+    writer
+        .write_event(Event::Start(BytesStart::new("d:sync-token")))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    writer
+        .write_event(Event::Text(BytesText::new(&format!(
+            "http://televent.app/sync/{}",
+            calendar.sync_token
+        ))))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    writer
+        .write_event(Event::End(BytesEnd::new("d:sync-token")))
+        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+
     // <calendar-home-set>
     writer
         .write_event(Event::Start(BytesStart::new("cal:calendar-home-set")))
@@ -561,7 +598,7 @@ fn write_calendar_response(
         .write_event(Event::Start(BytesStart::new("d:href")))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
-        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_id))))
+        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_identifier))))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
         .write_event(Event::End(BytesEnd::new("d:href")))
@@ -579,7 +616,7 @@ fn write_calendar_response(
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     // Simplified: principal is the same as calendar home for now (Thunderbird accepts this usually, or purely /caldav/{user_id}/)
     writer
-        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_id))))
+        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_identifier))))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
         .write_event(Event::End(BytesEnd::new("d:href")))
@@ -596,7 +633,7 @@ fn write_calendar_response(
         .write_event(Event::Start(BytesStart::new("d:href")))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
-        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_id))))
+        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_identifier))))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
         .write_event(Event::End(BytesEnd::new("d:href")))
@@ -697,7 +734,7 @@ fn write_calendar_response(
 /// Write event resource response
 fn write_event_response(
     writer: &mut Writer<Cursor<Vec<u8>>>,
-    user_id: Uuid,
+    user_identifier: &str,
     event: &CalEvent,
 ) -> Result<(), ApiError> {
     // <response>
@@ -712,7 +749,7 @@ fn write_event_response(
     writer
         .write_event(Event::Text(BytesText::new(&format!(
             "/caldav/{}/{}.ics",
-            user_id, event.uid
+            user_identifier, event.uid
         ))))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
@@ -797,6 +834,7 @@ mod tests {
     use super::*;
     use chrono::{Datelike, Utc};
     use televent_core::models::EventStatus;
+    use uuid::Uuid;
 
     #[test]
     fn test_generate_propfind_depth_0() {
@@ -813,7 +851,7 @@ mod tests {
             updated_at: now,
         };
 
-        let xml = generate_propfind_multistatus(user_id, &calendar, &[], "0").unwrap();
+        let xml = generate_propfind_multistatus("testuser", &calendar, &[], "0").unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -859,7 +897,7 @@ mod tests {
             updated_at: now,
         };
 
-        let xml = generate_propfind_multistatus(user_id, &calendar, &[event], "1").unwrap();
+        let xml = generate_propfind_multistatus("testuser", &calendar, &[event], "1").unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -885,7 +923,7 @@ mod tests {
             updated_at: now,
         };
 
-        let xml = generate_propfind_multistatus(user_id, &calendar, &[], "0").unwrap();
+        let xml = generate_propfind_multistatus("testuser", &calendar, &[], "0").unwrap();
 
         // Check XML declaration
         assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"utf-8\"?>"));
@@ -1027,7 +1065,7 @@ mod tests {
             "event-123".to_string(),
             "BEGIN:VCALENDAR...END:VCALENDAR".to_string(),
         )];
-        let xml = generate_calendar_query_response(user_id, &[event], &ical_data).unwrap();
+        let xml = generate_calendar_query_response("testuser", &[event], &ical_data).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -1076,7 +1114,7 @@ mod tests {
 
         let deleted_uids = vec!["deleted-event".to_string()];
         let xml =
-            generate_sync_collection_response(user_id, &calendar, &[event], &[], &deleted_uids).unwrap();
+            generate_sync_collection_response("testuser", &calendar, &[event], &[], &deleted_uids).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -1107,7 +1145,7 @@ mod tests {
             updated_at: now,
         };
 
-        let xml = generate_sync_collection_response(user_id, &calendar, &[], &[], &[]).unwrap();
+        let xml = generate_sync_collection_response("testuser", &calendar, &[], &[], &[]).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -1153,7 +1191,7 @@ mod tests {
         }
 
         let start = std::time::Instant::now();
-        let _ = generate_calendar_query_response(user_id, &events, &ical_data).unwrap();
+        let _ = generate_calendar_query_response("testuser", &events, &ical_data).unwrap();
         let duration = start.elapsed();
 
         println!("Benchmark generate_calendar_query_response (N={}): {:?}", count, duration);

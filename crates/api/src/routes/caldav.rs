@@ -76,7 +76,7 @@ async fn caldav_propfind(
 
     // Generate XML response
     let response_xml =
-        caldav_xml::generate_propfind_multistatus(user_id, &calendar, &events, depth)?;
+        caldav_xml::generate_propfind_multistatus(&user_identifier, &calendar, &events, depth)?;
 
     Ok((
         StatusCode::MULTI_STATUS,
@@ -261,7 +261,7 @@ async fn caldav_report(
             }
 
             let response_xml =
-                caldav_xml::generate_calendar_query_response(user_id, &events, &ical_data)?;
+                caldav_xml::generate_calendar_query_response(&user_identifier, &events, &ical_data)?;
             
             tracing::debug!("CalendarQuery response XML (first 500 chars): {}", &response_xml.chars().take(500).collect::<String>());
 
@@ -312,7 +312,7 @@ async fn caldav_report(
             };
 
             let response_xml = caldav_xml::generate_sync_collection_response(
-                user_id,
+                &user_identifier,
                 &calendar,
                 &events,
                 &ical_data,
@@ -376,7 +376,7 @@ async fn caldav_report(
             // The previous implementation skipped missing events, so we do the same here.
 
             let response_xml =
-                caldav_xml::generate_calendar_multiget_response(user_id, &events, &ical_data)?;
+                caldav_xml::generate_calendar_multiget_response(&user_identifier, &events, &ical_data)?;
             
             tracing::info!("CalendarMultiget: returning {} events", events.len());
 
