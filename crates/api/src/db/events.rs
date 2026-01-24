@@ -120,7 +120,11 @@ pub async fn list_events(
     calendar_id: Uuid,
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 ) -> Result<Vec<Event>, ApiError> {
+    let offset = offset.unwrap_or(0);
+
     let events = match (start, end) {
         (Some(start_time), Some(end_time)) => {
             sqlx::query_as::<_, Event>(
@@ -130,19 +134,29 @@ pub async fn list_events(
                 AND start >= $2
                 AND start < $3
                 ORDER BY start ASC
+                LIMIT $4 OFFSET $5
                 "#,
             )
             .bind(calendar_id)
             .bind(start_time)
             .bind(end_time)
+            .bind(limit)
+            .bind(offset)
             .fetch_all(pool)
             .await?
         }
         _ => {
             sqlx::query_as::<_, Event>(
-                "SELECT * FROM events WHERE calendar_id = $1 ORDER BY start ASC",
+                r#"
+                SELECT * FROM events
+                WHERE calendar_id = $1
+                ORDER BY start ASC
+                LIMIT $2 OFFSET $3
+                "#,
             )
             .bind(calendar_id)
+            .bind(limit)
+            .bind(offset)
             .fetch_all(pool)
             .await?
         }
