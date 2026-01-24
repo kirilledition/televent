@@ -12,7 +12,8 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     // Initialize tracing once for entire process
-    init_tracing()?;
+    // The guard must be kept alive for the duration of the program to ensure logs are flushed
+    let _guard = init_tracing()?;
 
     tracing::info!("🚀 Starting Televent unified server");
 
@@ -150,25 +151,35 @@ async fn wait_for_shutdown() {
     }
 }
 
-fn init_tracing() -> Result<()> {
-    let file_appender = tracing_appender::rolling::daily("logs", "televent.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+fn init_tracing() -> Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info,api=debug,bot=debug,worker=debug,sqlx=warn".into());
 
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,api=debug,bot=debug,worker=debug,sqlx=warn".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_ansi(false)
-                .with_writer(non_blocking),
-        )
-        .init();
+    let stdout_layer = tracing_subscriber::fmt::layer()
+        .with_target(true);
 
-    // Prevent _guard from being dropped
-    std::mem::forget(_guard);
+    let registry = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(stdout_layer);
 
-    Ok(())
+    let enable_file_logging = std::env::var("ENABLE_FILE_LOGGING")
+        .map(|v| v.to_lowercase() != "false" && v != "0")
+        .unwrap_or(true);
+
+    if enable_file_logging {
+        let file_appender = tracing_appender::rolling::daily("logs", "televent.log");
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+        let file_layer = tracing_subscriber::fmt::layer()
+            .with_ansi(false)
+            .with_writer(non_blocking)
+            .json();
+
+        registry.with(file_layer).init();
+
+        Ok(Some(guard))
+    } else {
+        registry.init();
+        Ok(None)
+    }
 }
