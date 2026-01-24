@@ -268,12 +268,18 @@ impl BotDb {
             password_hash::{PasswordHasher, SaltString},
         };
 
-        let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
-        let argon2 = Argon2::default();
-        let password_hash = argon2
-            .hash_password(password.as_bytes(), &salt)
-            .map_err(|_| sqlx::Error::Decode("Failed to hash password".into()))?
-            .to_string();
+        // Offload blocking Argon2 hashing to a worker thread
+        let password_clone = password.clone();
+        let password_hash = tokio::task::spawn_blocking(move || {
+            let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
+            let argon2 = Argon2::default();
+            argon2
+                .hash_password(password_clone.as_bytes(), &salt)
+                .map(|h| h.to_string())
+                .map_err(|_| sqlx::Error::Decode("Failed to hash password".into()))
+        })
+        .await
+        .map_err(|e| sqlx::Error::Decode(format!("Task join error: {}", e).into()))??;
 
         // Store device password
         sqlx::query(
