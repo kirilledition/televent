@@ -22,6 +22,7 @@ pub struct WorkerConfig {
     pub poll_interval_secs: u64,
     pub max_retry_count: i32,
     pub batch_size: i64,
+    pub status_log_interval_secs: u64,
 }
 
 impl UnifiedConfig {
@@ -49,6 +50,9 @@ impl UnifiedConfig {
                 batch_size: env::var("WORKER_BATCH_SIZE")
                     .unwrap_or_else(|_| "10".into())
                     .parse()?,
+                status_log_interval_secs: env::var("WORKER_STATUS_LOG_INTERVAL_SECS")
+                    .unwrap_or_else(|_| "60".into())
+                    .parse()?,
             },
         })
     }
@@ -69,6 +73,7 @@ impl UnifiedConfig {
             poll_interval_secs: self.worker.poll_interval_secs,
             max_retry_count: self.worker.max_retry_count,
             batch_size: self.worker.batch_size,
+            status_log_interval_secs: self.worker.status_log_interval_secs,
         }
     }
 }

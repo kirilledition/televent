@@ -9,30 +9,29 @@ default:
 # Initial setup for dev container (PostgreSQL + migrations)
 setup-dev:
     @echo "Setting up development environment..."
-    @echo "2. Starting PostgreSQL..."
-    sudo service postgresql start
-    @echo "3. Creating database and user..."
-    sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'televent'" | grep -q 1 || \
-    sudo -u postgres psql -c "CREATE DATABASE televent; CREATE USER televent WITH PASSWORD 'dev'; GRANT ALL PRIVILEGES ON DATABASE televent TO televent;"
-    @echo "4. Running migrations..."
+    @echo "1. Starting PostgreSQL via Docker..."
+    docker-compose up -d db
+    @echo "2. Waiting for PostgreSQL to be ready..."
+    @until docker-compose exec db pg_isready -U televent; do sleep 1; done
+    @echo "3. Running migrations..."
     sqlx migrate run
-    @echo "5. Building project..."
+    @echo "4. Building project..."
     cargo build --workspace
     @echo "✅ Setup complete! Run 'just bot' to start the bot."
 
-# Start PostgreSQL service (for dev container)
+# Start PostgreSQL service via Docker
 db-start:
     @echo "Starting PostgreSQL..."
-    sudo service postgresql start
+    docker-compose up -d db
     @echo "✅ PostgreSQL is running"
 
 # Check PostgreSQL status
 db-status:
-    @sudo service postgresql status
+    @docker-compose ps db
 
 # Stop PostgreSQL service
 db-stop:
-    @sudo service postgresql stop
+    @docker-compose stop db
 
 # ==============================================
 # Run Services
@@ -40,8 +39,6 @@ db-stop:
 
 # Run unified server (all services in one process) - DEFAULT for MVP
 run:
-    #!/usr/bin/env bash
-    unset DATABASE_URL
     cargo run --bin televent
 
 # Alias for clarity
@@ -53,20 +50,14 @@ build-release:
 
 # Run Telegram bot (standalone mode)
 bot:
-    #!/usr/bin/env bash
-    unset DATABASE_URL
     cargo run --bin bot
 
 # Run API server (standalone mode)
 api:
-    #!/usr/bin/env bash
-    unset DATABASE_URL
     cargo run --bin api
 
 # Run background worker (standalone mode)
 worker:
-    #!/usr/bin/env bash
-    unset DATABASE_URL
     cargo run --bin worker
 
 # Run all services separately in parallel (legacy mode)
@@ -158,10 +149,9 @@ db-new-migration name:
 # Reset database (drop, create, migrate)
 db-reset:
     @echo "Resetting database..."
-    sudo -u postgres psql <<EOF
-    DROP DATABASE IF EXISTS televent;
-    CREATE DATABASE televent;
-    GRANT ALL PRIVILEGES ON DATABASE televent TO televent;
-    EOF
+    docker-compose down -v db
+    docker-compose up -d db
+    @echo "Waiting for PostgreSQL to be ready..."
+    @until docker-compose exec db pg_isready -U televent; do sleep 1; done
     sqlx migrate run
     @echo "✅ Database reset complete"
