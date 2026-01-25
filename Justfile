@@ -70,3 +70,9 @@ db-reset:
     @echo "Applying SQLx migrations..."
     sqlx migrate run
     @echo "✅ Database reset complete"
+    
+# Generate TypeScript types from Rust models
+gen-types:
+    @echo "Generating TypeScript types..."
+    typeshare . --lang=typescript --output-file=frontend/src/types/schema.ts
+    @echo "✅ Types generated to frontend/src/types/schema.ts"

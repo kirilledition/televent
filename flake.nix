@@ -29,7 +29,9 @@
             sqlx-cli
             cadaver
 
-            nodejs_20
+            nodejs_25
+            nodePackages.pnpm
+            typeshare
             jq
             uv
           ];

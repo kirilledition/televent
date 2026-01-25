@@ -23,6 +23,7 @@ sqlx.workspace = true
 
 # iCalendar/Recurrence
 rrule.workspace = true
+typeshare = "1.0.5"
 
 [dev-dependencies]
 serial_test = "3.0"

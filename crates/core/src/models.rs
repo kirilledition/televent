@@ -4,12 +4,15 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use typeshare::typeshare;
 use uuid::Uuid;
 
 /// User entity
+#[typeshare]
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct User {
     pub id: Uuid,
+    #[typeshare(serialized_as = "string")]
     pub telegram_id: i64,
     pub telegram_username: Option<String>,
     pub timezone: String, // IANA timezone (e.g., "Asia/Singapore")
@@ -17,6 +20,7 @@ pub struct User {
 }
 
 /// Calendar entity
+#[typeshare]
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Calendar {
     pub id: Uuid,
@@ -30,6 +34,7 @@ pub struct Calendar {
 }
 
 /// Event entity
+#[typeshare]
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Event {
     pub id: Uuid,
@@ -51,6 +56,7 @@ pub struct Event {
 }
 
 /// Event status enumeration
+#[typeshare]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "event_status", rename_all = "UPPERCASE")]
 pub enum EventStatus {
@@ -107,11 +113,13 @@ pub struct AuditLog {
 }
 
 /// Event attendee with RSVP status
+#[typeshare]
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct EventAttendee {
     pub id: Uuid,
     pub event_id: Uuid,
     pub email: String,            // tg_123@televent.internal or external
+    #[typeshare(serialized_as = "string")]
     pub telegram_id: Option<i64>, // Populated for internal users
     pub role: AttendeeRole,
     pub status: ParticipationStatus,
@@ -120,6 +128,7 @@ pub struct EventAttendee {
 }
 
 /// Attendee role (RFC 5545 ROLE parameter)
+#[typeshare]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "attendee_role", rename_all = "UPPERCASE")]
 pub enum AttendeeRole {
@@ -128,6 +137,7 @@ pub enum AttendeeRole {
 }
 
 /// Participation status (RFC 5545 PARTSTAT parameter)
+#[typeshare]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "participation_status")]
 pub enum ParticipationStatus {
