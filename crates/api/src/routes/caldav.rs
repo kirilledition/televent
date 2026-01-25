@@ -76,7 +76,7 @@ async fn caldav_propfind(
 
     // Generate XML response
     let response_xml =
-        caldav_xml::generate_propfind_multistatus(user_id, &calendar, &events, depth)?;
+        caldav_xml::generate_propfind_multistatus(&user_identifier, &calendar, &events, depth)?;
 
     Ok((
         StatusCode::MULTI_STATUS,
@@ -270,8 +270,16 @@ async fn caldav_report(
                 ical_data.push((event.uid.clone(), ical_str));
             }
 
+<<<<<<< HEAD
             let response_xml =
                 caldav_xml::generate_calendar_query_response(user_id, &events, &ical_data)?;
+=======
+            let response_xml = caldav_xml::generate_calendar_query_response(
+                &user_identifier,
+                &events,
+                &ical_data,
+            )?;
+>>>>>>> origin/main
 
             tracing::debug!(
                 "CalendarQuery response XML (first 500 chars): {}",
@@ -333,7 +341,7 @@ async fn caldav_report(
             };
 
             let response_xml = caldav_xml::generate_sync_collection_response(
-                user_id,
+                &user_identifier,
                 &calendar,
                 &events,
                 &ical_data,
@@ -400,8 +408,16 @@ async fn caldav_report(
             // CalDAV Multistatus response will just omit them or client will assume 404 if not present in multistatus response (or we should explicitly return 404 propstat).
             // The previous implementation skipped missing events, so we do the same here.
 
+<<<<<<< HEAD
             let response_xml =
                 caldav_xml::generate_calendar_multiget_response(user_id, &events, &ical_data)?;
+=======
+            let response_xml = caldav_xml::generate_calendar_multiget_response(
+                &user_identifier,
+                &events,
+                &ical_data,
+            )?;
+>>>>>>> origin/main
 
             tracing::info!("CalendarMultiget: returning {} events", events.len());
 

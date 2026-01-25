@@ -24,6 +24,21 @@ pub struct Config {
 
     /// Interval in seconds for logging queue status (COUNT(*))
     pub status_log_interval_secs: u64,
+
+    /// SMTP Host
+    pub smtp_host: String,
+
+    /// SMTP Port
+    pub smtp_port: u16,
+
+    /// SMTP Username
+    pub smtp_username: Option<String>,
+
+    /// SMTP Password
+    pub smtp_password: Option<String>,
+
+    /// SMTP From Address
+    pub smtp_from: String,
 }
 
 impl Config {
@@ -52,6 +67,19 @@ impl Config {
                 .unwrap_or_else(|_| "60".to_string())
                 .parse()
                 .context("WORKER_STATUS_LOG_INTERVAL_SECS must be a valid integer")?,
+
+            smtp_host: env::var("SMTP_HOST").unwrap_or_else(|_| "localhost".to_string()),
+
+            smtp_port: env::var("SMTP_PORT")
+                .unwrap_or_else(|_| "1025".to_string())
+                .parse()
+                .context("SMTP_PORT must be a valid integer")?,
+
+            smtp_username: env::var("SMTP_USERNAME").ok(),
+
+            smtp_password: env::var("SMTP_PASSWORD").ok(),
+
+            smtp_from: env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@televent.app".to_string()),
         })
     }
 }
@@ -72,7 +100,7 @@ mod tests {
     fn test_config_has_defaults() {
         // Just verify the structure exists and can be created
         // Actual env var tests would require integration tests
-        let _ = Config {
+        let config = Config {
             core: CoreConfig {
                 database_url: "postgres://localhost".to_string(),
                 telegram_bot_token: "test_token".to_string(),
@@ -81,6 +109,86 @@ mod tests {
             max_retry_count: 5,
             batch_size: 10,
             status_log_interval_secs: 60,
+            smtp_host: "localhost".to_string(),
+            smtp_port: 1025,
+            smtp_username: None,
+            smtp_password: None,
+            smtp_from: "noreply@televent.app".to_string(),
         };
+
+        assert_eq!(config.poll_interval_secs, 10);
+        assert_eq!(config.max_retry_count, 5);
+        assert_eq!(config.batch_size, 10);
+        assert_eq!(config.smtp_port, 1025);
+    }
+
+    #[test]
+    fn test_config_deref() {
+        let config = Config {
+            core: CoreConfig {
+                database_url: "postgres://test@localhost/db".to_string(),
+                telegram_bot_token: "test_bot_token".to_string(),
+            },
+            poll_interval_secs: 10,
+            max_retry_count: 5,
+            batch_size: 10,
+            status_log_interval_secs: 60,
+            smtp_host: "localhost".to_string(),
+            smtp_port: 1025,
+            smtp_username: None,
+            smtp_password: None,
+            smtp_from: "noreply@televent.app".to_string(),
+        };
+
+        // Test Deref trait
+        assert_eq!(config.database_url, "postgres://test@localhost/db");
+        assert_eq!(config.telegram_bot_token, "test_bot_token");
+    }
+
+    #[test]
+    fn test_config_clone() {
+        let config = Config {
+            core: CoreConfig {
+                database_url: "postgres://localhost".to_string(),
+                telegram_bot_token: "test_token".to_string(),
+            },
+            poll_interval_secs: 10,
+            max_retry_count: 5,
+            batch_size: 10,
+            status_log_interval_secs: 60,
+            smtp_host: "localhost".to_string(),
+            smtp_port: 1025,
+            smtp_username: Some("user".to_string()),
+            smtp_password: Some("pass".to_string()),
+            smtp_from: "noreply@televent.app".to_string(),
+        };
+
+        let cloned = config.clone();
+        assert_eq!(cloned.poll_interval_secs, config.poll_interval_secs);
+        assert_eq!(cloned.smtp_username, config.smtp_username);
+        assert_eq!(cloned.smtp_password, config.smtp_password);
+    }
+
+    #[test]
+    fn test_config_debug() {
+        let config = Config {
+            core: CoreConfig {
+                database_url: "postgres://localhost".to_string(),
+                telegram_bot_token: "test_token".to_string(),
+            },
+            poll_interval_secs: 10,
+            max_retry_count: 5,
+            batch_size: 10,
+            status_log_interval_secs: 60,
+            smtp_host: "localhost".to_string(),
+            smtp_port: 1025,
+            smtp_username: None,
+            smtp_password: None,
+            smtp_from: "noreply@televent.app".to_string(),
+        };
+
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("Config"));
+        assert!(debug_str.contains("poll_interval_secs"));
     }
 }

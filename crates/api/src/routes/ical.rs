@@ -55,14 +55,21 @@ pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
 
     // Created and last modified timestamps
     ical_event.timestamp(event.created_at);
-    ical_event.add_property("LAST-MODIFIED", event.updated_at.to_rfc3339());
+    // RFC 5545 requires basic ISO 8601 format for timestamps (e.g. 20240101T120000Z)
+    // chrono's to_rfc3339() produces extended format which causes sync issues in Thunderbird
+    let last_modified_str = event.updated_at.format("%Y%m%dT%H%M%SZ").to_string();
+    ical_event.add_property("LAST-MODIFIED", &last_modified_str);
 
     // Build calendar container
     let mut calendar = Calendar::new();
+<<<<<<< HEAD
     calendar.append_property(icalendar::Property::new(
         "PRODID",
         "-//Televent//Televent//EN",
     ));
+=======
+    // icalendar crate adds PRODID by default, do not add another one
+>>>>>>> origin/main
     calendar.push(ical_event);
 
     Ok(calendar.to_string())

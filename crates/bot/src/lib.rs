@@ -4,7 +4,7 @@
 
 mod commands;
 mod config;
-mod db;
+pub mod db;
 mod event_parser;
 mod handlers;
 
@@ -12,9 +12,26 @@ use anyhow::Result;
 use commands::Command;
 use db::BotDb;
 use sqlx::PgPool;
-use teloxide::dispatching::{HandlerExt, UpdateFilterExt};
+use teloxide::RequestError;
+use teloxide::dispatching::{HandlerExt, UpdateFilterExt, UpdateHandler};
 use teloxide::dptree;
 use teloxide::prelude::*;
+
+/// Build the message handler tree
+///
+/// This function creates the dispatcher handler tree that routes messages to appropriate handlers.
+/// Extracted into a separate function to enable testing with teloxide_tests.
+pub fn build_handler_tree() -> UpdateHandler<RequestError> {
+    Update::filter_message()
+        // First try to handle as a command
+        .branch(
+            dptree::entry()
+                .filter_command::<Command>()
+                .endpoint(handle_command),
+        )
+        // Then handle as text message (for event creation)
+        .branch(dptree::filter(|msg: Message| msg.text().is_some()).endpoint(handle_message))
+}
 
 /// Run the Telegram bot service
 ///
@@ -32,6 +49,7 @@ pub async fn run_bot(pool: PgPool, bot_token: String) -> Result<()> {
     let bot = Bot::new(bot_token);
     tracing::info!("Bot initialized, starting dispatcher");
 
+<<<<<<< HEAD
     // Build the message handler schema
     let handler = Update::filter_message()
         // First try to handle as a command
@@ -43,9 +61,11 @@ pub async fn run_bot(pool: PgPool, bot_token: String) -> Result<()> {
         // Then handle as text message (for event creation)
         .branch(dptree::filter(|msg: Message| msg.text().is_some()).endpoint(handle_message));
 
+=======
+>>>>>>> origin/main
     // Create dispatcher with database dependency
     // Note: NOT using enable_ctrlc_handler() - shutdown is managed by the caller
-    Dispatcher::builder(bot, handler)
+    Dispatcher::builder(bot, build_handler_tree())
         .dependencies(dptree::deps![bot_db])
         .build()
         .dispatch()

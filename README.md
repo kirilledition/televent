@@ -13,25 +13,21 @@ flowchart TB
     subgraph Clients
         TG["Telegram App"]
         CAL["Calendar Apps"]
-        WEB["Web Browser"]
     end
 
-    subgraph "Televent Services"
-        API["Axum API Server (CalDAV + REST)"]
+    subgraph "Televent Unified Server"
+        API["Axum API (CalDAV + REST)"]
         BOT["Telegram Bot (Teloxide)"]
-        WORKER["Background Worker (Outbox Processor)"]
-        WEBAPP["Dioxus Web App"]
+        WORKER["Background Worker"]
     end
 
     subgraph Shared
-        CORE["Core Domain (Models, Logic)"]
+        CORE["Core Domain"]
         DB[("PostgreSQL 16")]
     end
 
     TG --> BOT
     CAL -->|CalDAV| API
-    WEB --> WEBAPP
-    WEBAPP --> API
     
     BOT --> CORE
     API --> CORE
@@ -44,14 +40,15 @@ flowchart TB
 
 ### Component Breakdown
 
-| Path | Description | Key Tech |
-|------|-------------|----------|
-| crates/core | Domain Logic. Pure Rust, no I/O. Models, Errors, Timezone logic. | chrono, uuid |
-| crates/api | HTTP Server. Handles CalDAV protocol and REST endpoints. | axum, tower |
-| crates/bot | Telegram Interface. Command parsing and conversational FSM. | teloxide |
-| crates/worker | Job Processor. Handles emails, notifications, and cleanups. | tokio, lettre |
-| crates/web | Frontend. Web dashboard for settings. | dioxus |
-| migrations/ | Database Schema. SQLx migration files. | sql |
+| Path          | Description                                                      | Key Tech      |
+| ------------- | ---------------------------------------------------------------- | ------------- |
+| crates/core   | Domain Logic. Pure Rust, no I/O. Models, Errors, Timezone logic. | chrono, uuid  |
+| crates/api    | HTTP Server. Handles CalDAV protocol and REST endpoints.         | axum, tower   |
+| crates/bot    | Telegram Interface. Command parsing and conversational FSM.      | teloxide      |
+| crates/worker | Job Processor. Handles emails, notifications, and cleanups.      | tokio, lettre |
+| crates/server | Unified Entry Point. Runs API, Bot, and Worker in one process.   | tokio         |
+| crates/web    | [PLANNED] Frontend. Web dashboard for settings.                  | dioxus        |
+| migrations/   | Database Schema. SQLx migration files.                           | sql           |
 
 ## Bot Commands
 
@@ -98,11 +95,12 @@ Database transactions include both the data change and a pending record in the `
 ## Development and Operations
 
 ### Common Commands
-- just setup - Start Docker and run migrations
-- just test - Run all tests
-- just dev-api - Hot-reload API server
-- just dev-bot - Hot-reload bot
-- just db-reset - Drop and recreate database
+- `just setup-dev` - Initial setup (PostgreSQL + migrations)
+- `just run` - Run unified server (API, Bot, and Worker)
+- `just test` - Run all tests
+- `just test-coverage` - Run tests with coverage report
+- `just db-reset` - Drop and recreate database
+- `just lint` - Run clippy, fmt, and check
 
 ### Agent Rules
 - No unwrap() or expect(): Use explicit error handling to prevent data loss.
@@ -114,9 +112,10 @@ Database transactions include both the data change and a pending record in the `
 ## Project Roadmap
 
 ### Phase 2: Internal Invites (Current)
-- Database schema for attendees and RSVPs.
-- Implementation of the Interceptor logic in the worker.
-- Bot commands for RSVP management.
+- [x] Database schema for attendees and RSVPs.
+- [x] Implementation of the Interceptor logic in the worker.
+- [x] Bot commands for RSVP management (/invite, /rsvp).
+- [ ] Logic for sending Telegram notifications to invitees.
 
 ### Phase 3: Staging and QA
 - Validation against Supabase (production-like Postgres).
@@ -136,8 +135,7 @@ Database transactions include both the data change and a pending record in the `
 - PostgreSQL Database infrastructure.
 - Axum API Server with CalDAV support (RFC 4791 compliant).
 - Telegram Bot core commands and event creation parsing.
-- Background worker for outbox processing.
+- Background worker for outbox processing (emails and Telegram notifications).
+- Unified server process running all services.
 - CalDAV basic auth and event synchronization (verified with curl/cadaver).
-
-### Known Issues / Blockers
-- CalDAV GUI client compatibility (e.g., Thunderbird display issues) - Under active investigation.
+- Event invitations and RSVP via Telegram Bot.

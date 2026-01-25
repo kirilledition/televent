@@ -93,9 +93,10 @@ async fn run_worker_loop(
                 if last_status_log_time.elapsed()
                     >= Duration::from_secs(config.status_log_interval_secs)
                 {
-                    let pending_count = db.count_pending().await.unwrap_or(0);
-                    if pending_count > 0 {
-                        info!("Queue status: {} pending jobs remaining", pending_count);
+                    if let Ok(pending_count) = db.count_pending().await {
+                        if pending_count > 0 {
+                            info!("Queue status: {} pending jobs remaining", pending_count);
+                        }
                     }
                     last_status_log_time = Instant::now();
                 }
@@ -117,7 +118,7 @@ async fn process_job(db: &WorkerDb, bot: &Bot, config: &Config, job: db::OutboxM
         job.id, job.message_type, job.retry_count
     );
 
-    match processors::process_message(&job, bot).await {
+    match processors::process_message(&job, bot, config).await {
         Ok(()) => {
             // Job succeeded
             info!("Job {} completed successfully", job.id);

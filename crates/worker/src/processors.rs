@@ -7,15 +7,16 @@ use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 use tracing::{error, info};
 
+use crate::Config;
 use crate::db::OutboxMessage;
 use crate::mailer;
 use televent_core::attendee::is_internal_email;
 
 /// Process a single outbox message
-pub async fn process_message(message: &OutboxMessage, bot: &Bot) -> Result<()> {
+pub async fn process_message(message: &OutboxMessage, bot: &Bot, config: &Config) -> Result<()> {
     match message.message_type.as_str() {
         "telegram_notification" => process_telegram_notification(message, bot).await,
-        "email" => process_email(message).await,
+        "email" => process_email(message, config).await,
         "calendar_invite" => process_calendar_invite(message, bot).await,
         other => {
             error!("Unknown message type: {}", other);
@@ -47,7 +48,7 @@ async fn process_telegram_notification(message: &OutboxMessage, bot: &Bot) -> Re
 }
 
 /// Process an email message
-async fn process_email(message: &OutboxMessage) -> Result<()> {
+async fn process_email(message: &OutboxMessage, config: &Config) -> Result<()> {
     let to = message.payload["to"]
         .as_str()
         .context("Missing 'to' in email payload")?;
@@ -61,7 +62,7 @@ async fn process_email(message: &OutboxMessage) -> Result<()> {
         .context("Missing 'body' in email payload")?;
 
     // Use mailer crate to send email
-    mailer::send_email(to, subject, body)
+    mailer::send_email(config, to, subject, body)
         .await
         .context("Failed to send email")?;
 
@@ -133,7 +134,32 @@ async fn process_calendar_invite(message: &OutboxMessage, bot: &Bot) -> Result<(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use serde_json::json;
+    use std::time::Duration;
+    use televent_core::config::CoreConfig;
+    use televent_core::models::OutboxStatus;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use uuid::Uuid;
+
+    fn create_test_config(port: u16) -> Config {
+        Config {
+            core: CoreConfig {
+                database_url: "postgres://localhost".to_string(),
+                telegram_bot_token: "test_token".to_string(),
+            },
+            poll_interval_secs: 10,
+            max_retry_count: 5,
+            batch_size: 10,
+            status_log_interval_secs: 60,
+            smtp_host: "127.0.0.1".to_string(),
+            smtp_port: port,
+            smtp_username: None,
+            smtp_password: None,
+            smtp_from: "test@televent.app".to_string(),
+        }
+    }
 
     #[test]
     fn test_telegram_notification_payload_parsing() {
@@ -183,5 +209,80 @@ mod tests {
             payload["event_location"].as_str(),
             Some("Conference Room A")
         );
+    }
+
+    #[tokio::test]
+    async fn test_process_email_integration() {
+        // Setup mock SMTP
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_handle = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            socket.write_all(b"220 localhost ESMTP\r\n").await.unwrap();
+            let mut buf = [0; 1024];
+            socket.read(&mut buf).await.unwrap(); // EHLO
+            socket
+                .write_all(b"250-localhost\r\n250 8BITMIME\r\n")
+                .await
+                .unwrap();
+            socket.read(&mut buf).await.unwrap(); // MAIL FROM
+            socket.write_all(b"250 2.1.0 Ok\r\n").await.unwrap();
+            socket.read(&mut buf).await.unwrap(); // RCPT TO
+            socket.write_all(b"250 2.1.5 Ok\r\n").await.unwrap();
+            socket.read(&mut buf).await.unwrap(); // DATA
+            socket
+                .write_all(b"354 End data with <CR><LF>.<CR><LF>\r\n")
+                .await
+                .unwrap();
+
+            // Read email content until terminator
+            let mut email_data = String::new();
+            loop {
+                let n = socket.read(&mut buf).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                let chunk = String::from_utf8_lossy(&buf[..n]);
+                email_data.push_str(&chunk);
+                if email_data.contains("\r\n.\r\n") {
+                    break;
+                }
+            }
+
+            socket.write_all(b"250 2.0.0 Ok: queued\r\n").await.unwrap();
+            socket.read(&mut buf).await.unwrap(); // QUIT
+            socket.write_all(b"221 2.0.0 Bye\r\n").await.unwrap();
+        });
+
+        // Create message
+        let tx_msg = OutboxMessage {
+            id: Uuid::new_v4(),
+            message_type: "email".to_string(),
+            payload: json!({
+                "to": "recipient@example.com",
+                "subject": "Integration Test",
+                "body": "Body content"
+            }),
+            status: OutboxStatus::Processing,
+            retry_count: 0,
+            scheduled_at: chrono::Utc::now(),
+            processed_at: None,
+        };
+
+        // Dummy bot (not used for emails)
+        let bot = Bot::new("dummy_token");
+
+        // Config with unique port
+        let config = create_test_config(port);
+
+        // Give server time to bind
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        process_message(&tx_msg, &bot, &config)
+            .await
+            .expect("Failed to process email");
+
+        server_handle.await.unwrap();
     }
 }

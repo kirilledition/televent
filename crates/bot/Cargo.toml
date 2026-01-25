@@ -49,3 +49,6 @@ thiserror.workspace = true
 
 # iCalendar
 icalendar.workspace = true
+
+[dev-dependencies]
+teloxide_tests = "0.4.0"

@@ -154,16 +154,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_outbox_message_structure() {
-        // Verify OutboxMessage implements required traits
-        fn assert_clone<T: Clone>() {}
-        fn assert_debug<T: std::fmt::Debug>() {}
-
-        assert_clone::<OutboxMessage>();
-        assert_debug::<OutboxMessage>();
-    }
-
-    #[test]
     fn test_backoff_calculation() {
         // Test exponential backoff formula
         assert_eq!(2_i64.pow(0), 1); // First retry: 1 minute
@@ -171,5 +161,166 @@ mod tests {
         assert_eq!(2_i64.pow(2), 4); // Third retry: 4 minutes
         assert_eq!(2_i64.pow(3), 8); // Fourth retry: 8 minutes
         assert_eq!(2_i64.pow(4), 16); // Fifth retry: 16 minutes
+    }
+
+    #[test]
+    fn test_worker_db_new() {
+        // Test basic construction
+        // We can't test actual DB operations without a real pool,
+        // but we can verify the type compiles
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<WorkerDb>();
+        assert_sync::<WorkerDb>();
+    }
+
+    #[test]
+    fn test_outbox_message_has_required_traits() {
+        // Verify OutboxMessage derives required traits
+        fn assert_clone<T: Clone>() {}
+        fn assert_debug<T: std::fmt::Debug>() {}
+        fn assert_from_row<T: sqlx::FromRow<'static, sqlx::postgres::PgRow>>() {}
+
+        assert_clone::<OutboxMessage>();
+        assert_debug::<OutboxMessage>();
+        assert_from_row::<OutboxMessage>();
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_fetch_pending_jobs(pool: PgPool) -> sqlx::Result<()> {
+        use serde_json::json;
+        let db = WorkerDb::new(pool.clone());
+
+        let id1 = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
+            VALUES ($1, 'test', $2, 'pending', 0, NOW() - INTERVAL '1 minute', NOW())
+            "#
+        )
+        .bind(id1)
+        .bind(json!({"foo": "bar"}))
+        .execute(&pool)
+        .await?;
+
+        let jobs = db.fetch_pending_jobs(10).await?;
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].payload["foo"], "bar");
+        assert_eq!(jobs[0].status, OutboxStatus::Processing);
+
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_mark_completed(pool: PgPool) -> sqlx::Result<()> {
+        use serde_json::json;
+        let db = WorkerDb::new(pool.clone());
+        let id = Uuid::new_v4();
+
+        sqlx::query(
+            r#"
+            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
+            VALUES ($1, 'test', $2, 'processing', 0, NOW(), NOW())
+            "#
+        )
+        .bind(id)
+        .bind(json!({}))
+        .execute(&pool)
+        .await?;
+
+        db.mark_completed(id).await?;
+
+        let status: OutboxStatus =
+            sqlx::query_scalar("SELECT status FROM outbox_messages WHERE id = $1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await?;
+
+        assert_eq!(status, OutboxStatus::Completed);
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_mark_failed(pool: PgPool) -> sqlx::Result<()> {
+        use serde_json::json;
+        let db = WorkerDb::new(pool.clone());
+        let id = Uuid::new_v4();
+
+        sqlx::query(
+            r#"
+            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
+            VALUES ($1, 'test', $2, 'processing', 0, NOW(), NOW())
+            "#
+        )
+        .bind(id)
+        .bind(json!({}))
+        .execute(&pool)
+        .await?;
+
+        db.mark_failed(id, "test error").await?;
+
+        let (status, error_msg): (OutboxStatus, Option<String>) =
+            sqlx::query_as("SELECT status, error_message FROM outbox_messages WHERE id = $1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await?;
+
+        assert_eq!(status, OutboxStatus::Failed);
+        assert_eq!(error_msg, Some("test error".to_string()));
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_reschedule_message(pool: PgPool) -> sqlx::Result<()> {
+        use serde_json::json;
+        let db = WorkerDb::new(pool.clone());
+        let id = Uuid::new_v4();
+
+        sqlx::query(
+            r#"
+            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
+            VALUES ($1, 'test', $2, 'processing', 0, NOW(), NOW())
+            "#
+        )
+        .bind(id)
+        .bind(json!({}))
+        .execute(&pool)
+        .await?;
+
+        db.reschedule_message(id, 0, "retry error").await?;
+
+        let (status, retry_count): (OutboxStatus, i32) =
+            sqlx::query_as("SELECT status, retry_count FROM outbox_messages WHERE id = $1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await?;
+
+        assert_eq!(status, OutboxStatus::Pending);
+        assert_eq!(retry_count, 1);
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_count_pending(pool: PgPool) -> sqlx::Result<()> {
+        use serde_json::json;
+        let db = WorkerDb::new(pool.clone());
+
+        for _ in 0..3 {
+            sqlx::query(
+                r#"
+                INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
+                VALUES ($1, 'test', $2, 'pending', 0, NOW(), NOW())
+                "#
+            )
+            .bind(Uuid::new_v4())
+            .bind(json!({}))
+            .execute(&pool)
+            .await?;
+        }
+
+        let count = db.count_pending().await?;
+        assert_eq!(count, 3);
+        Ok(())
     }
 }
