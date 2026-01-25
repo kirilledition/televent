@@ -1,4 +1,5 @@
 [workspace]
+resolver = "3"
 members = [
     "crates/core",
     "crates/api",
@@ -10,7 +11,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 authors = ["kirill denisov"]
 license = "MIT"
 
@@ -59,6 +60,9 @@ moka = { version = "0.12.12", features = ["future"] }
 # Utilities
 tempfile = "3.24.0"
 url = "2.5.8"
+base64 = "0.22.1"
+hex = "0.4.3"
+urlencoding = "2.1.3"
 
 # Security
 argon2 = "0.5.3"
@@ -80,8 +84,8 @@ lettre = { version = "0.11.19", default-features = false, features = [
 ] }
 
 typeshare = "1.0.5"
-utoipa = "5.4.0"
-utoipa-swagger-ui = "9.0.2"
+utoipa = { version = "5.4.0", features = ["uuid", "chrono"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 # Testing
 serial_test = "3.3.1"

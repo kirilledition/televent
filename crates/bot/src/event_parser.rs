@@ -2,7 +2,7 @@
 //!
 //! Parses multi-line text messages into event data for creation.
 
-use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
+use chrono::{DateTime, Local, NaiveDate, Utc};
 use chrono_english::{Dialect, parse_date_string};
 use thiserror::Error;
 
@@ -50,8 +50,7 @@ pub struct ParsedEvent {
     pub location: Option<String>,
 }
 
-impl ParsedEvent {
-}
+impl ParsedEvent {}
 
 /// Parse a multi-line message into event data
 ///
@@ -292,7 +291,10 @@ mod tests {
         let input = "Event\n2026-01-20 14:00\n90";
         let event = parse_event_message(input).expect("should parse");
         match event.timing {
-            ParsedTiming::Timed { start, duration_minutes } => {
+            ParsedTiming::Timed {
+                start,
+                duration_minutes,
+            } => {
                 let end = start + Duration::minutes(i64::from(duration_minutes));
                 assert_eq!(end.with_timezone(&Local).hour(), 15);
                 assert_eq!(end.with_timezone(&Local).minute(), 30);

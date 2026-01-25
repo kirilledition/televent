@@ -83,8 +83,8 @@ gen-types:
     @echo "✅ Types generated to frontend/src/types/schema.ts"
 
 upgrade:
-    nix flake update
     cargo upgrade --incompatible --recursive
     cargo machete --fix --no-ignore
     cargo update
-    @REM cargo msrv find --write-msrv --min 1.85
+    
+# cargo msrv find --write-msrv --min 1.85

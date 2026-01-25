@@ -374,7 +374,7 @@ async fn caldav_report(
 
                 // Extract UID from path: /caldav/{user_id}/{uid}.ics
                 if let Some(uid_with_ics) = decoded_href.rsplit('/').next() {
-                    let uid = uid_with_ics.trim_end_matches(".ics");
+                    let uid: &str = uid_with_ics.trim_end_matches(".ics");
                     if !uid.is_empty() {
                         requested_uids.push(uid.to_string());
                     }
@@ -382,7 +382,7 @@ async fn caldav_report(
             }
 
             // Fetch events by UIDs in batch
-            let uid_strs: Vec<&str> = requested_uids.iter().map(|s| s.as_str()).collect();
+            let uid_strs: Vec<&str> = requested_uids.iter().map(|s: &String| s.as_str()).collect();
             let fetched_events = db::events::get_events_by_uids(&pool, user.id, &uid_strs).await?;
 
             let mut events = Vec::new();
