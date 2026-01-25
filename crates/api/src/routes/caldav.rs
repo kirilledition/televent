@@ -267,7 +267,7 @@ async fn caldav_report(
             let mut ical_data = Vec::new();
             for event in &events {
                 let ical_str = ical::event_to_ical(event)?;
-                ical_data.push((event.uid.clone(), ical_str));
+                ical_data.push(ical_str);
             }
 
             let response_xml = caldav_xml::generate_calendar_query_response(
@@ -324,7 +324,7 @@ async fn caldav_report(
                     // Log first event's iCal data for debugging
                     tracing::info!("Sample iCal data for {}: \n{}", event.uid, ical_str);
                 }
-                ical_data.push((event.uid.clone(), ical_str));
+                ical_data.push(ical_str);
             }
 
             // Fetch deleted events
@@ -390,7 +390,7 @@ async fn caldav_report(
                 // Generate iCalendar data
                 match ical::event_to_ical(&event) {
                     Ok(ical_str) => {
-                        ical_data.push((event.uid.clone(), ical_str));
+                        ical_data.push(ical_str);
                         events.push(event);
                     }
                     Err(e) => {

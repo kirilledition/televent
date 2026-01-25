@@ -6,7 +6,6 @@ use chrono::{DateTime, Utc};
 use quick_xml::Reader;
 use quick_xml::Writer;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
-use std::collections::HashMap;
 use std::io::Cursor;
 use televent_core::models::{Calendar, Event as CalEvent};
 // use uuid::Uuid;
@@ -165,7 +164,7 @@ fn parse_caldav_datetime(s: &str) -> Option<DateTime<Utc>> {
 pub fn generate_calendar_query_response(
     user_identifier: &str,
     events: &[CalEvent],
-    ical_data: &[(String, String)], // (uid, ical_string)
+    ical_data: &[String],
 ) -> Result<String, ApiError> {
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
 
@@ -183,12 +182,8 @@ pub fn generate_calendar_query_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
-    // Create a lookup map for ical data
-    let ical_map = build_uid_map(ical_data);
-
     // Write response for each event with calendar-data
-    for event in events {
-        let ical = ical_map.get(event.uid.as_str()).copied().unwrap_or("");
+    for (event, ical) in events.iter().zip(ical_data.iter()) {
         write_event_with_data(&mut writer, user_identifier, event, ical)?;
     }
 
@@ -206,7 +201,7 @@ pub fn generate_sync_collection_response(
     user_identifier: &str,
     calendar: &Calendar,
     events: &[CalEvent],
-    ical_data: &[(String, String)], // (uid, ical_string)
+    ical_data: &[String],
     deleted_uids: &[String],
 ) -> Result<String, ApiError> {
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
@@ -225,12 +220,8 @@ pub fn generate_sync_collection_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
-    // Create a lookup map for ical data
-    let ical_map = build_uid_map(ical_data);
-
     // Write response for changed/new events with calendar-data
-    for event in events {
-        let ical = ical_map.get(event.uid.as_str()).copied().unwrap_or("");
+    for (event, ical) in events.iter().zip(ical_data.iter()) {
         write_event_with_data(&mut writer, user_identifier, event, ical)?;
     }
 
@@ -266,7 +257,7 @@ pub fn generate_sync_collection_response(
 pub fn generate_calendar_multiget_response(
     user_identifier: &str,
     events: &[CalEvent],
-    ical_data: &[(String, String)], // (uid, ical_string)
+    ical_data: &[String],
 ) -> Result<String, ApiError> {
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
 
@@ -284,12 +275,8 @@ pub fn generate_calendar_multiget_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
-    // Create a lookup map for ical data
-    let ical_map = build_uid_map(ical_data);
-
     // Write response for each event with calendar-data
-    for event in events {
-        let ical = ical_map.get(event.uid.as_str()).copied().unwrap_or("");
+    for (event, ical) in events.iter().zip(ical_data.iter()) {
         write_event_with_data(&mut writer, user_identifier, event, ical)?;
     }
 
@@ -300,14 +287,6 @@ pub fn generate_calendar_multiget_response(
 
     let result = writer.into_inner().into_inner();
     String::from_utf8(result).map_err(|e| ApiError::Internal(format!("UTF-8 error: {}", e)))
-}
-
-/// Helper to build O(1) lookup map for ical data
-fn build_uid_map(ical_data: &[(String, String)]) -> HashMap<&str, &str> {
-    ical_data
-        .iter()
-        .map(|(uid, data)| (uid.as_str(), data.as_str()))
-        .collect()
 }
 
 /// Write event response with calendar-data (for REPORT)
@@ -842,10 +821,7 @@ mod tests {
             updated_at: now,
         };
 
-        let ical_data = vec![(
-            "event-123".to_string(),
-            "BEGIN:VCALENDAR...END:VCALENDAR".to_string(),
-        )];
+        let ical_data = vec!["BEGIN:VCALENDAR...END:VCALENDAR".to_string()];
         let xml = generate_calendar_query_response("testuser", &[event], &ical_data).unwrap();
 
         assert!(xml.contains("<?xml"));
@@ -893,10 +869,17 @@ mod tests {
             updated_at: now,
         };
 
+        // Note: ical_data must be provided for the event
+        let ical_data = vec!["BEGIN:VCALENDAR...END:VCALENDAR".to_string()];
         let deleted_uids = vec!["deleted-event".to_string()];
-        let xml =
-            generate_sync_collection_response("testuser", &calendar, &[event], &[], &deleted_uids)
-                .unwrap();
+        let xml = generate_sync_collection_response(
+            "testuser",
+            &calendar,
+            &[event],
+            &ical_data,
+            &deleted_uids,
+        )
+        .unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -969,7 +952,7 @@ mod tests {
                 updated_at: now,
             };
             events.push(event);
-            ical_data.push((uid, "BEGIN:VCALENDAR...END:VCALENDAR".to_string()));
+            ical_data.push("BEGIN:VCALENDAR...END:VCALENDAR".to_string());
         }
 
         let start = std::time::Instant::now();
