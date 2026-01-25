@@ -155,8 +155,7 @@ fn init_tracing() -> Result<Option<tracing_appender::non_blocking::WorkerGuard>>
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info,api=debug,bot=debug,worker=debug,sqlx=warn".into());
 
-    let stdout_layer = tracing_subscriber::fmt::layer()
-        .with_target(true);
+    let stdout_layer = tracing_subscriber::fmt::layer().with_target(true);
 
     let registry = tracing_subscriber::registry()
         .with(env_filter)

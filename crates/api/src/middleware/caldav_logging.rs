@@ -7,7 +7,6 @@ use axum::{
 };
 use std::time::Instant;
 
-
 /// Middleware to log deep details about CalDAV requests
 pub async fn caldav_logger(req: Request, next: Next) -> Response {
     let start = Instant::now();
@@ -44,7 +43,7 @@ pub async fn caldav_logger(req: Request, next: Next) -> Response {
     };
 
     let req = Request::from_parts(parts, Body::from(bytes));
-    
+
     // Execute handler
     let response = next.run(req).await;
 
@@ -64,7 +63,7 @@ pub async fn caldav_logger(req: Request, next: Next) -> Response {
         // We need to double-buffer response body to log it
         let (parts, body) = response.into_parts();
         let bytes = buffer_and_log_body(body, "Response Body").await;
-        
+
         return Response::from_parts(parts, Body::from(bytes));
     }
 

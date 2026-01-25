@@ -147,7 +147,8 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
         Ok(ReportType::CalendarMultiget { hrefs })
     } else {
         Err(ApiError::BadRequest(
-            "Unknown REPORT type: expected calendar-query, sync-collection, or calendar-multiget".to_string(),
+            "Unknown REPORT type: expected calendar-query, sync-collection, or calendar-multiget"
+                .to_string(),
         ))
     }
 }
@@ -561,7 +562,10 @@ fn write_calendar_response(
         .write_event(Event::Start(BytesStart::new("d:href")))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
-        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_id))))
+        .write_event(Event::Text(BytesText::new(&format!(
+            "/caldav/{}/",
+            user_id
+        ))))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
         .write_event(Event::End(BytesEnd::new("d:href")))
@@ -579,7 +583,10 @@ fn write_calendar_response(
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     // Simplified: principal is the same as calendar home for now (Thunderbird accepts this usually, or purely /caldav/{user_id}/)
     writer
-        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_id))))
+        .write_event(Event::Text(BytesText::new(&format!(
+            "/caldav/{}/",
+            user_id
+        ))))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
         .write_event(Event::End(BytesEnd::new("d:href")))
@@ -596,7 +603,10 @@ fn write_calendar_response(
         .write_event(Event::Start(BytesStart::new("d:href")))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
-        .write_event(Event::Text(BytesText::new(&format!("/caldav/{}/", user_id))))
+        .write_event(Event::Text(BytesText::new(&format!(
+            "/caldav/{}/",
+            user_id
+        ))))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
         .write_event(Event::End(BytesEnd::new("d:href")))
@@ -626,7 +636,7 @@ fn write_calendar_response(
     writer
         .write_event(Event::Start(BytesStart::new("d:supported-report-set")))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    
+
     // report: calendar-query
     writer
         .write_event(Event::Start(BytesStart::new("d:supported-report")))
@@ -755,7 +765,10 @@ fn write_event_response(
     writer
         .write_event(Event::Start(BytesStart::new("d:getlastmodified")))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    let http_date = event.updated_at.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    let http_date = event
+        .updated_at
+        .format("%a, %d %b %Y %H:%M:%S GMT")
+        .to_string();
     writer
         .write_event(Event::Text(BytesText::new(&http_date)))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
@@ -1076,7 +1089,8 @@ mod tests {
 
         let deleted_uids = vec!["deleted-event".to_string()];
         let xml =
-            generate_sync_collection_response(user_id, &calendar, &[event], &[], &deleted_uids).unwrap();
+            generate_sync_collection_response(user_id, &calendar, &[event], &[], &deleted_uids)
+                .unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -1156,6 +1170,9 @@ mod tests {
         let _ = generate_calendar_query_response(user_id, &events, &ical_data).unwrap();
         let duration = start.elapsed();
 
-        println!("Benchmark generate_calendar_query_response (N={}): {:?}", count, duration);
+        println!(
+            "Benchmark generate_calendar_query_response (N={}): {:?}",
+            count, duration
+        );
     }
 }

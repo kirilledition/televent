@@ -2,12 +2,12 @@
 //!
 //! Processes outbox messages (emails, Telegram notifications) with retry logic
 
+#[cfg(test)]
+mod concurrency_bench;
 mod config;
 mod db;
 mod mailer;
 mod processors;
-#[cfg(test)]
-mod concurrency_bench;
 
 pub use config::Config;
 
@@ -59,11 +59,12 @@ async fn run_worker_loop(
 
     loop {
         // Check for shutdown signal
-        if let Some(ref token) = shutdown {
-            if token.is_cancelled() {
-                info!("Worker received shutdown signal");
-                break;
-            }
+        if shutdown
+            .as_ref()
+            .is_some_and(|token| token.is_cancelled())
+        {
+            info!("Worker received shutdown signal");
+            break;
         }
 
         // Fetch pending jobs
@@ -89,12 +90,12 @@ async fn run_worker_loop(
                     .await;
 
                 // Log queue status
-                if last_status_log_time.elapsed() >= Duration::from_secs(config.status_log_interval_secs)
+                if last_status_log_time.elapsed()
+                    >= Duration::from_secs(config.status_log_interval_secs)
                 {
-                    if let Ok(pending_count) = db.count_pending().await {
-                        if pending_count > 0 {
-                            info!("Queue status: {} pending jobs remaining", pending_count);
-                        }
+                    let pending_count = db.count_pending().await.unwrap_or(0);
+                    if pending_count > 0 {
+                        info!("Queue status: {} pending jobs remaining", pending_count);
                     }
                     last_status_log_time = Instant::now();
                 }
@@ -164,16 +165,10 @@ async fn process_job(db: &WorkerDb, bot: &Bot, config: &Config, job: db::OutboxM
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_worker_compiles() {
-        // Basic compilation test
-        assert!(true);
-    }
-
-    #[test]
     fn test_exponential_backoff() {
         // Test backoff calculation
-        let retry_counts = vec![0, 1, 2, 3, 4];
-        let expected_minutes = vec![2, 4, 8, 16, 32];
+        let retry_counts = [0, 1, 2, 3, 4];
+        let expected_minutes = [2, 4, 8, 16, 32];
 
         for (retry, expected) in retry_counts.iter().zip(expected_minutes.iter()) {
             let backoff = 2_i64.pow((retry + 1) as u32);

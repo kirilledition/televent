@@ -8,7 +8,10 @@ async fn test_benchmark_concurrency() {
     let job_duration = Duration::from_millis(10);
     let concurrency = 10;
 
-    println!("Benchmarking with {} jobs, each taking {:?}...", job_count, job_duration);
+    println!(
+        "Benchmarking with {} jobs, each taking {:?}...",
+        job_count, job_duration
+    );
 
     // Sequential Benchmark
     let start_seq = Instant::now();
@@ -26,13 +29,19 @@ async fn test_benchmark_concurrency() {
         })
         .await;
     let duration_conc = start_conc.elapsed();
-    println!("Concurrent execution time (limit={}): {:?}", concurrency, duration_conc);
+    println!(
+        "Concurrent execution time (limit={}): {:?}",
+        concurrency, duration_conc
+    );
 
     // Assert improvement
     if duration_seq.as_millis() > 0 {
         let speedup = duration_seq.as_secs_f64() / duration_conc.as_secs_f64();
         println!("Speedup: {:.2}x", speedup);
-        assert!(speedup > 2.0, "Concurrent execution should be significantly faster");
+        assert!(
+            speedup > 2.0,
+            "Concurrent execution should be significantly faster"
+        );
     }
 }
 

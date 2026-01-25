@@ -239,7 +239,11 @@ async fn caldav_report(
 
     // Parse report type
     let report_type = caldav_xml::parse_report_request(&xml_body).map_err(|e| {
-        tracing::error!("Failed to parse REPORT XML: {:?}\nXML body:\n{}", e, xml_body);
+        tracing::error!(
+            "Failed to parse REPORT XML: {:?}\nXML body:\n{}",
+            e,
+            xml_body
+        );
         e
     })?;
 
@@ -249,9 +253,15 @@ async fn caldav_report(
     match report_type {
         caldav_xml::ReportType::CalendarQuery { start, end } => {
             // Query events with optional time range
-            let events = db::events::list_events(&pool, calendar.id, start, end, None, None).await?;
-            
-            tracing::info!("CalendarQuery: returning {} events (range: {:?} to {:?})", events.len(), start, end);
+            let events =
+                db::events::list_events(&pool, calendar.id, start, end, None, None).await?;
+
+            tracing::info!(
+                "CalendarQuery: returning {} events (range: {:?} to {:?})",
+                events.len(),
+                start,
+                end
+            );
 
             // Generate iCalendar data for each event
             let mut ical_data = Vec::new();
@@ -262,8 +272,11 @@ async fn caldav_report(
 
             let response_xml =
                 caldav_xml::generate_calendar_query_response(user_id, &events, &ical_data)?;
-            
-            tracing::debug!("CalendarQuery response XML (first 500 chars): {}", &response_xml.chars().take(500).collect::<String>());
+
+            tracing::debug!(
+                "CalendarQuery response XML (first 500 chars): {}",
+                &response_xml.chars().take(500).collect::<String>()
+            );
 
             Ok((
                 StatusCode::MULTI_STATUS,
@@ -279,8 +292,12 @@ async fn caldav_report(
                 .and_then(|s| s.rsplit('/').next())
                 .and_then(|s| s.parse::<i64>().ok())
                 .unwrap_or(0);
-            
-            tracing::info!("SyncCollection: sync_token={:?}, parsed={}", sync_token, last_sync_token);
+
+            tracing::info!(
+                "SyncCollection: sync_token={:?}, parsed={}",
+                sync_token,
+                last_sync_token
+            );
 
             // Get events modified since last sync
             // For now, if sync_token is 0 or missing, return all events
@@ -289,8 +306,12 @@ async fn caldav_report(
             } else {
                 db::events::list_events_since_sync(&pool, calendar.id, last_sync_token).await?
             };
-            
-            tracing::info!("SyncCollection: returning {} events, calendar sync_token={}", events.len(), calendar.sync_token);
+
+            tracing::info!(
+                "SyncCollection: returning {} events, calendar sync_token={}",
+                events.len(),
+                calendar.sync_token
+            );
 
             // Generate iCalendar data for each event
             let mut ical_data = Vec::new();
@@ -318,10 +339,13 @@ async fn caldav_report(
                 &ical_data,
                 &deleted_uids,
             )?;
-            
+
             // Log the actual XML response for debugging
             if !events.is_empty() {
-                tracing::info!("SyncCollection XML response (first 2000 chars):\n{}", &response_xml.chars().take(2000).collect::<String>());
+                tracing::info!(
+                    "SyncCollection XML response (first 2000 chars):\n{}",
+                    &response_xml.chars().take(2000).collect::<String>()
+                );
             }
 
             Ok((
@@ -333,15 +357,15 @@ async fn caldav_report(
         }
         caldav_xml::ReportType::CalendarMultiget { hrefs } => {
             tracing::info!("CalendarMultiget: {} hrefs requested", hrefs.len());
-            
+
             // Extract UIDs from hrefs
             // Format: /caldav/{user_id}/{uid}.ics or URL-encoded variants
             let mut requested_uids = Vec::new();
             for href in &hrefs {
                 // Decode URL encoding
-                let decoded_href = urlencoding::decode(href)
-                    .unwrap_or(std::borrow::Cow::Borrowed(href));
-                
+                let decoded_href =
+                    urlencoding::decode(href).unwrap_or(std::borrow::Cow::Borrowed(href));
+
                 // Extract UID from path: /caldav/{user_id}/{uid}.ics
                 if let Some(uid_with_ics) = decoded_href.rsplit('/').next() {
                     let uid = uid_with_ics.trim_end_matches(".ics");
@@ -353,7 +377,8 @@ async fn caldav_report(
 
             // Fetch events by UIDs in batch
             let uid_strs: Vec<&str> = requested_uids.iter().map(|s| s.as_str()).collect();
-            let fetched_events = db::events::get_events_by_uids(&pool, calendar.id, &uid_strs).await?;
+            let fetched_events =
+                db::events::get_events_by_uids(&pool, calendar.id, &uid_strs).await?;
 
             let mut events = Vec::new();
             let mut ical_data = Vec::new();
@@ -377,7 +402,7 @@ async fn caldav_report(
 
             let response_xml =
                 caldav_xml::generate_calendar_multiget_response(user_id, &events, &ical_data)?;
-            
+
             tracing::info!("CalendarMultiget: returning {} events", events.len());
 
             Ok((
@@ -459,12 +484,13 @@ async fn resolve_user_id(pool: &PgPool, identifier: &str) -> Result<Uuid, ApiErr
     }
 
     // Try as username
-    let user_id = sqlx::query_scalar("SELECT id FROM users WHERE lower(telegram_username) = lower($1)")
-        .bind(identifier)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
-        .ok_or_else(|| ApiError::NotFound(format!("User not found: {identifier}")))?;
+    let user_id =
+        sqlx::query_scalar("SELECT id FROM users WHERE lower(telegram_username) = lower($1)")
+            .bind(identifier)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
+            .ok_or_else(|| ApiError::NotFound(format!("User not found: {identifier}")))?;
 
     Ok(user_id)
 }
@@ -515,11 +541,17 @@ async fn event_handler(
         .trim_start_matches('/')
         .trim_end_matches(".ics")
         .to_string();
-    
+
     match method {
         Method::GET => caldav_get_event(State(pool), Path((user_identifier, event_uid))).await,
         Method::PUT => {
-            caldav_put_event(State(pool), Path((user_identifier, event_uid)), headers, body).await
+            caldav_put_event(
+                State(pool),
+                Path((user_identifier, event_uid)),
+                headers,
+                body,
+            )
+            .await
         }
         Method::DELETE => {
             caldav_delete_event(State(pool), Path((user_identifier, event_uid)), headers).await
@@ -543,7 +575,7 @@ mod tests {
         assert_eq!(parts.status, StatusCode::OK);
 
         // Check DAV header
-        let dav_header = parts.headers.get(&HeaderName::from_static("dav")).unwrap();
+        let dav_header = parts.headers.get(HeaderName::from_static("dav")).unwrap();
         assert_eq!(dav_header, "1, calendar-access");
 
         // Check ALLOW header
