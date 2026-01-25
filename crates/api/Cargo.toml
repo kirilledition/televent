@@ -51,8 +51,12 @@ urlencoding = "2.1"
 base64 = "0.22"
 dotenvy.workspace = true
 tracing-appender = "0.2.4"
+url.workspace = true
 
 [dev-dependencies]
+hex = "0.4"
+hmac.workspace = true
 reqwest = { version = "0.13", features = ["json"] }
+sha2.workspace = true
 tempfile = { workspace = true }
 url = { workspace = true }

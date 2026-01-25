@@ -118,7 +118,7 @@ pub struct AuditLog {
 pub struct EventAttendee {
     pub id: Uuid,
     pub event_id: Uuid,
-    pub email: String,            // tg_123@televent.internal or external
+    pub email: String, // tg_123@televent.internal or external
     #[typeshare(serialized_as = "string")]
     pub telegram_id: Option<i64>, // Populated for internal users
     pub role: AttendeeRole,

@@ -13,7 +13,11 @@ async fn test_caldav_root_propfind(pool: PgPool) {
         .time_to_live(Duration::from_secs(300))
         .build();
 
-    let state = AppState { pool, auth_cache };
+    let state = AppState {
+        pool,
+        auth_cache,
+        telegram_bot_token: "test_token".to_string(),
+    };
     let app = create_router(state, "*");
 
     // Create a request
@@ -42,7 +46,11 @@ async fn test_health_check(pool: PgPool) {
         .time_to_live(Duration::from_secs(300))
         .build();
 
-    let state = AppState { pool, auth_cache };
+    let state = AppState {
+        pool,
+        auth_cache,
+        telegram_bot_token: "test_token".to_string(),
+    };
     let app = create_router(state, "*");
 
     let response = app

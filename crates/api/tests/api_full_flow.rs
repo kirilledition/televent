@@ -9,7 +9,7 @@ use sqlx::PgPool;
 use std::time::Duration;
 use tower::ServiceExt;
 
-async fn setup_calendar(pool: &PgPool) -> uuid::Uuid {
+async fn setup_calendar(pool: &PgPool) -> (uuid::Uuid, i64) {
     // 1. Create User
     let telegram_id = rand::random::<i64>().abs();
     let username = format!("api_user_{}", telegram_id);
@@ -34,17 +34,59 @@ async fn setup_calendar(pool: &PgPool) -> uuid::Uuid {
         .await
         .unwrap();
 
-    calendar_id
+    (calendar_id, telegram_id)
 }
 
 use axum::extract::ConnectInfo;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-fn create_request(method: &str, uri: impl AsRef<str>, body: Body) -> Request<Body> {
-    let mut req = Request::builder()
+fn generate_valid_init_data(bot_token: &str, telegram_id: i64) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    
+    let auth_date = chrono::Utc::now().timestamp().to_string();
+    let user_json = serde_json::json!({
+        "id": telegram_id,
+        "first_name": "Test User",
+        "username": "test_user"
+    }).to_string();
+    
+    // Construct data_check_string (lexicographically sorted keys: auth_date, user)
+    let data_check_string = format!("auth_date={}\nuser={}", auth_date, user_json);
+    
+    type HmacSha256 = Hmac<Sha256>;
+    let secret_key = HmacSha256::new_from_slice(b"WebAppData")
+        .expect("HMAC can take any key length")
+        .chain_update(bot_token.as_bytes())
+        .finalize()
+        .into_bytes();
+        
+    let mut mac = HmacSha256::new_from_slice(&secret_key).expect("HMAC can take any key length");
+    mac.update(data_check_string.as_bytes());
+    let hash = hex::encode(mac.finalize().into_bytes());
+    
+    let params = vec![
+        ("auth_date", auth_date.as_str()),
+        ("user", user_json.as_str()),
+        ("hash", hash.as_str()),
+    ];
+    
+    url::form_urlencoded::Serializer::new(String::new())
+        .extend_pairs(params)
+        .finish()
+}
+
+fn create_request(method: &str, uri: impl AsRef<str>, body: Body, init_data: Option<&str>) -> Request<Body> {
+    let mut builder = Request::builder()
         .method(method)
         .uri(uri.as_ref())
-        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::CONTENT_TYPE, "application/json");
+
+    if let Some(data) = init_data {
+        builder = builder.header(header::AUTHORIZATION, format!("tma {}", data));
+    }
+    
+    let mut req = builder
         .body(body)
         .unwrap();
 
@@ -57,7 +99,9 @@ fn create_request(method: &str, uri: impl AsRef<str>, body: Body) -> Request<Bod
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn test_api_full_flow(pool: PgPool) {
-    let calendar_id = setup_calendar(&pool).await;
+    let (calendar_id, telegram_id) = setup_calendar(&pool).await;
+    let bot_token = "dummy_token";
+    let init_data = generate_valid_init_data(bot_token, telegram_id);
 
     let auth_cache = Cache::builder()
         .time_to_live(Duration::from_secs(300))
@@ -66,6 +110,7 @@ async fn test_api_full_flow(pool: PgPool) {
     let state = AppState {
         pool: pool.clone(),
         auth_cache,
+        telegram_bot_token: bot_token.to_string(),
     };
     let app = create_router(state, "*");
 
@@ -90,6 +135,7 @@ async fn test_api_full_flow(pool: PgPool) {
             "POST",
             "/api/events",
             Body::from(create_body.to_string()),
+            Some(&init_data),
         ))
         .await
         .unwrap();
@@ -130,6 +176,7 @@ async fn test_api_full_flow(pool: PgPool) {
             "POST",
             "/api/events",
             Body::from(create_body_2.to_string()),
+            Some(&init_data),
         ))
         .await
         .unwrap();
@@ -154,11 +201,11 @@ async fn test_api_full_flow(pool: PgPool) {
             "POST",
             "/api/events",
             Body::from(create_body_3.to_string()),
+            Some(&init_data),
         ))
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-
 
     // 2. List Events
     let response = app
@@ -167,6 +214,7 @@ async fn test_api_full_flow(pool: PgPool) {
             "GET",
             format!("/api/events?calendar_id={}", calendar_id),
             Body::empty(),
+            Some(&init_data),
         ))
         .await
         .unwrap();
@@ -178,7 +226,6 @@ async fn test_api_full_flow(pool: PgPool) {
     let events: Value = serde_json::from_slice(&body_bytes).unwrap();
     assert!(events.as_array().unwrap().len() >= 3);
 
-
     // 3. Get Event
     let response = app
         .clone()
@@ -186,6 +233,7 @@ async fn test_api_full_flow(pool: PgPool) {
             "GET",
             format!("/api/events/{}", event_id),
             Body::empty(),
+            Some(&init_data),
         ))
         .await
         .unwrap();
@@ -206,6 +254,7 @@ async fn test_api_full_flow(pool: PgPool) {
             "PUT",
             format!("/api/events/{}", event_id),
             Body::from(update_body.to_string()),
+            Some(&init_data),
         ))
         .await
         .unwrap();
@@ -223,6 +272,7 @@ async fn test_api_full_flow(pool: PgPool) {
             "DELETE",
             format!("/api/events/{}", event_id),
             Body::empty(),
+            Some(&init_data),
         ))
         .await
         .unwrap();
@@ -235,6 +285,7 @@ async fn test_api_full_flow(pool: PgPool) {
             "GET",
             format!("/api/events/{}", event_id),
             Body::empty(),
+            Some(&init_data),
         ))
         .await
         .unwrap();

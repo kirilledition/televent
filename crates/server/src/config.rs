@@ -13,7 +13,6 @@ pub struct UnifiedConfig {
 pub struct ApiConfig {
     pub host: String,
     pub port: u16,
-    pub jwt_secret: String,
     pub cors_allowed_origin: String,
 }
 
@@ -36,7 +35,6 @@ impl UnifiedConfig {
                 port: env::var("API_PORT")
                     .unwrap_or_else(|_| "3000".into())
                     .parse()?,
-                jwt_secret: env::var("JWT_SECRET")?,
                 cors_allowed_origin: env::var("CORS_ALLOWED_ORIGIN").unwrap_or_else(|_| "*".into()),
             },
             worker: WorkerConfig {
@@ -61,7 +59,6 @@ impl UnifiedConfig {
             core: self.core.clone(),
             host: self.api.host.clone(),
             port: self.api.port,
-            jwt_secret: self.api.jwt_secret.clone(),
             cors_allowed_origin: self.api.cors_allowed_origin.clone(),
         }
     }

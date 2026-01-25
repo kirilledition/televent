@@ -4,3 +4,4 @@ pub mod caldav_auth;
 pub mod caldav_headers;
 pub mod caldav_logging;
 pub mod rate_limit;
+pub mod telegram_auth;

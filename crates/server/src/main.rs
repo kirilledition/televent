@@ -77,7 +77,11 @@ fn spawn_api(
             .time_to_live(std::time::Duration::from_secs(300))
             .build();
 
-        let state = api::AppState { pool, auth_cache };
+        let state = api::AppState {
+            pool,
+            auth_cache,
+            telegram_bot_token: config.core.telegram_bot_token.clone(),
+        };
         let api_config = config.to_api_config();
 
         tokio::select! {

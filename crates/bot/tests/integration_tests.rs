@@ -48,7 +48,6 @@ async fn test_dispatcher_start_command(pool: PgPool) {
     assert!(message.message.text().unwrap().contains("Welcome"));
 }
 
-
 /// Test that /help command gets routed correctly
 #[sqlx::test(migrations = "../../migrations")]
 async fn test_dispatcher_help_command(pool: PgPool) {

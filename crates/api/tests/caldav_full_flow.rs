@@ -66,6 +66,7 @@ async fn test_caldav_full_flow(pool: PgPool) {
     let state = AppState {
         pool: pool.clone(),
         auth_cache,
+        telegram_bot_token: "dummy_token".to_string(),
     };
     let app = create_router(state, "*");
 
@@ -87,7 +88,6 @@ async fn test_caldav_full_flow(pool: PgPool) {
     println!("Headers: {:?}", headers);
     assert!(headers.contains_key("dav"));
     assert!(headers.contains_key("allow"));
-
 
     // 1. PROPFIND /caldav/{telegram_id}/ (Depth: 0)
     let response = app
@@ -113,7 +113,6 @@ async fn test_caldav_full_flow(pool: PgPool) {
     assert!(body_str.contains("resourcetype"));
     assert!(body_str.contains("supported-calendar-component-set"));
     assert!(body_str.contains("getctag"));
-
 
     // 1b. PROPFIND /caldav/{telegram_id}/ (Depth: 1)
     let response = app
@@ -172,7 +171,7 @@ async fn test_caldav_full_flow(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // 3b. PUT Update Event (with If-Match)
     let updated_ics_body = ics_body.replace("SUMMARY:Test Event", "SUMMARY:Updated Test Event");
     let response = app
@@ -198,7 +197,6 @@ async fn test_caldav_full_flow(pool: PgPool) {
         .unwrap()
         .to_string();
     assert_ne!(etag_val, new_etag_val); // ETag must change
-
 
     // 4. REPORT Calendar Query
     let report_body = r#"<C:calendar-query xmlns:C="urn:ietf:params:xml:ns:caldav">
@@ -281,7 +279,6 @@ async fn test_caldav_full_flow(pool: PgPool) {
                 .body(Body::empty())
                 .unwrap(),
         )
-
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);

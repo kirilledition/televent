@@ -2,6 +2,7 @@
 
 pub mod calendars;
 pub mod events;
+pub mod users;
 
 #[cfg(test)]
 mod tests {

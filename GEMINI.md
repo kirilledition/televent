@@ -21,7 +21,8 @@
 
 <operational_commands>
 
-use all tools through nix, nothing is installed directly on the system
+- use all tools through `nix develop`, nothing is installed directly on the system
+- never add or remove any dependencies, always use `cargo add` or `cargo remove`
 
 - `just lint`: Check code quality
 - `just run`: Run app

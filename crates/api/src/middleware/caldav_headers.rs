@@ -1,6 +1,6 @@
 use axum::{
     extract::Request,
-    http::{Method, HeaderValue, header},
+    http::{HeaderValue, Method, header},
     middleware::Next,
     response::Response,
 };
@@ -17,24 +17,18 @@ pub async fn add_caldav_headers(req: Request, next: Next) -> Response {
         let headers = response.headers_mut();
         // Only add if not present (to allow handler to set them if reached)
         if !headers.contains_key("dav") {
-            headers.insert(
-                "dav",
-                HeaderValue::from_static("1, calendar-access"),
-            );
+            headers.insert("dav", HeaderValue::from_static("1, calendar-access"));
         }
         if !headers.contains_key(header::ALLOW) {
-             headers.insert(
+            headers.insert(
                 header::ALLOW,
                 HeaderValue::from_static("OPTIONS, PROPFIND, REPORT, GET, PUT, DELETE"),
             );
         }
         if !headers.contains_key("cal-accessible") {
-             headers.insert(
-                "cal-accessible",
-                HeaderValue::from_static("calendar"),
-            );
+            headers.insert("cal-accessible", HeaderValue::from_static("calendar"));
         }
     }
-    
+
     response
 }

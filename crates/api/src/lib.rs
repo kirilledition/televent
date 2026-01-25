@@ -12,6 +12,7 @@ use moka::future::Cache;
 use sqlx::PgPool;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
@@ -19,11 +20,13 @@ use crate::middleware::caldav_auth::{LoginId, caldav_basic_auth};
 use crate::middleware::rate_limit::{
     API_BURST_SIZE, API_PERIOD_MS, CALDAV_BURST_SIZE, CALDAV_PERIOD_MS, UserOrIpKeyExtractor,
 };
+use crate::middleware::telegram_auth::telegram_auth;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
     pub auth_cache: Cache<(LoginId, String), Uuid>,
+    pub telegram_bot_token: String,
 }
 
 impl FromRef<AppState> for PgPool {
@@ -61,7 +64,13 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
         .nest(
             "/api",
             routes::events::routes()
+                .merge(routes::calendars::routes())
                 .merge(routes::devices::routes())
+                .merge(routes::me::routes())
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    telegram_auth,
+                ))
                 .layer(GovernorLayer::new(
                     GovernorConfigBuilder::default()
                         .period(std::time::Duration::from_millis(API_PERIOD_MS))
@@ -89,6 +98,12 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
                 .layer(axum_middleware::from_fn(
                     crate::middleware::caldav_logging::caldav_logger,
                 )),
+        )
+        // Serve frontend static files with SPA fallback
+        .nest_service(
+            "/app",
+            ServeDir::new("frontend/out")
+                .not_found_service(ServeFile::new("frontend/out/index.html")),
         )
         .layer(cors)
         .layer(axum_middleware::from_fn(

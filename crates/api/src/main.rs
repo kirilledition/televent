@@ -59,7 +59,11 @@ async fn main() -> Result<()> {
         .time_to_live(Duration::from_secs(300))
         .build();
 
-    let state = AppState { pool, auth_cache };
+    let state = AppState {
+        pool,
+        auth_cache,
+        telegram_bot_token: config.telegram_bot_token.clone(),
+    };
 
     // Start server using library function
     api::run_api(state, &config).await?;
