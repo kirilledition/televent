@@ -103,7 +103,7 @@ async fn run_worker_loop(
 /// Process a single job
 async fn process_job(db: &WorkerDb, bot: &Bot, config: &Config, job: db::OutboxMessage) {
     info!(
-        "Processing job {} (type: {}, retry: {})",
+        "Processing job {} (type: {:?}, retry: {})",
         job.id, job.message_type, job.retry_count
     );
 
@@ -326,7 +326,7 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-            VALUES ($1, 'unknown_type', $2, 'processing', 0, NOW(), NOW())
+            VALUES ($1, 'email', $2, 'processing', 0, NOW(), NOW())
             "#
         )
         .bind(id)
@@ -381,7 +381,7 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-            VALUES ($1, 'unknown_type', $2, 'processing', 5, NOW(), NOW())
+            VALUES ($1, 'email', $2, 'processing', 5, NOW(), NOW())
             "#
         )
         .bind(id)

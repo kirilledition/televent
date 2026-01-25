@@ -5,23 +5,20 @@
 use anyhow::{Context, Result};
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::Config;
 use crate::db::OutboxMessage;
 use crate::mailer;
 use televent_core::attendee::is_internal_email;
+use televent_core::models::OutboxMessageType;
 
 /// Process a single outbox message
 pub async fn process_message(message: &OutboxMessage, bot: &Bot, config: &Config) -> Result<()> {
-    match message.message_type.as_str() {
-        "telegram_notification" => process_telegram_notification(message, bot).await,
-        "email" => process_email(message, config).await,
-        "calendar_invite" => process_calendar_invite(message, bot).await,
-        other => {
-            error!("Unknown message type: {}", other);
-            Err(anyhow::anyhow!("Unknown message type: {}", other))
-        }
+    match message.message_type {
+        OutboxMessageType::TelegramNotification => process_telegram_notification(message, bot).await,
+        OutboxMessageType::Email => process_email(message, config).await,
+        OutboxMessageType::CalendarInvite => process_calendar_invite(message, bot).await,
     }
 }
 
@@ -258,7 +255,7 @@ mod tests {
         // Create message
         let tx_msg = OutboxMessage {
             id: Uuid::new_v4(),
-            message_type: "email".to_string(),
+            message_type: OutboxMessageType::Email,
             payload: json!({
                 "to": "recipient@example.com",
                 "subject": "Integration Test",

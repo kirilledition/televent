@@ -5,14 +5,14 @@
 use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 use sqlx::{FromRow, PgPool};
-use televent_core::models::OutboxStatus;
+use televent_core::models::{OutboxMessageType, OutboxStatus};
 use uuid::Uuid;
 
 /// Outbox message from database
 #[derive(Debug, Clone, FromRow)]
 pub struct OutboxMessage {
     pub id: Uuid,
-    pub message_type: String,
+    pub message_type: OutboxMessageType,
     pub payload: Value,
     #[allow(dead_code)]
     pub status: OutboxStatus,
@@ -196,7 +196,7 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-            VALUES ($1, 'test', $2, 'pending', 0, NOW() - INTERVAL '1 minute', NOW())
+            VALUES ($1, 'email', $2, 'pending', 0, NOW() - INTERVAL '1 minute', NOW())
             "#
         )
         .bind(id1)
@@ -221,7 +221,7 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-            VALUES ($1, 'test', $2, 'processing', 0, NOW(), NOW())
+            VALUES ($1, 'email', $2, 'processing', 0, NOW(), NOW())
             "#
         )
         .bind(id)
@@ -250,7 +250,7 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-            VALUES ($1, 'test', $2, 'processing', 0, NOW(), NOW())
+            VALUES ($1, 'email', $2, 'processing', 0, NOW(), NOW())
             "#
         )
         .bind(id)
@@ -280,7 +280,7 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-            VALUES ($1, 'test', $2, 'processing', 0, NOW(), NOW())
+            VALUES ($1, 'email', $2, 'processing', 0, NOW(), NOW())
             "#
         )
         .bind(id)
@@ -310,7 +310,7 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-                VALUES ($1, 'test', $2, 'pending', 0, NOW(), NOW())
+                VALUES ($1, 'email', $2, 'pending', 0, NOW(), NOW())
                 "#
             )
             .bind(Uuid::new_v4())

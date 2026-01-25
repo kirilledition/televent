@@ -74,13 +74,22 @@ pub struct DevicePassword {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct OutboxMessage {
     pub id: Uuid,
-    pub message_type: String, // "email" | "telegram_notification"
+    pub message_type: OutboxMessageType,
     #[sqlx(json)]
     pub payload: serde_json::Value,
     pub status: OutboxStatus,
     pub retry_count: i32,
     pub scheduled_at: DateTime<Utc>,
     pub processed_at: Option<DateTime<Utc>>,
+}
+
+/// Outbox message type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "outbox_message_type", rename_all = "snake_case")]
+pub enum OutboxMessageType {
+    Email,
+    TelegramNotification,
+    CalendarInvite,
 }
 
 /// Outbox message status
@@ -98,12 +107,35 @@ pub enum OutboxStatus {
 pub struct AuditLog {
     pub id: Uuid,
     pub user_id: Uuid,
-    pub action: String, // "event_created" | "data_exported" | "account_deleted"
-    pub entity_type: String,
+    pub action: AuditAction,
+    pub entity_type: AuditEntityType,
     pub entity_id: Option<Uuid>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub created_at: DateTime<Utc>,
+}
+
+/// Audit action
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "audit_action", rename_all = "snake_case")]
+pub enum AuditAction {
+    EventCreated,
+    EventUpdated,
+    EventDeleted,
+    CalendarCreated,
+    CalendarUpdated,
+    CalendarDeleted,
+    DataExported,
+    AccountDeleted,
+}
+
+/// Audit entity type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "audit_entity_type", rename_all = "snake_case")]
+pub enum AuditEntityType {
+    Event,
+    Calendar,
+    User,
 }
 
 /// Event attendee with RSVP status
@@ -252,7 +284,7 @@ mod tests {
 
         let outbox = OutboxMessage {
             id: Uuid::new_v4(),
-            message_type: "telegram_notification".to_string(),
+            message_type: OutboxMessageType::TelegramNotification,
             payload: payload.clone(),
             status: OutboxStatus::Pending,
             retry_count: 0,
