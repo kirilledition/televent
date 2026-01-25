@@ -56,7 +56,6 @@
     "workspaceFolder": "/workspace",
     "forwardPorts": [
         3000
-    ]
-    // "postCreateCommand": "bash .devcontainer/setup.sh",
-    // "postStartCommand": "sudo service postgresql start"
+    ],
+    "postCreateCommand": "bash .devcontainer/setup.sh"
 }

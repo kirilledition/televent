@@ -10,8 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     jq \
     postgresql-client \
-    postgresql \
-    postgresql-contrib \
     htop \
     libssl-dev \
     pkg-config \

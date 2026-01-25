@@ -23,7 +23,7 @@ flowchart TB
 
     subgraph Shared
         CORE["Core Domain"]
-        DB[("PostgreSQL 16")]
+        DB[("Supabase (PostgreSQL 17)")]
     end
 
     TG --> BOT
@@ -94,12 +94,20 @@ Database transactions include both the data change and a pending record in the `
 
 ## Development and Operations
 
+### Prerequisites
+- [Nix](https://nixos.org/download.html) (recommended) or [Rust](https://www.rust-lang.org/tools/install)
+- [Node.js](https://nodejs.org/) (for Supabase CLI)
+- [Docker](https://www.docker.com/) (for running Supabase locally)
+
 ### Common Commands
-- `just setup-dev` - Initial setup (PostgreSQL + migrations)
+- `just setup-dev` - Initial setup (Supabase + migrations)
 - `just run` - Run unified server (API, Bot, and Worker)
 - `just test` - Run all tests
 - `just test-coverage` - Run tests with coverage report
-- `just db-reset` - Drop and recreate database
+- `just db-start` - Start local Supabase stack
+- `just db-stop` - Stop local Supabase stack
+- `just db-status` - Check Supabase status
+- `just db-reset` - Reset local database and apply migrations
 - `just lint` - Run clippy, fmt, and check
 
 ### Agent Rules

@@ -9,29 +9,29 @@ default:
 # Initial setup for dev container (PostgreSQL + migrations)
 setup-dev:
     @echo "Setting up development environment..."
-    @echo "1. Starting PostgreSQL via Docker..."
-    docker-compose up -d db
-    @echo "2. Waiting for PostgreSQL to be ready..."
-    @until docker-compose exec db pg_isready -U televent; do sleep 1; done
-    @echo "3. Running migrations..."
+    @echo "1. Starting Supabase..."
+    npx -y supabase start
+    @echo "2. Running migrations..."
     sqlx migrate run
-    @echo "4. Building project..."
+    @echo "3. Building project..."
     cargo build --workspace
-    @echo "✅ Setup complete! Run 'just bot' to start the bot."
+    @echo "✅ Setup complete! Run 'just run' to start the bot."
 
-# Start PostgreSQL service via Docker
+# Start Supabase services
 db-start:
-    @echo "Starting PostgreSQL..."
-    docker-compose up -d db
-    @echo "✅ PostgreSQL is running"
+    @echo "Starting Supabase..."
+    npx -y supabase start
+    @echo "✅ Supabase is running"
 
 # Check PostgreSQL status
+# Check Supabase status
 db-status:
-    @docker-compose ps db
+    npx -y supabase status
 
 # Stop PostgreSQL service
+# Stop Supabase services
 db-stop:
-    @docker-compose stop db
+    npx -y supabase stop
 
 # ==============================================
 # Run Services
@@ -47,7 +47,7 @@ test:
 
 # Run tests with coverage report (HTML)
 test-coverage:
-    cargo llvm-cov --workspace --html --output-dir logs
+    cargo llvm-cov --workspace --html --output-dir logs/coverage
     
 lint:
     @echo "Checking code..."
@@ -59,11 +59,10 @@ lint:
     @echo "✅ All checks passed!"
 
 # Reset database (drop, create, migrate)
+# Reset database (Supabase db reset)
 db-reset:
     @echo "Resetting database..."
-    docker-compose down -v db
-    docker-compose up -d db
-    @echo "Waiting for PostgreSQL to be ready..."
-    @until docker-compose exec db pg_isready -U televent; do sleep 1; done
+    npx -y supabase db reset
+    @echo "Applying SQLx migrations..."
     sqlx migrate run
     @echo "✅ Database reset complete"

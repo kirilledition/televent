@@ -37,7 +37,6 @@ dist/
 crates/web/.dioxus/
 
 # Coverage reports
-coverage/
 tarpaulin-report.html
 
 # macOS
@@ -51,5 +50,3 @@ tarpaulin-report.html
 # Logs
 logs/
 *.log
-
-coverage.txt

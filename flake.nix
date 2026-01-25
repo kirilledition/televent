@@ -27,14 +27,14 @@
             just
             cargo-llvm-cov
             sqlx-cli
-            docker-compose
-            postgresql_16 # for psql client
+
+            nodejs_20
             jq
             uv
           ];
 
           shellHook = ''
-            export DATABASE_URL="postgres://televent:dev@localhost:5433/televent"
+            export DATABASE_URL="postgres://postgres:postgres@localhost:54322/postgres"
             export API_PORT=3001
             export JWT_SECRET=dev_secret_change_me_in_prod
             echo "❄️ Televent Nix Shell" >&2

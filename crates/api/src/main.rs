@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
     // Create file appender
     let now = chrono::Local::now().format("%y-%m-%d-%H-%M-%S").to_string();
     let filename = format!("televent.log.{}.jsonl", now);
-    let file_appender = tracing_appender::rolling::never("logs", filename);
+    let file_appender = tracing_appender::rolling::never("logs/app", filename);
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // Initialize tracing
