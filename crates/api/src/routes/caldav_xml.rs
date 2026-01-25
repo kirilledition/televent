@@ -207,7 +207,6 @@ pub fn generate_sync_collection_response(
     user: &User,
     events: &[CalEvent],
     ical_data: &[(String, String)], // (uid, ical_string)
-    deleted_uids: &[String],
 ) -> Result<String, ApiError> {
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
 
@@ -232,11 +231,6 @@ pub fn generate_sync_collection_response(
     for event in events {
         let ical = ical_map.get(event.uid.as_str()).copied().unwrap_or("");
         write_event_with_data(&mut writer, user_identifier, event, ical)?;
-    }
-
-    // Write 404 response for deleted events
-    for uid in deleted_uids {
-        write_deleted_event_response(&mut writer, user_identifier, uid)?;
     }
 
     // <sync-token>
@@ -357,29 +351,6 @@ fn write_event_with_data(
 
     // </propstat>
     write_end_tag(writer, "d:propstat")?;
-
-    // </response>
-    write_end_tag(writer, "d:response")
-}
-
-/// Write 404 response for deleted event (sync-collection)
-fn write_deleted_event_response(
-    writer: &mut Writer<Cursor<Vec<u8>>>,
-    user_identifier: &str,
-    uid: &str,
-) -> Result<(), ApiError> {
-    // <response>
-    write_start_tag(writer, "d:response")?;
-
-    // <href>
-    write_string_tag(
-        writer,
-        "d:href",
-        &format!("/caldav/{}/{}.ics", user_identifier, uid),
-    )?;
-
-    // <status>HTTP/1.1 404 Not Found</status>
-    write_string_tag(writer, "d:status", "HTTP/1.1 404 Not Found")?;
 
     // </response>
     write_end_tag(writer, "d:response")
@@ -891,19 +862,14 @@ mod tests {
             updated_at: now,
         };
 
-        let deleted_uids = vec!["deleted-event".to_string()];
-        let xml =
-            generate_sync_collection_response("testuser", &user, &[event], &[], &deleted_uids)
-                .unwrap();
+        let xml = generate_sync_collection_response("testuser", &user, &[event], &[]).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
         // Changed event should have 200 status
         assert!(xml.contains("changed-event.ics"));
         assert!(xml.contains("new-etag"));
-        // Deleted event should have 404 status
-        assert!(xml.contains("deleted-event.ics"));
-        assert!(xml.contains("HTTP/1.1 404 Not Found"));
+        // New sync token
         // New sync token
         assert!(xml.contains("<d:sync-token>"));
         assert!(xml.contains("/sync/55"));
@@ -926,7 +892,7 @@ mod tests {
             updated_at: now,
         };
 
-        let xml = generate_sync_collection_response("testuser", &user, &[], &[], &[]).unwrap();
+        let xml = generate_sync_collection_response("testuser", &user, &[], &[]).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));

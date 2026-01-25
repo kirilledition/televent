@@ -56,7 +56,7 @@ flowchart TB
 erDiagram
     users ||--o{ events : "owns"
     users ||--o{ device_passwords : "has"
-    users ||--o{ deleted_events : "syncs"
+    users ||--o{ device_passwords : "has"
     events ||--o{ event_attendees : "has"
 
     users {
@@ -99,13 +99,7 @@ erDiagram
         timestamptz last_used_at
     }
 
-    deleted_events {
-        uuid id PK
-        bigint user_id FK "Ref: users.telegram_id"
-        text uid
-        bigint deletion_token "Sync token at deletion"
-        timestamptz deleted_at
-    }
+
 
     event_attendees {
         uuid id PK
@@ -129,15 +123,7 @@ erDiagram
         text error_message
     }
 
-    deleted_users {
-        uuid id PK
-        bigint telegram_id
-        text telegram_username
-        jsonb data_snapshot
-        timestamptz deletion_requested_at
-        timestamptz permanent_deletion_at
-        text deleted_by
-    }
+
 ```
 
 ### Schema Description
@@ -146,9 +132,7 @@ erDiagram
 - **events**: Calendar events. Linked to `users` via `telegram_id`.
 - **event_attendees**: Participants in events. Can be internal (linked via `telegram_id` if known) or external (email only).
 - **device_passwords**: App-specific passwords for CalDAV clients (Thunderbird, iOS) to authenticate using Basic Auth, as Telegram doesn't provide passwords.
-- **deleted_events**: Tombstones for tracking deletions during CalDAV sync (RFC 6578).
 - **outbox_messages**: Transactional outbox for asynchronous tasks like sending emails or Telegram notifications.
-- **deleted_users**: Archive of soft-deleted users (GDPR compliance).
 
 ## Bot Commands
 

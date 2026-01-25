@@ -196,25 +196,6 @@ pub async fn list_events(
     Ok(events)
 }
 
-/// List UIDs of events deleted since a specific sync token
-///
-/// Uses deletion_token in deleted_events to filter efficiently.
-pub async fn list_deleted_events_since_sync(
-    pool: &PgPool,
-    user_id: UserId,
-    sync_token: i64,
-) -> Result<Vec<String>, ApiError> {
-    let uids = sqlx::query_scalar::<_, String>(
-        "SELECT uid FROM deleted_events WHERE user_id = $1 AND deletion_token > $2",
-    )
-    .bind(user_id)
-    .bind(sync_token)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(uids)
-}
-
 /// List events modified since a specific sync token
 ///
 /// Used for CalDAV sync-collection REPORT

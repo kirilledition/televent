@@ -79,13 +79,13 @@ fn create_request(
         .method(method)
         .uri(uri.as_ref())
         .header(header::AUTHORIZATION, auth_header);
-    
+
     for (k, v) in headers {
         builder = builder.header(k, v);
     }
 
     let mut req = builder.body(body).unwrap();
-    
+
     // Add ConnectInfo for rate limiting
     req.extensions_mut().insert(ConnectInfo(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -186,7 +186,7 @@ async fn test_caldav_full_flow(pool: PgPool) {
         ))
         .await
         .unwrap();
-    
+
     assert_eq!(response.status(), StatusCode::CREATED);
     let etag_val = response
         .headers()

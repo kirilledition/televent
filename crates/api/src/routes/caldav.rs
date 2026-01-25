@@ -316,18 +316,11 @@ async fn caldav_report(
             }
 
             // Fetch deleted events
-            let deleted_uids = if last_sync_token > 0 {
-                db::events::list_deleted_events_since_sync(&pool, user.id, last_sync_token).await?
-            } else {
-                Vec::new()
-            };
-
             let response_xml = caldav_xml::generate_sync_collection_response(
                 &user_identifier,
                 &user,
                 &events,
                 &ical_data,
-                &deleted_uids,
             )?;
 
             // Log the actual XML response for debugging

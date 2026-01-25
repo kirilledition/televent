@@ -288,7 +288,7 @@ async fn test_api_full_flow(pool: PgPool) {
         ))
         .await
         .unwrap();
-    
+
     // Should be Not Found (404) or Internal Server Error depending on implementation
     // db::events::get_event calls fetch_optional or fetch_one?
     // It calls fetch_one usually.

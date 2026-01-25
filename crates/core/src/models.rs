@@ -238,16 +238,6 @@ pub enum ParticipationStatus {
     Tentative,
 }
 
-/// Deleted event record for CalDAV sync
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct DeletedEvent {
-    pub id: Uuid,
-    pub user_id: UserId,
-    pub uid: String,
-    pub deletion_token: i64,
-    pub deleted_at: DateTime<Utc>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
