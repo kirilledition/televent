@@ -1,4 +1,4 @@
-FROM rust:1.92-bookworm
+FROM rust:1.93-bookworm
 
 # Install basic development tools, PostgreSQL client
 RUN apt-get update && apt-get install -y --no-install-recommends \
