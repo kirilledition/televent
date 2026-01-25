@@ -11,7 +11,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use televent_core::models::{Event, EventStatus, UserId};
+use televent_core::models::{Event, EventStatus, Timezone, UserId};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -35,8 +35,7 @@ pub struct CreateEventRequest {
     /// Whether this is an all-day event
     pub is_all_day: bool,
     /// IANA timezone name
-    #[schema(example = "UTC")]
-    pub timezone: String,
+    pub timezone: Timezone,
     /// RFC 5545 recurrence rule
     #[schema(example = "FREQ=WEEKLY;BYDAY=MO")]
     pub rrule: Option<String>,
@@ -88,7 +87,7 @@ pub struct EventResponse {
     pub end_date: Option<chrono::NaiveDate>,
     pub is_all_day: bool,
     pub status: EventStatus,
-    pub timezone: String,
+    pub timezone: Timezone,
     pub rrule: Option<String>,
     pub version: i32,
     pub etag: String,
@@ -111,7 +110,7 @@ impl From<Event> for EventResponse {
             end_date: event.end_date,
             is_all_day: event.is_all_day,
             status: event.status,
-            timezone: event.timezone.to_string(),
+            timezone: event.timezone,
             rrule: event.rrule,
             version: event.version,
             etag: event.etag,
@@ -142,7 +141,6 @@ async fn create_event(
     Json(req): Json<CreateEventRequest>,
 ) -> Result<Response, ApiError> {
     use crate::db::events::EventTiming;
-    use televent_core::models::Timezone;
 
     let timing = if req.is_all_day {
         EventTiming::AllDay {
@@ -156,9 +154,6 @@ async fn create_event(
         }
     };
 
-    // Parse timezone (default to UTC if invalid)
-    let tz = Timezone::parse(&req.timezone).unwrap_or_default();
-
     let event = db::events::create_event(
         &pool,
         auth_user.id,
@@ -167,7 +162,7 @@ async fn create_event(
         req.description,
         req.location,
         timing,
-        tz,
+        req.timezone,
         req.rrule,
     )
     .await?;
@@ -388,6 +383,7 @@ mod tests {
 
         let req: CreateEventRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.summary, "Test Event");
+        assert_eq!(req.timezone.to_string(), "UTC");
         assert_eq!(req.description, Some("Test Description".to_string()));
         assert!(req.rrule.is_none());
     }

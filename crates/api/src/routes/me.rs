@@ -1,7 +1,7 @@
 use crate::middleware::telegram_auth::AuthenticatedTelegramUser;
 use axum::{Extension, Json};
 use serde::Serialize;
-use televent_core::models::UserId;
+use televent_core::models::{Timezone, UserId};
 use utoipa::ToSchema;
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -10,7 +10,7 @@ pub struct MeResponse {
     pub id: UserId,
     pub username: Option<String>,
     pub authenticated: bool,
-    pub timezone: String,
+    pub timezone: Timezone,
 }
 
 /// Get current user profile
@@ -33,7 +33,7 @@ async fn get_me(Extension(auth_user): Extension<AuthenticatedTelegramUser>) -> J
         id: auth_user.id,
         username: auth_user.username,
         authenticated: true,
-        timezone: auth_user.timezone.to_string(),
+        timezone: auth_user.timezone,
     })
 }
 
