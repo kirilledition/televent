@@ -27,6 +27,7 @@
             just
             cargo-llvm-cov
             sqlx-cli
+            cadaver
 
             nodejs_20
             jq

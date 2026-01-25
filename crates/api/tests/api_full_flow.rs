@@ -111,6 +111,55 @@ async fn test_api_full_flow(pool: PgPool) {
     let created_event: Value = serde_json::from_slice(&body_bytes).unwrap();
     let event_id = created_event["id"].as_str().unwrap().to_string();
 
+    // 1b. Create Event 2
+    let create_body_2 = serde_json::json!({
+        "calendar_id": calendar_id,
+        "uid": "api-test-uid-2",
+        "summary": "API Test Event 2",
+        "description": "Created via API 2",
+        "location": "Internet 2",
+        "start": "2026-06-02T10:00:00Z",
+        "end": "2026-06-02T11:00:00Z",
+        "is_all_day": false,
+        "timezone": "UTC",
+        "rrule": null
+    });
+    let response = app
+        .clone()
+        .oneshot(create_request(
+            "POST",
+            "/api/events",
+            Body::from(create_body_2.to_string()),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // 1c. Create Event 3
+    let create_body_3 = serde_json::json!({
+        "calendar_id": calendar_id,
+        "uid": "api-test-uid-3",
+        "summary": "API Test Event 3",
+        "description": "Created via API 3",
+        "location": "Internet 3",
+        "start": "2026-06-03T10:00:00Z",
+        "end": "2026-06-03T11:00:00Z",
+        "is_all_day": false,
+        "timezone": "UTC",
+        "rrule": null
+    });
+    let response = app
+        .clone()
+        .oneshot(create_request(
+            "POST",
+            "/api/events",
+            Body::from(create_body_3.to_string()),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+
     // 2. List Events
     let response = app
         .clone()
@@ -127,7 +176,8 @@ async fn test_api_full_flow(pool: PgPool) {
         .await
         .unwrap();
     let events: Value = serde_json::from_slice(&body_bytes).unwrap();
-    assert!(events.as_array().unwrap().len() >= 1);
+    assert!(events.as_array().unwrap().len() >= 3);
+
 
     // 3. Get Event
     let response = app

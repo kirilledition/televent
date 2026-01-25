@@ -91,6 +91,9 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
                 )),
         )
         .layer(cors)
+        .layer(axum_middleware::from_fn(
+            crate::middleware::caldav_headers::add_caldav_headers,
+        ))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {

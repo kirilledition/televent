@@ -24,6 +24,7 @@ use super::{caldav_xml, ical};
 ///
 /// RFC 4791 Section 5.1: Calendar Access Support
 async fn caldav_options() -> Response {
+    tracing::info!("Handling CalDAV OPTIONS request");
     (
         StatusCode::OK,
         [

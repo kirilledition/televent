@@ -8,12 +8,20 @@
 - **Async Runtime**: Always `tokio`. Why: Entire stack (Axum, SQLx, Teloxide) is tokio-based.
 </critical_rules>
 
+<guidelines>
+
+- **Testing**: Write tests for all code you write and aim for at least 80% coverage.
+- **Documentation**: Update documentation concurrently with any architectural changes.
+</guidelines>
+
 <tech_stack>
-- **Backend**: Axum + SQLx (Postgres) + Teloxide
-- **Tooling**: Rust, Just, Cargo, Docker, Nix
+- **Backend**: Axum + Supabase + Teloxide
+- **Tooling**: Rust, Nix, Just, Cargo
 </tech_stack>
 
 <operational_commands>
+
+use all tools through nix, nothing is installed directly on the system
 
 - `just lint`: Check code quality
 - `just run`: Run app
@@ -33,9 +41,9 @@
 
 <tool_use>
 
-- **`serena` project** - Rust development - Activate the project
-- **`db` MCP** - Database access - Use tools
-- **`context7` MCP** - Library or tool documentation - Use for documentation
+- **`serena` MCP** - Rust development - Activate the project when coding, update serena memories after significant changes
+- **`supabase` MCP** - Database access - Use when need to read or write to the database while debugging
+- **`context7` MCP** - Library or tool documentation - Use to find latest documentation
 </tool_use>
 
 </televent_rules>

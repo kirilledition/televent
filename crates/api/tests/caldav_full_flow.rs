@@ -53,6 +53,10 @@ async fn setup_user_and_auth(pool: &PgPool) -> (i64, String, String) {
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn test_caldav_full_flow(pool: PgPool) {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("api=debug,info")
+        .try_init();
+
     let (telegram_id, _username, auth_header) = setup_user_and_auth(&pool).await;
 
     let auth_cache = Cache::builder()
@@ -64,6 +68,26 @@ async fn test_caldav_full_flow(pool: PgPool) {
         auth_cache,
     };
     let app = create_router(state, "*");
+
+    // 0. OPTIONS (Thunderbird check)
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri(format!("/caldav/{}/", telegram_id))
+                .header(header::AUTHORIZATION, &auth_header)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let headers = response.headers();
+    println!("Headers: {:?}", headers);
+    assert!(headers.contains_key("dav"));
+    assert!(headers.contains_key("allow"));
+
 
     // 1. PROPFIND /caldav/{telegram_id}/ (Depth: 0)
     let response = app
@@ -80,6 +104,16 @@ async fn test_caldav_full_flow(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::MULTI_STATUS);
+    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
+    // Validate required properties (Thunderbird)
+    assert!(body_str.contains("displayname"));
+    assert!(body_str.contains("resourcetype"));
+    assert!(body_str.contains("supported-calendar-component-set"));
+    assert!(body_str.contains("getctag"));
+
 
     // 1b. PROPFIND /caldav/{telegram_id}/ (Depth: 1)
     let response = app
@@ -138,6 +172,33 @@ async fn test_caldav_full_flow(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    
+    // 3b. PUT Update Event (with If-Match)
+    let updated_ics_body = ics_body.replace("SUMMARY:Test Event", "SUMMARY:Updated Test Event");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/caldav/{}/{}.ics", telegram_id, event_uid))
+                .header(header::AUTHORIZATION, &auth_header)
+                .header(header::IF_MATCH, &etag_val)
+                .body(Body::from(updated_ics_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // 204 No Content is standard for updates, but 201/200 OK is also possible depending on impl
+    assert!(response.status().is_success());
+    let new_etag_val = response
+        .headers()
+        .get(header::ETAG)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(etag_val, new_etag_val); // ETag must change
+
 
     // 4. REPORT Calendar Query
     let report_body = r#"<C:calendar-query xmlns:C="urn:ietf:params:xml:ns:caldav">
@@ -216,10 +277,11 @@ async fn test_caldav_full_flow(pool: PgPool) {
                 .method("DELETE")
                 .uri(format!("/caldav/{}/{}.ics", telegram_id, event_uid))
                 .header(header::AUTHORIZATION, &auth_header)
-                .header(header::IF_MATCH, &etag_val)
+                .header(header::IF_MATCH, &new_etag_val)
                 .body(Body::empty())
                 .unwrap(),
         )
+
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
