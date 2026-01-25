@@ -21,6 +21,10 @@ pub enum LoginId {
     Username(String),
 }
 
+// Dummy hash for timing attack mitigation.
+// Valid Argon2id hash for "dummy_password"
+const DUMMY_ARGON2_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$1l7VcKL3J0c7lGDrMIcOmg$BaSGfGBb632pgVXyZ3jpzuwPa1mAd92EmGa6D0FIZd8";
+
 /// CalDAV Basic Auth middleware
 ///
 /// Expects Authorization header with format: "Basic base64(login_id:password)"
@@ -51,14 +55,13 @@ pub async fn caldav_basic_auth(
     }
 
     // Look up user by login_id
-    let user_id: Uuid = match &login_id {
+    let user_id: Option<Uuid> = match &login_id {
         LoginId::TelegramId(tid) => {
             sqlx::query_scalar("SELECT id FROM users WHERE telegram_id = $1")
                 .bind(tid)
                 .fetch_optional(&state.pool)
                 .await
                 .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
-                .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?
         }
         LoginId::Username(username) => {
             sqlx::query_scalar("SELECT id FROM users WHERE lower(telegram_username) = lower($1)")
@@ -66,37 +69,58 @@ pub async fn caldav_basic_auth(
                 .fetch_optional(&state.pool)
                 .await
                 .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
-                .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?
         }
     };
 
     // Get device passwords for this user
     // Optimization: Limit to 10 devices to prevent DoS
     // We order by last_used_at to prioritize active devices
-    let device_passwords: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, hashed_password FROM device_passwords \
-         WHERE user_id = $1 \
-         ORDER BY last_used_at DESC NULLS LAST, created_at DESC \
-         LIMIT 10",
-    )
-    .bind(user_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?;
+    let device_passwords: Vec<(Uuid, String)> = if let Some(uid) = user_id {
+        sqlx::query_as(
+            "SELECT id, hashed_password FROM device_passwords \
+             WHERE user_id = $1 \
+             ORDER BY last_used_at DESC NULLS LAST, created_at DESC \
+             LIMIT 10",
+        )
+        .bind(uid)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
+    } else {
+        Vec::new()
+    };
 
     // Verify password against each device password
     let mut verified_device_id: Option<Uuid> = None;
-    for (device_id, hashed_password) in device_passwords {
+    for (device_id, hashed_password) in &device_passwords {
         // Argon2 verification is expensive, so this loop is the critical path.
         // We limit it to 10 iterations above.
-        if verify_password(&password, &hashed_password)? {
-            verified_device_id = Some(device_id);
+        if verify_password(&password, hashed_password)? {
+            verified_device_id = Some(*device_id);
             break;
         }
     }
 
+    // Mitigate timing attack:
+    // If user is not found, or user has no devices, or password incorrect for all devices.
+    // However, if we found a verified device, we skip this.
+    // If no device verified, we are going to return Unauthorized.
+    // The issue is distinguishing "User Not Found" vs "User Found, wrong password".
+    //
+    // Case 1: User Not Found -> device_passwords is empty -> loop doesn't run -> fail fast.
+    // Case 2: User Found, 0 devices -> device_passwords is empty -> loop doesn't run -> fail fast.
+    // Case 3: User Found, 1 device -> loop runs once (slow) -> fail slow.
+    //
+    // So if device_passwords is empty, we must do a dummy verification.
+    if device_passwords.is_empty() {
+        let _ = verify_password(&password, DUMMY_ARGON2_HASH);
+    }
+
     let device_id = verified_device_id
         .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?;
+
+    // Safe to unwrap because if we found a device_id, we must have found a user_id
+    let user_id = user_id.expect("User ID missing for authenticated session");
 
     // Update last_used_at timestamp
     sqlx::query("UPDATE device_passwords SET last_used_at = NOW() WHERE id = $1")
