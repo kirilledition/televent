@@ -12,7 +12,7 @@ use moka::future::Cache;
 use sqlx::PgPool;
 use televent_core::models::UserId;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
@@ -109,6 +109,12 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
             .allow_origin(Any)
             .allow_methods(Any)
             .allow_headers(Any)
+    } else if cors_origin == "mirror" {
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::predicate(|_: &_, _: &_| true))
+            .allow_methods(Any)
+            .allow_headers(Any)
+            .allow_credentials(true)
     } else {
         match cors_origin.parse::<axum::http::HeaderValue>() {
             Ok(origin) => CorsLayer::new()

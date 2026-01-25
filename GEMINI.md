@@ -17,6 +17,7 @@
 <tech_stack>
 - **Backend**: Axum + Supabase + Teloxide
 - **Tooling**: Rust, Nix, Just, Cargo
+- **Frontend**: TypeScript + Next.js + Tailwind CSS (catppuccin) + tma.js (telegram) + pnmp (package manager)
 </tech_stack>
 
 <operational_commands>
@@ -24,7 +25,9 @@
 - use all tools through `nix develop`, nothing is installed directly on the system
 - never add or remove any dependencies, always use `cargo add` or `cargo remove`
 
-- `just lint`: Check code quality (check, fmt, clippy)
+- `just lint`: Check code quality (check, fmt, clippy) - backend & frontend
+- `just lint-frontend`: Check frontend quality (eslint)
+- `just fmt-frontend`: Format frontend code (prettier)
 - `just run`: Run app
 - `just test`: Run tests (libs, bins, docs, integration)
 - `just test-coverage`: Run tests with coverage report

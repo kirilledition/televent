@@ -1,5 +1,11 @@
 # Televent Tech Stack
 
+## Frontend
+- **Framework**: Next.js 16 (React 19)
+- **Styling**: Tailwind CSS v4 (Catppuccin Mocha theme)
+- **Telegram SDK**: @tma.js/sdk, @telegram-apps/telegram-ui
+- **Package Manager**: pnpm
+
 ## Backend
 - **Language**: Rust (Edition 2024, v1.93+)
 - **Web Framework**: Axum (v0.8)

@@ -4,161 +4,173 @@
 
 /**
  * Timezone newtype wrapping chrono_tz::Tz with SQLx and Serde support
- * 
+ *
  * Stored in database as TEXT (IANA timezone name like "America/New_York")
  */
-export type Timezone = Tz;
+// Fixed: Timezone is string
+export type Timezone = string
+
+export interface DeviceListItem {
+  id: string
+  name: string
+  created_at: string
+  last_used_at?: string
+}
+
+export interface DevicePasswordResponse extends DeviceListItem {
+  password: string
+  hashed_password?: string // usually not returned but good for completeness if schema matches
+}
 
 /**
  * User ID newtype wrapping Telegram's permanent numeric ID
- * 
+ *
  * This serves as the primary identifier for both users and their calendars,
  * since each user has exactly one calendar.
  */
-export type UserId = string;
+export type UserId = string
 
 /** Create event request */
 export interface CreateEventRequest {
-	/** iCalendar UID (stable across syncs) */
-	uid: string;
-	/** Event summary/title */
-	summary: string;
-	/** Detailed description */
-	description?: string;
-	/** Event location */
-	location?: string;
-	/** Start time (for timed events) */
-	start: string;
-	/** End time (for timed events) */
-	end: string;
-	/** Whether this is an all-day event */
-	is_all_day: boolean;
-	/** IANA timezone name */
-	timezone: Timezone;
-	/** RFC 5545 recurrence rule */
-	rrule?: string;
+  /** iCalendar UID (stable across syncs) */
+  uid: string
+  /** Event summary/title */
+  summary: string
+  /** Detailed description */
+  description?: string
+  /** Event location */
+  location?: string
+  /** Start time (for timed events) */
+  start: string
+  /** End time (for timed events) */
+  end: string
+  /** Whether this is an all-day event */
+  is_all_day: boolean
+  /** IANA timezone name */
+  timezone: Timezone
+  /** RFC 5545 recurrence rule */
+  rrule?: string
 }
 
 /** Event status enumeration */
 export enum EventStatus {
-	Confirmed = "Confirmed",
-	Tentative = "Tentative",
-	Cancelled = "Cancelled",
+  Confirmed = 'Confirmed',
+  Tentative = 'Tentative',
+  Cancelled = 'Cancelled',
 }
 
 /** Event entity */
 export interface Event {
-	id: Uuid;
-	/** Owner's user ID (telegram_id) */
-	user_id: UserId;
-	uid: string;
-	summary: string;
-	description?: string;
-	location?: string;
-	start?: DateTime<Utc>;
-	end?: DateTime<Utc>;
-	start_date: string;
-	end_date: string;
-	is_all_day: boolean;
-	status: EventStatus;
-	rrule?: string;
-	timezone: Timezone;
-	version: number;
-	etag: string;
-	created_at: DateTime<Utc>;
-	updated_at: DateTime<Utc>;
+  id: Uuid
+  /** Owner's user ID (telegram_id) */
+  user_id: UserId
+  uid: string
+  summary: string
+  description?: string
+  location?: string
+  start?: DateTime<Utc>
+  end?: DateTime<Utc>
+  start_date: string
+  end_date: string
+  is_all_day: boolean
+  status: EventStatus
+  rrule?: string
+  timezone: Timezone
+  version: number
+  etag: string
+  created_at: DateTime<Utc>
+  updated_at: DateTime<Utc>
 }
 
 /** Attendee role (RFC 5545 ROLE parameter) */
 export enum AttendeeRole {
-	Organizer = "Organizer",
-	Attendee = "Attendee",
+  Organizer = 'Organizer',
+  Attendee = 'Attendee',
 }
 
 /** Participation status (RFC 5545 PARTSTAT parameter) */
 export enum ParticipationStatus {
-	NeedsAction = "NeedsAction",
-	Accepted = "Accepted",
-	Declined = "Declined",
-	Tentative = "Tentative",
+  NeedsAction = 'NeedsAction',
+  Accepted = 'Accepted',
+  Declined = 'Declined',
+  Tentative = 'Tentative',
 }
 
 /** Event attendee with RSVP status */
 export interface EventAttendee {
-	id: string;
-	event_id: string;
-	email: string;
-	telegram_id: string;
-	role: AttendeeRole;
-	status: ParticipationStatus;
-	created_at: string;
-	updated_at: string;
+  id: string
+  event_id: string
+  email: string
+  telegram_id: string
+  role: AttendeeRole
+  status: ParticipationStatus
+  created_at: string
+  updated_at: string
 }
 
 /** Event response (same as Event model) */
 export interface EventResponse {
-	id: string;
-	user_id: UserId;
-	uid: string;
-	summary: string;
-	description?: string;
-	location?: string;
-	start: string;
-	end: string;
-	start_date: string;
-	end_date: string;
-	is_all_day: boolean;
-	status: EventStatus;
-	timezone: Timezone;
-	rrule?: string;
-	version: number;
-	etag: string;
-	created_at: string;
-	updated_at: string;
+  id: string
+  user_id: UserId
+  uid: string
+  summary: string
+  description?: string
+  location?: string
+  start: string
+  end: string
+  start_date: string
+  end_date: string
+  is_all_day: boolean
+  status: EventStatus
+  timezone: Timezone
+  rrule?: string
+  version: number
+  etag: string
+  created_at: string
+  updated_at: string
 }
 
 /** List events query parameters */
 export interface ListEventsQuery {
-	/** Filter events starting after this time */
-	start: string;
-	/** Filter events ending before this time */
-	end: string;
-	/** Maximum number of events to return */
-	limit: number;
-	/** Number of events to skip */
-	offset: number;
+  /** Filter events starting after this time */
+  start: string
+  /** Filter events ending before this time */
+  end: string
+  /** Maximum number of events to return */
+  limit: number
+  /** Number of events to skip */
+  offset: number
 }
 
 /** Update event request */
 export interface UpdateEventRequest {
-	summary?: string;
-	description?: string;
-	location?: string;
-	start: string;
-	end: string;
-	is_all_day?: boolean;
-	status?: EventStatus;
-	rrule?: string;
+  summary?: string
+  description?: string
+  location?: string
+  start: string
+  end: string
+  is_all_day?: boolean
+  status?: EventStatus
+  rrule?: string
 }
 
 /**
  * User entity (includes calendar data since user = calendar)
- * 
+ *
  * The telegram_id serves as the primary key and unique identifier.
  * Calendar properties are merged into this struct since each user has exactly one calendar.
  */
 export interface User {
-	/** Primary key: Telegram's permanent numeric ID */
-	id: UserId;
-	/** Telegram username/handle (can change, used for CalDAV URLs) */
-	telegram_username?: string;
-	/** IANA timezone (e.g., "Asia/Singapore") */
-	timezone: Timezone;
-	/** RFC 6578 sync token for CalDAV sync-collection */
-	sync_token: string;
-	/** Collection tag for change detection */
-	ctag: string;
-	created_at: DateTime<Utc>;
-	updated_at: DateTime<Utc>;
+  /** Primary key: Telegram's permanent numeric ID */
+  id: UserId
+  /** Telegram username/handle (can change, used for CalDAV URLs) */
+  telegram_username?: string
+  /** IANA timezone (e.g., "Asia/Singapore") */
+  timezone: Timezone
+  /** RFC 6578 sync token for CalDAV sync-collection */
+  sync_token: string
+  /** Collection tag for change detection */
+  ctag: string
+  created_at: DateTime<Utc>
+  updated_at: DateTime<Utc>
 }
-

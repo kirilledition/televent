@@ -59,13 +59,21 @@ test-crate-coverage crate:
     cargo llvm-cov -p {{crate}} --html --output-dir logs/coverage/{{crate}}
     
 lint:
+    @echo "=== Backend === "
     @echo "Checking code..."
     cargo check --workspace
     @echo "Checking formatting..."
     cargo fmt --all
     @echo "Running clippy..."
     cargo clippy --allow-dirty --allow-staged --fix --workspace -- -D warnings
-    @echo "✅ All checks passed!"
+
+# Lint frontend only
+lint-frontend:
+    cd frontend && pnpm lint
+
+# Format frontend only
+fmt-frontend:
+    cd frontend && pnpm format
 
 # Reset database (drop, create, migrate)
 # Reset database (Supabase db reset)

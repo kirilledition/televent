@@ -42,15 +42,15 @@ flowchart TB
 
 ### Component Breakdown
 
-| Path          | Description                                                      | Key Tech                        |
-| ------------- | ---------------------------------------------------------------- | ------------------------------- |
-| crates/core   | Domain Logic. Pure Rust, no I/O. Models, Errors, Timezone logic. | chrono, uuid                    |
-| crates/api    | HTTP Server. Handles CalDAV protocol and REST endpoints.         | axum, tower                     |
-| crates/bot    | Telegram Interface. Command parsing and conversational FSM.      | teloxide                        |
-| crates/worker | Job Processor. Handles emails, notifications, and cleanups.      | tokio, lettre                   |
-| crates/server | Unified Entry Point. Runs API, Bot, and Worker in one process.   | tokio                           |
-| frontend      | Frontend. Telegram Mini App and Web Dashboard.                   | Next.js, Tailwind, Telegram SDK |
-| migrations/   | Database Schema. SQLx migration files.                           | sql                             |
+| Path          | Description                                                      | Key Tech                       |
+| ------------- | ---------------------------------------------------------------- | ------------------------------ |
+| crates/core   | Domain Logic. Pure Rust, no I/O. Models, Errors, Timezone logic. | chrono, uuid                   |
+| crates/api    | HTTP Server. Handles CalDAV protocol and REST endpoints.         | axum, tower                    |
+| crates/bot    | Telegram Interface. Command parsing and conversational FSM.      | teloxide                       |
+| crates/worker | Job Processor. Handles emails, notifications, and cleanups.      | tokio, lettre                  |
+| crates/server | Unified Entry Point. Runs API, Bot, and Worker in one process.   | tokio                          |
+| frontend      | Frontend. Telegram Mini App and Web Dashboard.                   | Next.js 16, Tailwind 4, tma.js |
+| migrations/   | Database Schema. SQLx migration files.                           | sql                            |
 
 ## Database Schema
 
@@ -137,22 +137,21 @@ erDiagram
 ## Bot Commands
 
 ### Account Setup
-- /start - Initialize account and show setup instructions
-- /device add <name> - Generate CalDAV password for a device
-- /device list - Show all device passwords
-- /device revoke <id> - Delete a device password
+- `/start` - Initialize account and see welcome message
+- `/device` - Manage CalDAV device passwords (add/list/revoke)
+- `/deleteaccount` - Delete your account and all data (GDPR)
 
 ### Event Management
-- /list - List upcoming events (next 7 days)
-- /cancel <event_id> - Cancel an event
+- `/list` - List upcoming events
+- `/cancel` - Cancel/delete an event
+- `/export` - Export calendar as .ics file
 
 ### Coordination
-- /invite <user> - Invite a user to an event
-- /rsvp <event_id> <status> - Respond to an event invitation
+- `/invite` - Invite someone to an event
+- `/rsvp` - Respond to event invitations
 
-### Privacy
-- /export - Request GDPR data export
-- /delete_account - Initiate account deletion (30-day grace period)
+### Help
+- `/help` - Show help message
 
 ### Event Creation Format
 To create an event, send a message with the following format:
@@ -180,30 +179,48 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 - Sync Token: Atomic counter incremented on changes (Postgres sequence/RETURNING).
 - Optimistic Locking: Updates require a matching ETag via If-Match header.
 
+### Frontend Architecture
+- **Framework**: Next.js 16 (React 19) with App Router.
+- **Integration**: `tma.js` for Telegram Mini App bidirectional communication.
+- **Styling**: Tailwind CSS v4 with `@catppuccin/tailwindcss` plugin for themes.
+- **Type Safety**: `typeshare` ensures TypeScript interfaces match Rust models.
+
+
 ## Development and Operations
 
 ### Prerequisites
-- [Nix](https://nixos.org/download.html) (recommended) or [Rust](https://www.rust-lang.org/tools/install)
-- [Node.js](https://nodejs.org/) (for Supabase CLI)
-- [Docker](https://www.docker.com/) (for running Supabase locally)
+- [Nix](https://nixos.org/download.html) (recommended)
+- [Rust](https://www.rust-lang.org/tools/install) (if not using Nix)
+- [Node.js](https://nodejs.org/) & [pnpm](https://pnpm.io/)
+- [Supabase CLI](https://supabase.com/docs/guides/cli)
+- [Docker](https://www.docker.com/) (for local database)
 
 ### Common Commands
-- `just setup-dev` - Initial setup (Supabase + migrations)
+
+#### General
+- `just setup-dev` - Initial setup (Supabase + migrations + build)
 - `just run` - Run unified server (API, Bot, and Worker)
-- `just test` - Run all tests
+- `just upgrade` - Upgrade backend dependencies
+- `just upgrade-frontend` - Upgrade frontend dependencies
+
+#### Testing & Quality
+- `just test` - Run all backend tests
 - `just test-coverage` - Run tests with coverage report
-- `just db-start` - Start local Supabase stack
-- `just db-stop` - Stop local Supabase stack
+- `just lint` - Run backend quality checks (clippy, fmt)
+- `just lint-frontend` - Run frontend linting (ESLint)
+- `just fmt-frontend` - Run frontend formatting (Prettier)
+
+#### Database
+- `just db-start` / `db-stop` - Manage local Supabase stack
 - `just db-status` - Check Supabase status
-- `just db-reset` - Reset local database and apply migrations
-- `just lint` - Run clippy, fmt, and check
+- `just db-reset` - Full reset: drop db, re-create, apply migrations
+- `just gen-types` - Generate TypeScript types from Rust models
 
 ### Agent Rules
-- No unwrap() or expect(): Use explicit error handling to prevent data loss.
-- No println!(): Use tracing macros for structured production logs.
-- Newtypes for IDs: Use specific wrappers (e.g., UserId(Uuid)) to prevent ID confusion.
-- Tokio Runtime: The entire stack is built on the Tokio async runtime.
-- Migrations: Changes to core/src/models.rs REQUIRE a database migration.
+- **No unwrap()/expect()**: Use explicit error handling.
+- **Structured Logging**: Use `tracing` macros, never `println!`.
+- **Type Safety**: Use newtypes (`UserId(Uuid)`) prevents ID confusion.
+- **Tokio**: Use Tokio async runtime for everything.
 
 ## Project Roadmap
 
@@ -218,10 +235,10 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 - Full end-to-end testing with GUI CalDAV clients.
 
 ### Phase 4: Frontend Development (Current)
-- [x] Next.js foundation with Telegram SDK.
-- [ ] Event Management (CRUD)
-    - [ ] Create/Edit Event Form (Catppuccin Mocha Theme)
-    - [ ] Event Listing
+- [x] Next.js foundation with Telegram SDK (tma.js).
+- [/] Event Management (CRUD)
+    - [/] Create/Edit Event Form (Catppuccin Mocha Theme)
+    - [/] Event Listing
     - [ ] Event Deletion
 - [ ] Typeshare integration for Rust-to-TypeScript safety.
 - [ ] Mock mode for quick local iteration.
@@ -244,7 +261,20 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 - Unified server process running all services.
 - CalDAV basic auth and event synchronization (verified with curl/cadaver).
 - Event invitations and RSVP via Telegram Bot.
+- Frontend:
+    - Next.js + Tailwind + tma.js setup complete.
+    - Basic routing and UI components (Catppuccin theme) implemented.
+    - Event Creation Form (UI only).
 
+
+### In Progress
+- Frontend (Telegram Mini App) implementation:
+    - Event creation form (UI implemented).
+    - Event listing (UI implemented).
+    - Integration with Backend API.
+
+
+# Example prompt for agent 
 
 Create professional prompt for following task:
 

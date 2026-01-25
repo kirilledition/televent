@@ -1,6 +1,6 @@
-@import "tailwindcss";
-@import "@catppuccin/tailwindcss/mocha.css";
-@source "../../node_modules/@telegram-apps/telegram-ui/dist/**/*.js";
+@import 'tailwindcss';
+@import '@catppuccin/tailwindcss/mocha.css';
+@source '../../node_modules/@telegram-apps/telegram-ui/dist/**/*.js';
 
 /*
  * Catppuccin Mocha Theme (via official @catppuccin/tailwindcss plugin)
@@ -9,9 +9,42 @@
  */
 
 :root {
+  /* Enforce Dark Mode Color Scheme */
+  color-scheme: dark;
+
+  /* Catppuccin Mocha Colors (forced) */
+  --catppuccin-color-rosewater: #f5e0dc;
+  --catppuccin-color-flamingo: #f2cdcd;
+  --catppuccin-color-pink: #f5c2e7;
+  --catppuccin-color-mauve: #cba6f7;
+  --catppuccin-color-red: #f38ba8;
+  --catppuccin-color-maroon: #eba0ac;
+  --catppuccin-color-peach: #fab387;
+  --catppuccin-color-yellow: #f9e2af;
+  --catppuccin-color-green: #a6e3a1;
+  --catppuccin-color-teal: #94e2d5;
+  --catppuccin-color-sky: #89dceb;
+  --catppuccin-color-sapphire: #74c7ec;
+  --catppuccin-color-blue: #89b4fa;
+  --catppuccin-color-lavender: #b4befe;
+  --catppuccin-color-text: #cdd6f4;
+  --catppuccin-color-subtext1: #bac2de;
+  --catppuccin-color-subtext0: #a6adc8;
+  --catppuccin-color-overlay2: #9399b2;
+  --catppuccin-color-overlay1: #7f849c;
+  --catppuccin-color-overlay0: #6c7086;
+  --catppuccin-color-surface2: #585b70;
+  --catppuccin-color-surface1: #45475a;
+  --catppuccin-color-surface0: #313244;
+  --catppuccin-color-base: #1e1e2e;
+  --catppuccin-color-mantle: #181825;
+  --catppuccin-color-crust: #11111b;
+
   /* Application Theme Variables - mapped to Catppuccin colors */
   --background: var(--ctp-base);
   --foreground: var(--ctp-text);
+
+  /* Surfaces */
   --surface: var(--ctp-surface0);
   --surface-hover: var(--ctp-surface1);
   --border: var(--ctp-surface2);
@@ -34,6 +67,8 @@
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
   --color-primary: var(--primary);
+  /* Map other utilities if needed */
+  --color-border: var(--border);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -50,6 +85,7 @@ body {
   font-family: var(--font-geist-sans, Arial, Helvetica, sans-serif);
   line-height: 1.6;
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Scrollbar styling for Catppuccin theme */
@@ -73,88 +109,55 @@ body {
 
 /* Utility Classes */
 .btn-primary {
-  background: var(--primary);
-  color: var(--ctp-base);
-  padding: 0.75rem 1.5rem;
-  border: none;
-  border-radius: 0.5rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  @apply cursor-pointer rounded-lg bg-[var(--primary)] px-6 py-3 font-semibold text-[var(--ctp-base)] transition-all duration-200 ease-in-out;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--primary-hover);
-  transform: translateY(-1px);
+  @apply -translate-y-[1px] bg-[var(--primary-hover)];
 }
 
 .btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  @apply cursor-not-allowed opacity-50;
 }
 
 .btn-destructive {
-  background: var(--destructive);
-  color: var(--ctp-base);
-  padding: 0.75rem 1.5rem;
-  border: none;
-  border-radius: 0.5rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  @apply cursor-pointer rounded-lg bg-[var(--destructive)] px-6 py-3 font-semibold text-[var(--ctp-base)] transition-all duration-200 ease-in-out;
 }
 
 .btn-destructive:hover:not(:disabled) {
-  background: var(--destructive-hover);
-  transform: translateY(-1px);
+  @apply -translate-y-[1px] bg-[var(--destructive-hover)];
 }
 
 .btn-secondary {
-  background: var(--surface);
-  color: var(--foreground);
-  padding: 0.75rem 1.5rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  @apply cursor-pointer rounded-lg border border-[var(--border)] bg-[var(--surface)] px-6 py-3 font-semibold text-[var(--foreground)] transition-all duration-200 ease-in-out;
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: var(--surface-hover);
+  @apply bg-[var(--surface-hover)];
 }
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  padding: 1.5rem;
-  transition: all 0.2s ease;
+  @apply rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 transition-all duration-200 ease-in-out;
 }
 
 .card:hover {
-  border-color: var(--primary);
+  @apply border-[var(--primary)];
 }
 
 /* Input styling */
-input[type="text"],
-input[type="datetime-local"],
-input[type="date"],
-textarea {
-  background: var(--ctp-surface0);
-  color: var(--foreground);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: 0.75rem;
-  width: 100%;
-  font-family: inherit;
-  transition: border-color 0.2s ease;
+input[type='text'],
+input[type='datetime-local'],
+input[type='date'],
+input[type='number'],
+textarea,
+select {
+  @apply w-full rounded-lg border border-[var(--border)] bg-[var(--ctp-surface0)] p-3 text-[var(--foreground)] transition-colors duration-200 ease-in-out;
 }
 
 input:focus,
-textarea:focus {
-  outline: none;
-  border-color: var(--primary);
+textarea:focus,
+select:focus {
+  @apply border-[var(--primary)] outline-none;
 }
 
 /* Animation for delete confirmation */
@@ -163,6 +166,7 @@ textarea:focus {
     opacity: 0;
     transform: scale(0.95);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
@@ -170,23 +174,9 @@ textarea:focus {
 }
 
 .modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  animation: fadeIn 0.2s ease;
+  @apply fixed inset-0 z-[9999] flex animate-[fadeIn_0.2s_ease] items-center justify-center bg-black/70;
 }
 
 .modal {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  padding: 2rem;
-  max-width: 90vw;
-  width: 400px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  animation: fadeIn 0.2s ease;
+  @apply w-[400px] max-w-[90vw] animate-[fadeIn_0.2s_ease] rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 shadow-2xl;
 }

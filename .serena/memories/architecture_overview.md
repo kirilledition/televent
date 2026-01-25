@@ -8,6 +8,7 @@ The project is structured as a Rust workspace (monorepo) with several interconne
 - `crates/bot`: Telegram bot implementation using Teloxide, providing a conversational interface for event management.
 - `crates/worker`: Background worker for tasks like reminder processing or sync synchronization.
 - `crates/server`: The "unified server" that runs all services (`api`, `bot`, `worker`) in a single process—default for current deployment.
+- `frontend`: Next.js application serving as the Telegram Mini App and web dashboard.
 
 ## Key Components
 - **Routes (`crates/api/src/routes`)**:
