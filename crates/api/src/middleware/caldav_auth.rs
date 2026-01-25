@@ -56,11 +56,13 @@ pub async fn caldav_basic_auth(
 
     // Look up user by login_id
     let user_id: Option<Uuid> = match &login_id {
-        LoginId::TelegramId(tid) => sqlx::query_scalar("SELECT id FROM users WHERE telegram_id = $1")
-            .bind(tid)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?,
+        LoginId::TelegramId(tid) => {
+            sqlx::query_scalar("SELECT id FROM users WHERE telegram_id = $1")
+                .bind(tid)
+                .fetch_optional(&state.pool)
+                .await
+                .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
+        }
         LoginId::Username(username) => {
             sqlx::query_scalar("SELECT id FROM users WHERE lower(telegram_username) = lower($1)")
                 .bind(username)
