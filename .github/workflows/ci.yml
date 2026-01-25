@@ -8,12 +8,14 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  DATABASE_URL: postgres://televent:televent@localhost:5432/televent
+  DATABASE_URL: postgres://postgres:postgres@localhost:54322/postgres
 
 jobs:
   check:
     name: Lint & Format
     runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: true
     steps:
       - uses: actions/checkout@v4
 
@@ -34,21 +36,8 @@ jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: televent
-          POSTGRES_PASSWORD: televent
-          POSTGRES_DB: televent
-        ports:
-          - 5432:5432
-        # Wait for postgres to be ready
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:54322/postgres
 
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +47,14 @@ jobs:
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase
+        run: supabase start
 
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features native-tls,postgres

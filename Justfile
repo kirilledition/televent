@@ -47,7 +47,11 @@ test:
 
 # Run tests with coverage report (HTML)
 test-coverage:
-    cargo llvm-cov --workspace --html --output-dir logs/coverage
+    cargo llvm-cov --workspace --html --output-dir logs/coverage/workspace
+
+# Run coverage for a specific crate
+test-crate-coverage crate:
+    cargo llvm-cov -p {{crate}} --html --output-dir logs/coverage/{{crate}}
     
 lint:
     @echo "Checking code..."
