@@ -16,15 +16,14 @@ chrono-tz.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 dotenvy.workspace = true
-tracing.workspace = true
 
 # Database
 sqlx.workspace = true
 
 # iCalendar/Recurrence
 rrule.workspace = true
-typeshare = "1.0.5"
-utoipa = { version = "5.4.0", features = ["chrono", "uuid"] }
+typeshare.workspace = true
+utoipa.workspace = true
 
 [dev-dependencies]
-serial_test = "3.0"
+serial_test.workspace = true

@@ -28,7 +28,6 @@ sqlx = { workspace = true, features = ["migrate"] }
 
 # Date/Time
 chrono.workspace = true
-chrono-tz.workspace = true
 
 # Security
 argon2.workspace = true
@@ -46,20 +45,14 @@ quick-xml.workspace = true
 moka.workspace = true
 
 # Utilities
-hex = "0.4"
-urlencoding = "2.1"
-base64 = "0.22"
 dotenvy.workspace = true
-tracing-appender = "0.2.4"
+tracing-appender.workspace = true
 url.workspace = true
-utoipa = "5.4.0"
-utoipa-axum = "0.2.0"
-utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
 
 [dev-dependencies]
-hex = "0.4"
 hmac.workspace = true
-reqwest = { version = "0.13", features = ["json"] }
+reqwest.workspace = true
 sha2.workspace = true
-tempfile = { workspace = true }
-url = { workspace = true }
+tempfile.workspace = true

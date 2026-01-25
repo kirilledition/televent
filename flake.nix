@@ -26,6 +26,8 @@
             openssl
             just
             cargo-llvm-cov
+            cargo-edit
+            cargo-machete
             sqlx-cli
             cadaver
 

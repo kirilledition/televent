@@ -24,15 +24,16 @@
 - use all tools through `nix develop`, nothing is installed directly on the system
 - never add or remove any dependencies, always use `cargo add` or `cargo remove`
 
-- `just lint`: Check code quality
+- `just lint`: Check code quality (check, fmt, clippy)
 - `just run`: Run app
-- `just test`: Run tests
+- `just test`: Run tests (libs, bins, docs, integration)
 - `just test-coverage`: Run tests with coverage report
-- `just db-reset`: Reset database (drop, create, migrate)
-- `just db-start`: Start PostgreSQL service via Docker
-- `just db-status`: Check PostgreSQL status
-- `just db-stop`: Stop PostgreSQL service
-- `just setup-dev`: Initial setup for dev container
+- `just db-reset`: Reset database (Supabase reset + migrations)
+- `just db-start`: Start Supabase services
+- `just db-status`: Check Supabase status
+- `just db-stop`: Stop Supabase services
+- `just setup-dev`: Initial setup for dev environment
+- `just gen-types`: Generate TypeScript types from Rust models
 </operational_commands>
 
 <quality_requirements>
