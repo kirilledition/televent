@@ -8,7 +8,7 @@ use quick_xml::Writer;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use std::collections::HashMap;
 use std::io::Cursor;
-use televent_core::models::{Calendar, Event as CalEvent};
+use televent_core::models::{Event as CalEvent, User};
 // use uuid::Uuid;
 
 use crate::error::ApiError;
@@ -204,7 +204,7 @@ pub fn generate_calendar_query_response(
 /// Generate CalDAV multistatus response for REPORT sync-collection
 pub fn generate_sync_collection_response(
     user_identifier: &str,
-    calendar: &Calendar,
+    user: &User,
     events: &[CalEvent],
     ical_data: &[(String, String)], // (uid, ical_string)
     deleted_uids: &[String],
@@ -246,7 +246,7 @@ pub fn generate_sync_collection_response(
     writer
         .write_event(Event::Text(BytesText::new(&format!(
             "http://televent.app/sync/{}",
-            calendar.sync_token
+            user.sync_token
         ))))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
     writer
@@ -388,7 +388,7 @@ fn write_deleted_event_response(
 /// Generate CalDAV multistatus response for PROPFIND
 pub fn generate_propfind_multistatus(
     user_identifier: &str,
-    calendar: &Calendar,
+    user: &User,
     events: &[CalEvent],
     depth: &str,
 ) -> Result<String, ApiError> {
@@ -408,8 +408,8 @@ pub fn generate_propfind_multistatus(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
-    // Calendar collection response
-    write_calendar_response(&mut writer, user_identifier, calendar)?;
+    // Calendar collection response (user = calendar)
+    write_calendar_response(&mut writer, user_identifier, user)?;
 
     // Event responses (only for Depth: 1)
     if depth == "1" {
@@ -427,11 +427,11 @@ pub fn generate_propfind_multistatus(
     String::from_utf8(result).map_err(|e| ApiError::Internal(format!("UTF-8 error: {}", e)))
 }
 
-/// Write calendar collection response
+/// Write calendar collection response (user = calendar)
 fn write_calendar_response(
     writer: &mut Writer<Cursor<Vec<u8>>>,
     user_identifier: &str,
-    calendar: &Calendar,
+    user: &User,
 ) -> Result<(), ApiError> {
     // <response>
     write_start_tag(writer, "d:response")?;
@@ -452,16 +452,16 @@ fn write_calendar_response(
     write_end_tag(writer, "d:resourcetype")?;
 
     // <displayname>
-    write_string_tag(writer, "d:displayname", &calendar.name)?;
+    write_string_tag(writer, "d:displayname", &user.calendar_name)?;
 
     // <getctag>
-    write_string_tag(writer, "cal:getctag", &calendar.ctag)?;
+    write_string_tag(writer, "cal:getctag", &user.ctag)?;
 
     // <sync-token> (RFC 6578)
     write_string_tag(
         writer,
         "d:sync-token",
-        &format!("http://televent.app/sync/{}", calendar.sync_token),
+        &format!("http://televent.app/sync/{}", user.sync_token),
     )?;
 
     // <calendar-home-set>
@@ -614,25 +614,25 @@ fn write_empty_tag<W: std::io::Write>(writer: &mut Writer<W>, tag: &str) -> Resu
 mod tests {
     use super::*;
     use chrono::{Datelike, Utc};
-    use televent_core::models::EventStatus;
+    use televent_core::models::{EventStatus, UserId};
     use uuid::Uuid;
 
     #[test]
     fn test_generate_propfind_depth_0() {
-        let user_id = Uuid::new_v4();
         let now = Utc::now();
-        let calendar = Calendar {
-            id: Uuid::new_v4(),
-            user_id,
-            name: "Test Calendar".to_string(),
-            color: "#ff0000".to_string(),
+        let user = User {
+            id: UserId::new(123456789),
+            telegram_username: Some("testuser".to_string()),
+            timezone: "UTC".to_string(),
+            calendar_name: "Test Calendar".to_string(),
+            calendar_color: "#ff0000".to_string(),
             sync_token: "1".to_string(),
             ctag: "123456".to_string(),
             created_at: now,
             updated_at: now,
         };
 
-        let xml = generate_propfind_multistatus("testuser", &calendar, &[], "0").unwrap();
+        let xml = generate_propfind_multistatus("testuser", &user, &[], "0").unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -645,23 +645,22 @@ mod tests {
 
     #[test]
     fn test_generate_propfind_depth_1() {
-        let user_id = Uuid::new_v4();
         let now = Utc::now();
-        let calendar = Calendar {
-            id: Uuid::new_v4(),
-            user_id,
-            name: "Test Calendar".to_string(),
-            color: "#ff0000".to_string(),
+        let user = User {
+            id: UserId::new(123456789),
+            telegram_username: Some("testuser".to_string()),
+            timezone: "UTC".to_string(),
+            calendar_name: "Test Calendar".to_string(),
+            calendar_color: "#ff0000".to_string(),
             sync_token: "1".to_string(),
             ctag: "123456".to_string(),
             created_at: now,
             updated_at: now,
         };
 
-        let now = Utc::now();
         let event = CalEvent {
-            id: Uuid::new_v4(),
-            calendar_id: calendar.id,
+            id: uuid::Uuid::new_v4(),
+            user_id: user.id,
             uid: "test-event-1".to_string(),
             version: 1,
             etag: "abc123".to_string(),
@@ -678,7 +677,7 @@ mod tests {
             updated_at: now,
         };
 
-        let xml = generate_propfind_multistatus("testuser", &calendar, &[event], "1").unwrap();
+        let xml = generate_propfind_multistatus("testuser", &user, &[event], "1").unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -691,20 +690,20 @@ mod tests {
 
     #[test]
     fn test_xml_structure_valid() {
-        let user_id = Uuid::new_v4();
         let now = Utc::now();
-        let calendar = Calendar {
-            id: Uuid::new_v4(),
-            user_id,
-            name: "Test".to_string(),
-            color: "#000000".to_string(),
+        let user = User {
+            id: UserId::new(123456789),
+            telegram_username: Some("testuser".to_string()),
+            timezone: "UTC".to_string(),
+            calendar_name: "Test".to_string(),
+            calendar_color: "#000000".to_string(),
             sync_token: "0".to_string(),
             ctag: "0".to_string(),
             created_at: now,
             updated_at: now,
         };
 
-        let xml = generate_propfind_multistatus("testuser", &calendar, &[], "0").unwrap();
+        let xml = generate_propfind_multistatus("testuser", &user, &[], "0").unwrap();
 
         // Check XML declaration
         assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"utf-8\"?>"));
@@ -819,13 +818,12 @@ mod tests {
 
     #[test]
     fn test_generate_calendar_query_response() {
-        let _user_id = Uuid::new_v4();
+        let user_id = UserId::new(123456789);
         let now = Utc::now();
-        let calendar_id = Uuid::new_v4();
 
         let event = CalEvent {
             id: Uuid::new_v4(),
-            calendar_id,
+            user_id,
             uid: "event-123".to_string(),
             version: 1,
             etag: "etag-abc".to_string(),
@@ -859,15 +857,15 @@ mod tests {
 
     #[test]
     fn test_generate_sync_collection_response_with_changes() {
-        let user_id = Uuid::new_v4();
+        let user_id = UserId::new(123456789);
         let now = Utc::now();
-        let calendar_id = Uuid::new_v4();
 
-        let calendar = Calendar {
-            id: calendar_id,
-            user_id,
-            name: "Test".to_string(),
-            color: "#000000".to_string(),
+        let user = User {
+            id: user_id,
+            telegram_username: Some("testuser".to_string()),
+            timezone: "UTC".to_string(),
+            calendar_name: "Test".to_string(),
+            calendar_color: "#000000".to_string(),
             sync_token: "55".to_string(),
             ctag: "ctag-123".to_string(),
             created_at: now,
@@ -876,7 +874,7 @@ mod tests {
 
         let event = CalEvent {
             id: Uuid::new_v4(),
-            calendar_id,
+            user_id,
             uid: "changed-event".to_string(),
             version: 2,
             etag: "new-etag".to_string(),
@@ -895,7 +893,7 @@ mod tests {
 
         let deleted_uids = vec!["deleted-event".to_string()];
         let xml =
-            generate_sync_collection_response("testuser", &calendar, &[event], &[], &deleted_uids)
+            generate_sync_collection_response("testuser", &user, &[event], &[], &deleted_uids)
                 .unwrap();
 
         assert!(xml.contains("<?xml"));
@@ -913,21 +911,22 @@ mod tests {
 
     #[test]
     fn test_generate_sync_collection_response_empty() {
-        let user_id = Uuid::new_v4();
+        let user_id = UserId::new(123456789);
         let now = Utc::now();
 
-        let calendar = Calendar {
-            id: Uuid::new_v4(),
-            user_id,
-            name: "Test".to_string(),
-            color: "#000000".to_string(),
+        let user = User {
+            id: user_id,
+            telegram_username: Some("testuser".to_string()),
+            timezone: "UTC".to_string(),
+            calendar_name: "Test".to_string(),
+            calendar_color: "#000000".to_string(),
             sync_token: "100".to_string(),
             ctag: "ctag".to_string(),
             created_at: now,
             updated_at: now,
         };
 
-        let xml = generate_sync_collection_response("testuser", &calendar, &[], &[], &[]).unwrap();
+        let xml = generate_sync_collection_response("testuser", &user, &[], &[], &[]).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -940,9 +939,8 @@ mod tests {
     #[test]
     #[ignore] // benchmark
     fn test_benchmark_generate_calendar_query_response() {
-        let _user_id = Uuid::new_v4();
+        let user_id = UserId::new(123456789);
         let now = Utc::now();
-        let calendar_id = Uuid::new_v4();
 
         let count = 2000;
         let mut events = Vec::with_capacity(count);
@@ -952,7 +950,7 @@ mod tests {
             let uid = format!("event-{}", i);
             let event = CalEvent {
                 id: Uuid::new_v4(),
-                calendar_id,
+                user_id,
                 uid: uid.clone(),
                 version: 1,
                 etag: format!("etag-{}", i),

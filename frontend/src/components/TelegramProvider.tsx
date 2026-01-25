@@ -38,8 +38,41 @@ function useTelegramMock() {
     }, []);
 }
 
+import { Component, ErrorInfo, ReactNode } from 'react';
+
+class ErrorBoundary extends Component<{ children: ReactNode, fallback?: ReactNode }, { hasError: boolean }> {
+    constructor(props: any) {
+        super(props);
+        this.state = { hasError: false };
+    }
+
+    static getDerivedStateFromError(_: Error) {
+        return { hasError: true };
+    }
+
+    componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+        console.error("Uncaught error:", error, errorInfo);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return this.props.fallback || <h1>Something went wrong.</h1>;
+        }
+
+        return this.props.children;
+    }
+}
+
 function AppInitializer({ children }: PropsWithChildren) {
-    const lp = useLaunchParams();
+    let lp;
+    try {
+        lp = useLaunchParams();
+    } catch (e) {
+        // Fallback for non-Telegram environment
+        // Return children without SDK initialization if params are missing
+        return <>{children}</>;
+    }
+
     const isMobile = lp.platform === 'android' || lp.platform === 'ios';
 
     // Get signal values
@@ -94,7 +127,9 @@ export function TelegramProvider({ children }: PropsWithChildren) {
 
     return (
         <AppRoot>
-            <AppInitializer>{children}</AppInitializer>
+            <ErrorBoundary fallback={<>{children}</>}>
+                <AppInitializer>{children}</AppInitializer>
+            </ErrorBoundary>
         </AppRoot>
     );
 }

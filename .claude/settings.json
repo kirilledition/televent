@@ -44,5 +44,38 @@
       "Bash(ps:*)",
       "Bash(sqlite3:*)"
     ]
+  },
+  "mcpServers": {
+    "sequential-thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "env": {}
+    },
+    "context7": {
+      "serverUrl": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "ctx7sk-4a5eae23-093c-4ede-adf3-59db45b896de"
+      }
+    },
+    "serena": {
+      "command": "nix",
+      "args": [
+        "develop",
+        "/home/kirill/Projects/televent",
+        "--command",
+        "uv",
+        "tool",
+        "run",
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena-mcp-server"
+      ]
+    },
+    "supabase-local": {
+      "serverUrl": "http://127.0.0.1:54321/mcp"
+    }
   }
 }

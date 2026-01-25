@@ -12,6 +12,7 @@ use axum::{
     response::Response,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use televent_core::models::UserId;
 use uuid::Uuid;
 
 /// Login identifier: either a numeric Telegram ID or a username (without @)
@@ -55,21 +56,21 @@ pub async fn caldav_basic_auth(
     }
 
     // Look up user by login_id
-    let user_id: Option<Uuid> = match &login_id {
+    let user_id: Option<UserId> = match &login_id {
         LoginId::TelegramId(tid) => {
-            sqlx::query_scalar("SELECT id FROM users WHERE telegram_id = $1")
+            sqlx::query_scalar("SELECT telegram_id FROM users WHERE telegram_id = $1")
                 .bind(tid)
                 .fetch_optional(&state.pool)
                 .await
                 .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
         }
-        LoginId::Username(username) => {
-            sqlx::query_scalar("SELECT id FROM users WHERE lower(telegram_username) = lower($1)")
-                .bind(username)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
-        }
+        LoginId::Username(username) => sqlx::query_scalar(
+            "SELECT telegram_id FROM users WHERE lower(telegram_username) = lower($1)",
+        )
+        .bind(username)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?,
     };
 
     // Get device passwords for this user
@@ -77,7 +78,7 @@ pub async fn caldav_basic_auth(
     // We order by last_used_at to prioritize active devices
     let device_passwords: Vec<(Uuid, String)> = if let Some(uid) = user_id {
         sqlx::query_as(
-            "SELECT id, hashed_password FROM device_passwords \
+            "SELECT id, password_hash FROM device_passwords \
              WHERE user_id = $1 \
              ORDER BY last_used_at DESC NULLS LAST, created_at DESC \
              LIMIT 10",

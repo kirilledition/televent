@@ -3,7 +3,7 @@
 //! Provides REST API for managing CalDAV device passwords
 
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{FromRef, Path, State},
     http::StatusCode,
     response::IntoResponse,
@@ -11,9 +11,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use televent_core::models::UserId;
 use uuid::Uuid;
 
-use crate::error::ApiError;
+use crate::{error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
 
 /// Request to create a new device password
 #[derive(Debug, Deserialize)]
@@ -46,10 +47,10 @@ pub struct DeviceListItem {
 struct DevicePassword {
     id: Uuid,
     #[allow(dead_code)]
-    user_id: Uuid,
+    user_id: UserId,
     #[allow(dead_code)]
-    hashed_password: String,
-    name: String,
+    password_hash: String,
+    device_name: String,
     created_at: chrono::DateTime<chrono::Utc>,
     last_used_at: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -57,7 +58,7 @@ struct DevicePassword {
 /// Create a new device password
 async fn create_device_password(
     State(pool): State<PgPool>,
-    Path(user_id): Path<Uuid>,
+    Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Json(request): Json<CreateDeviceRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Generate random password
@@ -74,12 +75,12 @@ async fn create_device_password(
     // Insert into database
     let device = sqlx::query_as::<_, DevicePassword>(
         r#"
-        INSERT INTO device_passwords (user_id, name, hashed_password)
+        INSERT INTO device_passwords (user_id, device_name, password_hash)
         VALUES ($1, $2, $3)
         RETURNING *
         "#,
     )
-    .bind(user_id)
+    .bind(auth_user.id)
     .bind(&request.name)
     .bind(&hashed)
     .fetch_one(&pool)
@@ -89,7 +90,7 @@ async fn create_device_password(
         StatusCode::CREATED,
         Json(DevicePasswordResponse {
             id: device.id,
-            name: device.name,
+            name: device.device_name,
             password: Some(password), // Only shown at creation
             created_at: device.created_at.to_rfc3339(),
             last_used_at: device.last_used_at.map(|t| t.to_rfc3339()),
@@ -100,12 +101,12 @@ async fn create_device_password(
 /// List all device passwords for a user
 async fn list_device_passwords(
     State(pool): State<PgPool>,
-    Path(user_id): Path<Uuid>,
+    Extension(auth_user): Extension<AuthenticatedTelegramUser>,
 ) -> Result<Json<Vec<DeviceListItem>>, ApiError> {
     let devices = sqlx::query_as::<_, DevicePassword>(
         "SELECT * FROM device_passwords WHERE user_id = $1 ORDER BY created_at DESC",
     )
-    .bind(user_id)
+    .bind(auth_user.id)
     .fetch_all(&pool)
     .await?;
 
@@ -113,7 +114,7 @@ async fn list_device_passwords(
         .into_iter()
         .map(|d| DeviceListItem {
             id: d.id,
-            name: d.name,
+            name: d.device_name,
             created_at: d.created_at.to_rfc3339(),
             last_used_at: d.last_used_at.map(|t| t.to_rfc3339()),
         })
@@ -125,11 +126,12 @@ async fn list_device_passwords(
 /// Delete a device password
 async fn delete_device_password(
     State(pool): State<PgPool>,
-    Path((user_id, device_id)): Path<(Uuid, Uuid)>,
+    Extension(auth_user): Extension<AuthenticatedTelegramUser>,
+    Path(device_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = sqlx::query("DELETE FROM device_passwords WHERE id = $1 AND user_id = $2")
         .bind(device_id)
-        .bind(user_id)
+        .bind(auth_user.id)
         .execute(&pool)
         .await?;
 
@@ -163,12 +165,9 @@ where
     PgPool: FromRef<S>,
 {
     Router::new()
-        .route("/users/{user_id}/devices", post(create_device_password))
-        .route("/users/{user_id}/devices", get(list_device_passwords))
-        .route(
-            "/users/{user_id}/devices/{device_id}",
-            delete(delete_device_password),
-        )
+        .route("/devices", post(create_device_password))
+        .route("/devices", get(list_device_passwords))
+        .route("/devices/{device_id}", delete(delete_device_password))
 }
 
 #[cfg(test)]

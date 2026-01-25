@@ -1,8 +1,8 @@
 //! Event REST API endpoints
 
-use crate::{db, error::ApiError};
+use crate::{db, error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{FromRef, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -11,13 +11,12 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use televent_core::models::{Event, EventStatus};
+use televent_core::models::{Event, EventStatus, UserId};
 use uuid::Uuid;
 
 /// Create event request
 #[derive(Debug, Deserialize)]
 pub struct CreateEventRequest {
-    pub calendar_id: Uuid,
     pub uid: String,
     pub summary: String,
     pub description: Option<String>,
@@ -45,7 +44,6 @@ pub struct UpdateEventRequest {
 /// List events query parameters
 #[derive(Debug, Deserialize)]
 pub struct ListEventsQuery {
-    pub calendar_id: Uuid,
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
     pub limit: Option<i64>,
@@ -56,7 +54,7 @@ pub struct ListEventsQuery {
 #[derive(Debug, Serialize)]
 pub struct EventResponse {
     pub id: Uuid,
-    pub calendar_id: Uuid,
+    pub user_id: UserId,
     pub uid: String,
     pub summary: String,
     pub description: Option<String>,
@@ -77,7 +75,7 @@ impl From<Event> for EventResponse {
     fn from(event: Event) -> Self {
         Self {
             id: event.id,
-            calendar_id: event.calendar_id,
+            user_id: event.user_id,
             uid: event.uid,
             summary: event.summary,
             description: event.description,
@@ -99,11 +97,12 @@ impl From<Event> for EventResponse {
 /// Create a new event
 async fn create_event(
     State(pool): State<PgPool>,
+    Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Json(req): Json<CreateEventRequest>,
 ) -> Result<Response, ApiError> {
     let event = db::events::create_event(
         &pool,
-        req.calendar_id,
+        auth_user.id,
         req.uid,
         req.summary,
         req.description,
@@ -132,6 +131,7 @@ async fn get_event(
 /// List events
 async fn list_events(
     State(pool): State<PgPool>,
+    Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Query(query): Query<ListEventsQuery>,
 ) -> Result<Json<Vec<EventResponse>>, ApiError> {
     // Default limit to 100 to prevent OOM
@@ -140,7 +140,7 @@ async fn list_events(
 
     let events = db::events::list_events(
         &pool,
-        query.calendar_id,
+        auth_user.id,
         query.start,
         query.end,
         Some(limit),
@@ -204,7 +204,7 @@ mod tests {
     fn test_event_response_from_event() {
         let event = Event {
             id: Uuid::new_v4(),
-            calendar_id: Uuid::new_v4(),
+            user_id: UserId::new(123456789),
             uid: "test-uid".to_string(),
             summary: "Test Event".to_string(),
             description: Some("Description".to_string()),
@@ -232,7 +232,6 @@ mod tests {
     #[test]
     fn test_create_event_request_deserialization() {
         let json = r#"{
-            "calendar_id": "123e4567-e89b-12d3-a456-426614174000",
             "uid": "test-uid",
             "summary": "Test Event",
             "description": "Test Description",
@@ -265,7 +264,6 @@ mod tests {
     #[test]
     fn test_list_events_query_deserialization() {
         let json = r#"{
-            "calendar_id": "123e4567-e89b-12d3-a456-426614174000",
             "start": "2026-01-18T10:00:00Z",
             "limit": 50,
             "offset": 10
@@ -280,9 +278,7 @@ mod tests {
 
     #[test]
     fn test_list_events_query_default_values() {
-        let json = r#"{
-            "calendar_id": "123e4567-e89b-12d3-a456-426614174000"
-        }"#;
+        let json = r#"{}"#;
 
         let query: ListEventsQuery = serde_json::from_str(json).unwrap();
         assert!(query.limit.is_none());

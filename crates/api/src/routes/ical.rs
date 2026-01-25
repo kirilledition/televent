@@ -221,13 +221,15 @@ fn parse_datetime(value: &str, is_all_day: bool) -> Result<DateTime<Utc>, ApiErr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::*;
+    use televent_core::models::UserId;
     use uuid::Uuid;
 
     fn create_test_event() -> Event {
         let now = Utc::now();
         Event {
             id: Uuid::new_v4(),
-            calendar_id: Uuid::new_v4(),
+            user_id: UserId::new(123456789),
             uid: "test-event-123".to_string(),
             version: 1,
             etag: "abc123".to_string(),

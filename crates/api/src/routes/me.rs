@@ -1,12 +1,11 @@
 use crate::middleware::telegram_auth::AuthenticatedTelegramUser;
 use axum::{Extension, Json};
 use serde::Serialize;
-use uuid::Uuid;
+use televent_core::models::UserId;
 
 #[derive(Debug, Serialize)]
 pub struct MeResponse {
-    pub id: Uuid,
-    pub telegram_id: i64,
+    pub id: UserId,
     pub username: Option<String>,
     pub authenticated: bool,
     pub timezone: String,
@@ -18,7 +17,6 @@ pub struct MeResponse {
 async fn get_me(Extension(auth_user): Extension<AuthenticatedTelegramUser>) -> Json<MeResponse> {
     Json(MeResponse {
         id: auth_user.id,
-        telegram_id: auth_user.telegram_id,
         username: auth_user.username,
         authenticated: true,
         timezone: auth_user.timezone,

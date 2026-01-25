@@ -217,8 +217,12 @@ Create a lightweight, static Single Page Application (SPA) to serve as the GUI f
 ### 5. Deployment Constraints
 
 * The final build artifact must be a directory of static files (`out/` or `dist/`) capable of being hosted directly by the `axum` backend at the `/app` route without a separate Node.js server.
-allowed-tools: [Read, Write, Glob, SlashCommand, AskUserQuestion, serena mcp, context7 mcp, supabase mcp]
 
+
+
+I know that there can be only one telegram handle. and for users who does not have handle, telegram has one numberic id. we also do not allow creation of more then one calendar in our app. Therefor we can use telegram handle as unique identifier for user and calendar in database and data models and code. no need to hide this handle. for users without set handle, i propose using their numeric id as unique identifier. refactor the code to stop using other artificial identifiers.
+allowed-tools: [Read, Write, Glob, SlashCommand, AskUserQuestion, serena mcp, context7 mcp, supabase mcp]
+remember to activate serena project
 <context>
 Before generating prompts, use the Glob tool to check `./prompts/*.md` to:
 1. Determine if the prompts directory exists

@@ -1,29 +1,47 @@
 //! Calendar management endpoints
+//!
+//! Since each user has exactly one calendar (user = calendar), these endpoints
+//! return user calendar properties.
 
 use axum::{
     Extension, Json, Router,
     extract::{FromRef, State},
     routing::get,
 };
+use serde::Serialize;
 use sqlx::PgPool;
-use televent_core::models::Calendar;
+use televent_core::models::UserId;
 
 use crate::{db, error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
 
+/// Calendar response (subset of User relevant to calendar functionality)
+#[derive(Debug, Serialize)]
+pub struct CalendarInfo {
+    pub id: UserId,
+    pub name: String,
+    pub color: String,
+    pub sync_token: String,
+}
+
 /// List user's calendars
 ///
-/// Currently returns a list containing the single user calendar.
-/// Automatically creates the calendar if it doesn't exist.
+/// Returns a list containing the single user calendar.
+/// Since user = calendar, this returns calendar properties from the user record.
 async fn list_calendars(
     State(pool): State<PgPool>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
-) -> Result<Json<Vec<Calendar>>, ApiError> {
-    // Current design is 1 user = 1 calendar
-    // This function ensures the calendar exists and returns it
-    // The implementation of get_or_create_calendar handles the logic
-    let calendar = db::calendars::get_or_create_calendar(&pool, auth_user.id).await?;
+) -> Result<Json<Vec<CalendarInfo>>, ApiError> {
+    // Get or create user (user = calendar)
+    let user = db::users::get_or_create_user(&pool, auth_user.id.inner(), None).await?;
 
-    Ok(Json(vec![calendar]))
+    let calendar_info = CalendarInfo {
+        id: user.id,
+        name: user.calendar_name,
+        color: user.calendar_color,
+        sync_token: user.sync_token,
+    };
+
+    Ok(Json(vec![calendar_info]))
 }
 
 /// Calendar routes

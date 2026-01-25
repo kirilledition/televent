@@ -3,6 +3,7 @@ use crate::error::ApiError;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
+use televent_core::models::UserId;
 
 // Constants
 const AUTH_HEADER_PREFIX: &str = "tma ";
@@ -21,8 +22,7 @@ pub struct TelegramUser {
 // Extension type to hold authenticated user
 #[derive(Debug, Clone)]
 pub struct AuthenticatedTelegramUser {
-    pub id: uuid::Uuid,
-    pub telegram_id: i64,
+    pub id: UserId,
     pub username: Option<String>,
     pub timezone: String,
 }
@@ -130,7 +130,6 @@ pub async fn telegram_auth(
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(AuthenticatedTelegramUser {
         id: db_user.id,
-        telegram_id: db_user.telegram_id,
         username: db_user.telegram_username,
         timezone: db_user.timezone,
     });

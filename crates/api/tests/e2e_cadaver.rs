@@ -16,12 +16,22 @@ async fn setup_user_and_auth(pool: &PgPool) -> (i64, String, String) {
     let telegram_id: i64 = rand::random::<i64>().abs();
     let username = format!("e2e_user_{}", telegram_id);
 
-    let user_id: Uuid = sqlx::query_scalar("INSERT INTO users (telegram_id, telegram_username, created_at) VALUES ($1, $2, NOW()) RETURNING id")
-        .bind(telegram_id)
-        .bind(&username)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to create user");
+    // Insert user
+    sqlx::query(
+        r#"
+        INSERT INTO users (
+            telegram_id, telegram_username, timezone, 
+            calendar_name, calendar_color, sync_token, ctag, 
+            created_at, updated_at
+        ) 
+        VALUES ($1, $2, 'UTC', 'Default Calendar', '#3b82f6', '0', '0', NOW(), NOW())
+        "#,
+    )
+    .bind(telegram_id)
+    .bind(&username)
+    .execute(pool)
+    .await
+    .expect("Failed to create user");
 
     let password = "test_password_e2e";
     let salt = SaltString::generate(&mut OsRng);
@@ -31,14 +41,19 @@ async fn setup_user_and_auth(pool: &PgPool) -> (i64, String, String) {
         .expect("Failed to hash password")
         .to_string();
 
-    sqlx::query("INSERT INTO device_passwords (id, user_id, hashed_password, name, created_at) VALUES ($1, $2, $3, $4, NOW())")
-        .bind(Uuid::new_v4())
-        .bind(user_id)
-        .bind(password_hash)
-        .bind("e2e_device")
-        .execute(pool)
-        .await
-        .expect("Failed to create device password");
+    sqlx::query(
+        r#"
+        INSERT INTO device_passwords (
+            id, user_id, password_hash, device_name, created_at
+        ) 
+        VALUES (gen_random_uuid(), $1, $2, 'e2e_device', NOW())
+        "#,
+    )
+    .bind(telegram_id) // user_id is telegram_id (BIGINT)
+    .bind(password_hash)
+    .execute(pool)
+    .await
+    .expect("Failed to create device password");
 
     (telegram_id, username, password.to_string())
 }

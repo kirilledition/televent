@@ -4,14 +4,14 @@ use crate::error::ApiError;
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use televent_core::models::{Event, EventStatus};
+use televent_core::models::{Event, EventStatus, UserId};
 use uuid::Uuid;
 
 /// Create a new event
 #[allow(clippy::too_many_arguments)]
 pub async fn create_event(
     pool: &PgPool,
-    calendar_id: Uuid,
+    user_id: UserId,
     uid: String,
     summary: String,
     description: Option<String>,
@@ -47,14 +47,14 @@ pub async fn create_event(
     let event = sqlx::query_as::<_, Event>(
         r#"
         INSERT INTO events (
-            calendar_id, uid, summary, description, location,
+            user_id, uid, summary, description, location,
             start, "end", is_all_day, status, timezone, rrule, etag
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *
         "#,
     )
-    .bind(calendar_id)
+    .bind(user_id)
     .bind(&uid)
     .bind(&summary)
     .bind(&description)
@@ -83,31 +83,30 @@ pub async fn get_event(pool: &PgPool, event_id: Uuid) -> Result<Event, ApiError>
     Ok(event)
 }
 
-/// Get event by UID and calendar ID
+/// Get event by UID and user ID
 pub async fn get_event_by_uid(
     pool: &PgPool,
-    calendar_id: Uuid,
+    user_id: UserId,
     uid: &str,
 ) -> Result<Option<Event>, ApiError> {
-    let event =
-        sqlx::query_as::<_, Event>("SELECT * FROM events WHERE calendar_id = $1 AND uid = $2")
-            .bind(calendar_id)
-            .bind(uid)
-            .fetch_optional(pool)
-            .await?;
+    let event = sqlx::query_as::<_, Event>("SELECT * FROM events WHERE user_id = $1 AND uid = $2")
+        .bind(user_id)
+        .bind(uid)
+        .fetch_optional(pool)
+        .await?;
 
     Ok(event)
 }
 
-/// Get multiple events by UIDs and calendar ID
+/// Get multiple events by UIDs and user ID
 pub async fn get_events_by_uids(
     pool: &PgPool,
-    calendar_id: Uuid,
+    user_id: UserId,
     uids: &[&str],
 ) -> Result<Vec<Event>, ApiError> {
     let events =
-        sqlx::query_as::<_, Event>("SELECT * FROM events WHERE calendar_id = $1 AND uid = ANY($2)")
-            .bind(calendar_id)
+        sqlx::query_as::<_, Event>("SELECT * FROM events WHERE user_id = $1 AND uid = ANY($2)")
+            .bind(user_id)
             .bind(uids)
             .fetch_all(pool)
             .await?;
@@ -119,11 +118,11 @@ pub async fn get_events_by_uids(
 #[allow(dead_code)]
 pub async fn delete_event_by_uid(
     pool: &PgPool,
-    calendar_id: Uuid,
+    user_id: UserId,
     uid: &str,
 ) -> Result<bool, ApiError> {
-    let result = sqlx::query("DELETE FROM events WHERE calendar_id = $1 AND uid = $2")
-        .bind(calendar_id)
+    let result = sqlx::query("DELETE FROM events WHERE user_id = $1 AND uid = $2")
+        .bind(user_id)
         .bind(uid)
         .execute(pool)
         .await?;
@@ -134,11 +133,11 @@ pub async fn delete_event_by_uid(
 /// Delete event by UID (within transaction)
 pub async fn delete_event_by_uid_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    calendar_id: Uuid,
+    user_id: UserId,
     uid: &str,
 ) -> Result<bool, ApiError> {
-    let result = sqlx::query("DELETE FROM events WHERE calendar_id = $1 AND uid = $2")
-        .bind(calendar_id)
+    let result = sqlx::query("DELETE FROM events WHERE user_id = $1 AND uid = $2")
+        .bind(user_id)
         .bind(uid)
         .execute(&mut **tx)
         .await?;
@@ -146,10 +145,10 @@ pub async fn delete_event_by_uid_tx(
     Ok(result.rows_affected() > 0)
 }
 
-/// List events for a calendar within a time range
+/// List events for a user within a time range
 pub async fn list_events(
     pool: &PgPool,
-    calendar_id: Uuid,
+    user_id: UserId,
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
     limit: Option<i64>,
@@ -162,14 +161,14 @@ pub async fn list_events(
             sqlx::query_as::<_, Event>(
                 r#"
                 SELECT * FROM events
-                WHERE calendar_id = $1
+                WHERE user_id = $1
                 AND start >= $2
                 AND start < $3
                 ORDER BY start ASC
                 LIMIT $4 OFFSET $5
                 "#,
             )
-            .bind(calendar_id)
+            .bind(user_id)
             .bind(start_time)
             .bind(end_time)
             .bind(limit)
@@ -181,12 +180,12 @@ pub async fn list_events(
             sqlx::query_as::<_, Event>(
                 r#"
                 SELECT * FROM events
-                WHERE calendar_id = $1
+                WHERE user_id = $1
                 ORDER BY start ASC
                 LIMIT $2 OFFSET $3
                 "#,
             )
-            .bind(calendar_id)
+            .bind(user_id)
             .bind(limit)
             .bind(offset)
             .fetch_all(pool)
@@ -197,27 +196,18 @@ pub async fn list_events(
     Ok(events)
 }
 
-/// List UIDs of events deleted since a specific time
-///
-/// Note: sync_token is treated as a timestamp in some contexts, but here we assume it maps roughly
-/// to versioning. For deletions, we need to map the sync_token to a timestamp or use the token directly
-/// if we store deletion tokens.
-/// For this implementation, we'll assume the sync_token implies we want deletions that happened
-/// "recently". However, since our sync_token is just an integer counter, mapping it to deleted_events
-/// (which has a timestamp) is tricky without a "deletion version".
-///
-/// List UIDs of events deleted since a specific time
+/// List UIDs of events deleted since a specific sync token
 ///
 /// Uses deletion_token in deleted_events to filter efficiently.
 pub async fn list_deleted_events_since_sync(
     pool: &PgPool,
-    calendar_id: Uuid,
+    user_id: UserId,
     sync_token: i64,
 ) -> Result<Vec<String>, ApiError> {
     let uids = sqlx::query_scalar::<_, String>(
-        "SELECT uid FROM deleted_events WHERE calendar_id = $1 AND deletion_token > $2",
+        "SELECT uid FROM deleted_events WHERE user_id = $1 AND deletion_token > $2",
     )
-    .bind(calendar_id)
+    .bind(user_id)
     .bind(sync_token)
     .fetch_all(pool)
     .await?;
@@ -230,20 +220,20 @@ pub async fn list_deleted_events_since_sync(
 /// Used for CalDAV sync-collection REPORT
 pub async fn list_events_since_sync(
     pool: &PgPool,
-    calendar_id: Uuid,
+    user_id: UserId,
     sync_token: i64,
 ) -> Result<Vec<Event>, ApiError> {
-    // We use the calendar's sync_token as a version number
+    // We use the user's sync_token as a version number
     // Events with version > sync_token have been modified since
     let events = sqlx::query_as::<_, Event>(
         r#"
         SELECT * FROM events
-        WHERE calendar_id = $1
+        WHERE user_id = $1
         AND version > $2
         ORDER BY updated_at ASC
         "#,
     )
-    .bind(calendar_id)
+    .bind(user_id)
     .bind(sync_token as i32)
     .fetch_all(pool)
     .await?;
@@ -368,7 +358,6 @@ fn generate_etag(
     hasher.update("|");
     hasher.update(location.unwrap_or(""));
     hasher.update("|");
-    // to_rfc3339 allocates, but it's small compared to the full string
     hasher.update(start.to_rfc3339());
     hasher.update("|");
     hasher.update(end.to_rfc3339());

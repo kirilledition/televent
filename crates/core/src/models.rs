@@ -4,33 +4,113 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use typeshare::typeshare;
 use uuid::Uuid;
 
-/// User entity
+/// User ID newtype wrapping Telegram's permanent numeric ID
+///
+/// This serves as the primary identifier for both users and their calendars,
+/// since each user has exactly one calendar.
+#[typeshare]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct UserId(#[typeshare(serialized_as = "string")] pub i64);
+
+impl UserId {
+    /// Create a new UserId from a Telegram ID
+    pub fn new(telegram_id: i64) -> Self {
+        Self(telegram_id)
+    }
+
+    /// Get the inner i64 value
+    pub fn inner(self) -> i64 {
+        self.0
+    }
+}
+
+impl fmt::Display for UserId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<i64> for UserId {
+    fn from(id: i64) -> Self {
+        Self(id)
+    }
+}
+
+impl From<UserId> for i64 {
+    fn from(id: UserId) -> Self {
+        id.0
+    }
+}
+
+// SQLx support for UserId
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for UserId {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
+        let inner = <i64 as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Ok(UserId(inner))
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for UserId {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <i64 as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <i64 as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for UserId {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync + 'static>> {
+        <i64 as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.0, buf)
+    }
+}
+
+/// User entity (includes calendar data since user = calendar)
+///
+/// The telegram_id serves as the primary key and unique identifier.
+/// Calendar properties are merged into this struct since each user has exactly one calendar.
 #[typeshare]
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct User {
-    pub id: Uuid,
-    #[typeshare(serialized_as = "string")]
-    pub telegram_id: i64,
+    /// Primary key: Telegram's permanent numeric ID
+    #[sqlx(rename = "telegram_id")]
+    pub id: UserId,
+    /// Telegram username/handle (can change, used for CalDAV URLs)
     pub telegram_username: Option<String>,
-    pub timezone: String, // IANA timezone (e.g., "Asia/Singapore")
-    pub created_at: DateTime<Utc>,
-}
-
-/// Calendar entity
-#[typeshare]
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Calendar {
-    pub id: Uuid,
-    pub user_id: Uuid,
-    pub name: String,
-    pub color: String,      // Hex color for UI
-    pub sync_token: String, // RFC 6578 sync token
-    pub ctag: String,       // Collection tag for change detection
+    /// IANA timezone (e.g., "Asia/Singapore")
+    pub timezone: String,
+    /// Calendar display name
+    pub calendar_name: String,
+    /// Calendar hex color for UI
+    pub calendar_color: String,
+    /// RFC 6578 sync token for CalDAV sync-collection
+    pub sync_token: String,
+    /// Collection tag for change detection
+    pub ctag: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl User {
+    /// Get the login identifier for CalDAV URLs
+    ///
+    /// Returns username if available, otherwise the numeric ID as string
+    pub fn login_identifier(&self) -> String {
+        self.telegram_username
+            .clone()
+            .unwrap_or_else(|| self.id.to_string())
+    }
 }
 
 /// Event entity
@@ -38,7 +118,8 @@ pub struct Calendar {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Event {
     pub id: Uuid,
-    pub calendar_id: Uuid,
+    /// Owner's user ID (telegram_id)
+    pub user_id: UserId,
     pub uid: String, // iCalendar UID (stable across syncs)
     pub summary: String,
     pub description: Option<String>,
@@ -69,9 +150,11 @@ pub enum EventStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DevicePassword {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub user_id: UserId,
+    #[sqlx(rename = "password_hash")]
     pub hashed_password: String, // Argon2id hash
-    pub name: String,            // User-friendly label (e.g., "iPhone")
+    #[sqlx(rename = "device_name")]
+    pub name: String, // User-friendly label (e.g., "iPhone")
     pub created_at: DateTime<Utc>,
     pub last_used_at: Option<DateTime<Utc>>,
 }
@@ -103,7 +186,7 @@ pub enum OutboxStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AuditLog {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub user_id: UserId,
     pub action: String, // "event_created" | "data_exported" | "account_deleted"
     pub entity_type: String,
     pub entity_id: Option<Uuid>,
@@ -155,27 +238,104 @@ pub enum ParticipationStatus {
     Tentative,
 }
 
+/// Deleted event record for CalDAV sync
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DeletedEvent {
+    pub id: Uuid,
+    pub user_id: UserId,
+    pub uid: String,
+    pub deletion_token: i64,
+    pub deleted_at: DateTime<Utc>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_user_serialization() {
+    fn test_user_id_creation() {
+        let id = UserId::new(123456789);
+        assert_eq!(id.inner(), 123456789);
+        assert_eq!(id.to_string(), "123456789");
+    }
+
+    #[test]
+    fn test_user_id_from_i64() {
+        let id: UserId = 123456789_i64.into();
+        assert_eq!(id.inner(), 123456789);
+    }
+
+    #[test]
+    fn test_user_id_into_i64() {
+        let id = UserId::new(123456789);
+        let raw: i64 = id.into();
+        assert_eq!(raw, 123456789);
+    }
+
+    #[test]
+    fn test_user_id_serialization() {
+        let id = UserId::new(123456789);
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "123456789");
+
+        let deserialized: UserId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, deserialized);
+    }
+
+    #[test]
+    fn test_user_id_equality() {
+        let id1 = UserId::new(123);
+        let id2 = UserId::new(123);
+        let id3 = UserId::new(456);
+
+        assert_eq!(id1, id2);
+        assert_ne!(id1, id3);
+    }
+
+    #[test]
+    fn test_user_id_hash() {
+        use std::collections::HashSet;
+
+        let mut set = HashSet::new();
+        set.insert(UserId::new(123));
+        set.insert(UserId::new(456));
+        set.insert(UserId::new(123)); // Duplicate
+
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_user_login_identifier_with_username() {
         let user = User {
-            id: Uuid::new_v4(),
-            telegram_id: 123456789,
+            id: UserId::new(123456789),
             telegram_username: Some("testuser".to_string()),
-            timezone: "America/New_York".to_string(),
+            timezone: "UTC".to_string(),
+            calendar_name: "My Calendar".to_string(),
+            calendar_color: "#3b82f6".to_string(),
+            sync_token: "0".to_string(),
+            ctag: "0".to_string(),
             created_at: Utc::now(),
+            updated_at: Utc::now(),
         };
 
-        // Test JSON serialization
-        let json = serde_json::to_string(&user).unwrap();
-        let deserialized: User = serde_json::from_str(&json).unwrap();
+        assert_eq!(user.login_identifier(), "testuser");
+    }
 
-        assert_eq!(user.telegram_id, deserialized.telegram_id);
-        assert_eq!(user.telegram_username, deserialized.telegram_username);
-        assert_eq!(user.timezone, deserialized.timezone);
+    #[test]
+    fn test_user_login_identifier_without_username() {
+        let user = User {
+            id: UserId::new(123456789),
+            telegram_username: None,
+            timezone: "UTC".to_string(),
+            calendar_name: "My Calendar".to_string(),
+            calendar_color: "#3b82f6".to_string(),
+            sync_token: "0".to_string(),
+            ctag: "0".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        assert_eq!(user.login_identifier(), "123456789");
     }
 
     #[test]
@@ -224,7 +384,7 @@ mod tests {
     fn test_event_serialization() {
         let event = Event {
             id: Uuid::new_v4(),
-            calendar_id: Uuid::new_v4(),
+            user_id: UserId::new(123456789),
             uid: "test-event-uid".to_string(),
             summary: "Team Meeting".to_string(),
             description: Some("Weekly sync".to_string()),

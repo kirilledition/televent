@@ -9,32 +9,29 @@ use sqlx::PgPool;
 use std::time::Duration;
 use tower::ServiceExt;
 
-async fn setup_calendar(pool: &PgPool) -> (uuid::Uuid, i64) {
+async fn setup_user(pool: &PgPool) -> i64 {
     // 1. Create User
     let telegram_id = rand::random::<i64>().abs();
     let username = format!("api_user_{}", telegram_id);
 
-    let user_id: uuid::Uuid = sqlx::query_scalar("INSERT INTO users (telegram_id, telegram_username, created_at) VALUES ($1, $2, NOW()) RETURNING id")
-        .bind(telegram_id)
-        .bind(&username)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    // Insert user (which acts as calendar owner and calendar itself in new schema)
+    sqlx::query(
+        r#"
+        INSERT INTO users (
+            telegram_id, telegram_username, timezone, 
+            calendar_name, calendar_color, sync_token, ctag, 
+            created_at, updated_at
+        ) 
+        VALUES ($1, $2, 'UTC', 'Default Calendar', '#3b82f6', '0', '0', NOW(), NOW())
+        "#,
+    )
+    .bind(telegram_id)
+    .bind(&username)
+    .execute(pool)
+    .await
+    .unwrap();
 
-    // 2. Create Calendar
-    let calendar_id = uuid::Uuid::new_v4();
-    sqlx::query("INSERT INTO calendars (id, user_id, name, color, sync_token, ctag, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())")
-        .bind(calendar_id)
-        .bind(user_id)
-        .bind("Default Calendar")
-        .bind("#3b82f6")
-        .bind("0")
-        .bind("0") // ctag
-        .execute(pool)
-        .await
-        .unwrap();
-
-    (calendar_id, telegram_id)
+    telegram_id
 }
 
 use axum::extract::ConnectInfo;
@@ -43,40 +40,46 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 fn generate_valid_init_data(bot_token: &str, telegram_id: i64) -> String {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
-    
+
     let auth_date = chrono::Utc::now().timestamp().to_string();
     let user_json = serde_json::json!({
         "id": telegram_id,
         "first_name": "Test User",
         "username": "test_user"
-    }).to_string();
-    
+    })
+    .to_string();
+
     // Construct data_check_string (lexicographically sorted keys: auth_date, user)
     let data_check_string = format!("auth_date={}\nuser={}", auth_date, user_json);
-    
+
     type HmacSha256 = Hmac<Sha256>;
     let secret_key = HmacSha256::new_from_slice(b"WebAppData")
         .expect("HMAC can take any key length")
         .chain_update(bot_token.as_bytes())
         .finalize()
         .into_bytes();
-        
+
     let mut mac = HmacSha256::new_from_slice(&secret_key).expect("HMAC can take any key length");
     mac.update(data_check_string.as_bytes());
     let hash = hex::encode(mac.finalize().into_bytes());
-    
+
     let params = vec![
         ("auth_date", auth_date.as_str()),
         ("user", user_json.as_str()),
         ("hash", hash.as_str()),
     ];
-    
+
     url::form_urlencoded::Serializer::new(String::new())
         .extend_pairs(params)
         .finish()
 }
 
-fn create_request(method: &str, uri: impl AsRef<str>, body: Body, init_data: Option<&str>) -> Request<Body> {
+fn create_request(
+    method: &str,
+    uri: impl AsRef<str>,
+    body: Body,
+    init_data: Option<&str>,
+) -> Request<Body> {
     let mut builder = Request::builder()
         .method(method)
         .uri(uri.as_ref())
@@ -85,10 +88,8 @@ fn create_request(method: &str, uri: impl AsRef<str>, body: Body, init_data: Opt
     if let Some(data) = init_data {
         builder = builder.header(header::AUTHORIZATION, format!("tma {}", data));
     }
-    
-    let mut req = builder
-        .body(body)
-        .unwrap();
+
+    let mut req = builder.body(body).unwrap();
 
     req.extensions_mut().insert(ConnectInfo(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -99,7 +100,7 @@ fn create_request(method: &str, uri: impl AsRef<str>, body: Body, init_data: Opt
 
 #[sqlx::test(migrations = "../../migrations")]
 async fn test_api_full_flow(pool: PgPool) {
-    let (calendar_id, telegram_id) = setup_calendar(&pool).await;
+    let telegram_id = setup_user(&pool).await;
     let bot_token = "dummy_token";
     let init_data = generate_valid_init_data(bot_token, telegram_id);
 
@@ -117,7 +118,7 @@ async fn test_api_full_flow(pool: PgPool) {
     // 1. Create Event
     let event_uid = "api-test-uid";
     let create_body = serde_json::json!({
-        "calendar_id": calendar_id,
+        // calendar_id is removed
         "uid": event_uid,
         "summary": "API Test Event",
         "description": "Created via API",
@@ -159,7 +160,6 @@ async fn test_api_full_flow(pool: PgPool) {
 
     // 1b. Create Event 2
     let create_body_2 = serde_json::json!({
-        "calendar_id": calendar_id,
         "uid": "api-test-uid-2",
         "summary": "API Test Event 2",
         "description": "Created via API 2",
@@ -184,7 +184,6 @@ async fn test_api_full_flow(pool: PgPool) {
 
     // 1c. Create Event 3
     let create_body_3 = serde_json::json!({
-        "calendar_id": calendar_id,
         "uid": "api-test-uid-3",
         "summary": "API Test Event 3",
         "description": "Created via API 3",
@@ -212,7 +211,7 @@ async fn test_api_full_flow(pool: PgPool) {
         .clone()
         .oneshot(create_request(
             "GET",
-            format!("/api/events?calendar_id={}", calendar_id),
+            "/api/events", // No calendar_id param
             Body::empty(),
             Some(&init_data),
         ))
@@ -289,13 +288,12 @@ async fn test_api_full_flow(pool: PgPool) {
         ))
         .await
         .unwrap();
-    // Assuming get_event returns 500 or 404 if not found?
-    // db::events::get_event returns Err if not found?
-    // Let's check db::events::get_event implementation later.
-    // Usually get_event returns specific error which maps to 404 or fails.
-    // If db::events::get_event calls sqlx::query_as(...).fetch_one(), it returns RowNotFound error.
-    // ApiError::from(sqlx::Error) -> Internal(500) usually.
-    // Ideally it should be NotFound.
-    // Let's assert it is not 200 OK.
+    
+    // Should be Not Found (404) or Internal Server Error depending on implementation
+    // db::events::get_event calls fetch_optional or fetch_one?
+    // It calls fetch_one usually.
+    // If we want it to be cleaner we should handle row not found in routes.
+    // But currently, any error is 500 except specific ones.
+    // Let's just assert it failed.
     assert!(response.status() != StatusCode::OK);
 }

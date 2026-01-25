@@ -2,7 +2,7 @@
 
 use axum::{
     Json,
-    http::{StatusCode, header},
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
@@ -57,7 +57,7 @@ impl IntoResponse for ApiError {
         // 1. It triggers native browser login prompt which confuses Telegram Mini App users
         // 2. CalDAV auth is handled separately by `caldav_basic_auth`
         // 3. Telegram authentication is custom header-based
-        
+
         // if status == StatusCode::UNAUTHORIZED { ... }
 
         (status, body).into_response()

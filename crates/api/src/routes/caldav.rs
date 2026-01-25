@@ -11,7 +11,7 @@ use axum::{
     routing::any,
 };
 use sqlx::PgPool;
-use uuid::Uuid;
+use televent_core::models::{User, UserId};
 
 use crate::db;
 use crate::error::ApiError;
@@ -50,7 +50,7 @@ async fn caldav_propfind(
     headers: HeaderMap,
     _body: Body,
 ) -> Result<Response, ApiError> {
-    let user_id = resolve_user_id(&pool, &user_identifier).await?;
+    let user = resolve_user(&pool, &user_identifier).await?;
 
     // Get Depth header (default to 0)
     let depth = headers
@@ -61,23 +61,20 @@ async fn caldav_propfind(
     tracing::debug!(
         "PROPFIND request for user {} ({}) with Depth: {}",
         user_identifier,
-        user_id,
+        user.id,
         depth
     );
 
-    // Get or create calendar for user
-    let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;
-
     // Get events if depth is 1
     let events = if depth == "1" {
-        db::events::list_events(&pool, calendar.id, None, None, None, None).await?
+        db::events::list_events(&pool, user.id, None, None, None, None).await?
     } else {
         Vec::new()
     };
 
     // Generate XML response
     let response_xml =
-        caldav_xml::generate_propfind_multistatus(&user_identifier, &calendar, &events, depth)?;
+        caldav_xml::generate_propfind_multistatus(&user_identifier, &user, &events, depth)?;
 
     Ok((
         StatusCode::MULTI_STATUS,
@@ -94,15 +91,12 @@ async fn caldav_get_event(
     State(pool): State<PgPool>,
     Path((user_identifier, event_uid)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
-    let user_id = resolve_user_id(&pool, &user_identifier).await?;
+    let user = resolve_user(&pool, &user_identifier).await?;
 
-    tracing::debug!("GET event {} for user {}", event_uid, user_id);
-
-    // Get calendar for user
-    let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;
+    tracing::debug!("GET event {} for user {}", event_uid, user.id);
 
     // Look up event by UID
-    let event = db::events::get_event_by_uid(&pool, calendar.id, &event_uid)
+    let event = db::events::get_event_by_uid(&pool, user.id, &event_uid)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Event not found: {}", event_uid)))?;
 
@@ -133,12 +127,9 @@ async fn caldav_put_event(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, ApiError> {
-    let user_id = resolve_user_id(&pool, &user_identifier).await?;
+    let user = resolve_user(&pool, &user_identifier).await?;
 
-    tracing::debug!("PUT event {} for user {}", event_uid, user_id);
-
-    // Get calendar for user
-    let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;
+    tracing::debug!("PUT event {} for user {}", event_uid, user.id);
 
     // Read body as string with size limit to prevent DoS
     let body_bytes = axum::body::to_bytes(body, MAX_CALDAV_BODY_SIZE)
@@ -160,7 +151,7 @@ async fn caldav_put_event(
     }
 
     // Check if event already exists
-    let existing = db::events::get_event_by_uid(&pool, calendar.id, &uid).await?;
+    let existing = db::events::get_event_by_uid(&pool, user.id, &uid).await?;
 
     let (status_code, etag) = if let Some(existing_event) = existing {
         // Check If-Match header for optimistic locking (RFC 4791)
@@ -196,7 +187,7 @@ async fn caldav_put_event(
         // Create new event
         let created = db::events::create_event(
             &pool,
-            calendar.id,
+            user.id,
             uid,
             summary,
             description,
@@ -212,7 +203,7 @@ async fn caldav_put_event(
     };
 
     // Increment sync token
-    let _new_sync_token = db::calendars::increment_sync_token(&pool, calendar.id).await?;
+    let _new_sync_token = db::users::increment_sync_token(&pool, user.id).await?;
 
     Ok((status_code, [(header::ETAG, format!("\"{}\"", etag))], "").into_response())
 }
@@ -225,9 +216,9 @@ async fn caldav_report(
     Path(user_identifier): Path<String>,
     body: Body,
 ) -> Result<Response, ApiError> {
-    let user_id = resolve_user_id(&pool, &user_identifier).await?;
+    let user = resolve_user(&pool, &user_identifier).await?;
 
-    tracing::debug!("REPORT request for user {}", user_id);
+    tracing::debug!("REPORT request for user {}", user.id);
 
     // Read body
     let body_bytes = axum::body::to_bytes(body, MAX_CALDAV_BODY_SIZE)
@@ -248,14 +239,10 @@ async fn caldav_report(
         e
     })?;
 
-    // Get calendar for user
-    let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;
-
     match report_type {
         caldav_xml::ReportType::CalendarQuery { start, end } => {
             // Query events with optional time range
-            let events =
-                db::events::list_events(&pool, calendar.id, start, end, None, None).await?;
+            let events = db::events::list_events(&pool, user.id, start, end, None, None).await?;
 
             tracing::info!(
                 "CalendarQuery: returning {} events (range: {:?} to {:?})",
@@ -306,15 +293,15 @@ async fn caldav_report(
             // Get events modified since last sync
             // For now, if sync_token is 0 or missing, return all events
             let events = if last_sync_token == 0 {
-                db::events::list_events(&pool, calendar.id, None, None, None, None).await?
+                db::events::list_events(&pool, user.id, None, None, None, None).await?
             } else {
-                db::events::list_events_since_sync(&pool, calendar.id, last_sync_token).await?
+                db::events::list_events_since_sync(&pool, user.id, last_sync_token).await?
             };
 
             tracing::info!(
-                "SyncCollection: returning {} events, calendar sync_token={}",
+                "SyncCollection: returning {} events, user sync_token={}",
                 events.len(),
-                calendar.sync_token
+                user.sync_token
             );
 
             // Generate iCalendar data for each event
@@ -330,15 +317,14 @@ async fn caldav_report(
 
             // Fetch deleted events
             let deleted_uids = if last_sync_token > 0 {
-                db::events::list_deleted_events_since_sync(&pool, calendar.id, last_sync_token)
-                    .await?
+                db::events::list_deleted_events_since_sync(&pool, user.id, last_sync_token).await?
             } else {
                 Vec::new()
             };
 
             let response_xml = caldav_xml::generate_sync_collection_response(
                 &user_identifier,
-                &calendar,
+                &user,
                 &events,
                 &ical_data,
                 &deleted_uids,
@@ -381,8 +367,7 @@ async fn caldav_report(
 
             // Fetch events by UIDs in batch
             let uid_strs: Vec<&str> = requested_uids.iter().map(|s| s.as_str()).collect();
-            let fetched_events =
-                db::events::get_events_by_uids(&pool, calendar.id, &uid_strs).await?;
+            let fetched_events = db::events::get_events_by_uids(&pool, user.id, &uid_strs).await?;
 
             let mut events = Vec::new();
             let mut ical_data = Vec::new();
@@ -399,10 +384,6 @@ async fn caldav_report(
                     }
                 }
             }
-
-            // Note: Missing events are implicitly handled by not being in the list.
-            // CalDAV Multistatus response will just omit them or client will assume 404 if not present in multistatus response (or we should explicitly return 404 propstat).
-            // The previous implementation skipped missing events, so we do the same here.
 
             let response_xml = caldav_xml::generate_calendar_multiget_response(
                 &user_identifier,
@@ -430,12 +411,9 @@ async fn caldav_delete_event(
     Path((user_identifier, event_uid)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let user_id = resolve_user_id(&pool, &user_identifier).await?;
+    let user = resolve_user(&pool, &user_identifier).await?;
 
-    tracing::debug!("DELETE event {} for user {}", event_uid, user_id);
-
-    // Get calendar for user
-    let calendar = db::calendars::get_or_create_calendar(&pool, user_id).await?;
+    tracing::debug!("DELETE event {} for user {}", event_uid, user.id);
 
     // Check If-Match header for ETag (optional but recommended)
     if let Some(if_match) = headers.get(header::IF_MATCH) {
@@ -444,7 +422,7 @@ async fn caldav_delete_event(
             .map_err(|_| ApiError::BadRequest("Invalid If-Match header".to_string()))?;
 
         // Get current event to check ETag
-        if let Some(event) = db::events::get_event_by_uid(&pool, calendar.id, &event_uid).await? {
+        if let Some(event) = db::events::get_event_by_uid(&pool, user.id, &event_uid).await? {
             let current_etag = format!("\"{}\"", event.etag);
             if requested_etag != current_etag && requested_etag != "*" {
                 return Err(ApiError::Conflict(format!(
@@ -460,10 +438,10 @@ async fn caldav_delete_event(
     let mut tx = pool.begin().await?;
 
     // Increment sync token first so the deletion picks up the new token
-    let _new_sync_token = db::calendars::increment_sync_token_tx(&mut tx, calendar.id).await?;
+    let _new_sync_token = db::users::increment_sync_token_tx(&mut tx, user.id).await?;
 
     // Delete event
-    let deleted = db::events::delete_event_by_uid_tx(&mut tx, calendar.id, &event_uid).await?;
+    let deleted = db::events::delete_event_by_uid_tx(&mut tx, user.id, &event_uid).await?;
 
     if !deleted {
         return Err(ApiError::NotFound(format!(
@@ -477,29 +455,26 @@ async fn caldav_delete_event(
     Ok((StatusCode::NO_CONTENT, "").into_response())
 }
 
-/// Resolve user identifier (numeric ID or username) to internal UUID
-async fn resolve_user_id(pool: &PgPool, identifier: &str) -> Result<Uuid, ApiError> {
+/// Resolve user identifier (numeric ID or username) to User
+///
+/// The identifier can be:
+/// - A numeric Telegram ID (e.g., "123456789")
+/// - A Telegram username (e.g., "myusername")
+async fn resolve_user(pool: &PgPool, identifier: &str) -> Result<User, ApiError> {
     // Try as numeric ID first
     if let Ok(telegram_id) = identifier.parse::<i64>() {
-        let user_id = sqlx::query_scalar("SELECT id FROM users WHERE telegram_id = $1")
-            .bind(telegram_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
+        let user = db::users::get_user_by_id(pool, UserId::new(telegram_id))
+            .await?
             .ok_or_else(|| ApiError::NotFound(format!("User not found: {identifier}")))?;
-        return Ok(user_id);
+        return Ok(user);
     }
 
     // Try as username
-    let user_id =
-        sqlx::query_scalar("SELECT id FROM users WHERE lower(telegram_username) = lower($1)")
-            .bind(identifier)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
-            .ok_or_else(|| ApiError::NotFound(format!("User not found: {identifier}")))?;
+    let user = db::users::get_user_by_username(pool, identifier)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("User not found: {identifier}")))?;
 
-    Ok(user_id)
+    Ok(user)
 }
 
 /// CalDAV routes

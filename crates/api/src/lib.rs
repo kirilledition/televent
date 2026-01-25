@@ -10,11 +10,11 @@ use axum::extract::FromRef;
 use axum::{Router, middleware as axum_middleware};
 use moka::future::Cache;
 use sqlx::PgPool;
+use televent_core::models::UserId;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
-use uuid::Uuid;
 
 use crate::middleware::caldav_auth::{LoginId, caldav_basic_auth};
 use crate::middleware::rate_limit::{
@@ -25,7 +25,7 @@ use crate::middleware::telegram_auth::telegram_auth;
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
-    pub auth_cache: Cache<(LoginId, String), Uuid>,
+    pub auth_cache: Cache<(LoginId, String), UserId>,
     pub telegram_bot_token: String,
 }
 
