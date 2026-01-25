@@ -201,7 +201,7 @@ Line 4: Location (optional)"#
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{Local, Timelike};
+    use chrono::{Duration, Local, Timelike};
 
     #[test]
     fn test_parse_minimal_event() {
