@@ -139,22 +139,6 @@ pub async fn get_events_by_uids(
     Ok(events)
 }
 
-/// Delete event by UID
-#[allow(dead_code)]
-pub async fn delete_event_by_uid(
-    pool: &PgPool,
-    user_id: UserId,
-    uid: &str,
-) -> Result<bool, ApiError> {
-    let result = sqlx::query("DELETE FROM events WHERE user_id = $1 AND uid = $2")
-        .bind(user_id)
-        .bind(uid)
-        .execute(pool)
-        .await?;
-
-    Ok(result.rows_affected() > 0)
-}
-
 /// Delete event by UID (within transaction)
 pub async fn delete_event_by_uid_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

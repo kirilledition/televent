@@ -123,7 +123,6 @@ pub struct PendingInvite {
 }
 
 /// Attendee information for display
-#[allow(dead_code)]
 #[derive(Debug, Clone, FromRow)]
 pub struct AttendeeInfo {
     pub email: String,
@@ -425,7 +424,6 @@ impl BotDb {
     }
 
     /// Get all attendees for an event
-    #[allow(dead_code)]
     pub async fn get_event_attendees(
         &self,
         event_id: Uuid,

@@ -311,20 +311,6 @@ pub enum OutboxStatus {
     Failed,
 }
 
-/// Audit log entry for GDPR compliance
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct AuditLog {
-    pub id: Uuid,
-    #[schema(value_type = String)]
-    pub user_id: UserId,
-    pub action: String, // "event_created" | "data_exported" | "account_deleted"
-    pub entity_type: String,
-    pub entity_id: Option<Uuid>,
-    pub ip_address: Option<String>,
-    pub user_agent: Option<String>,
-    pub created_at: DateTime<Utc>,
-}
-
 /// Event attendee with RSVP status
 #[typeshare]
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]

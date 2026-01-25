@@ -252,7 +252,7 @@ async fn test_dispatcher_export_command(pool: PgPool) {
 
     // Setup user and event
     let telegram_id = 1;
-    let user = db
+    let _user = db
         .ensure_user_setup(telegram_id, Some("exportuser"))
         .await
         .unwrap();

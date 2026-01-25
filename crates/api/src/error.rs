@@ -71,12 +71,6 @@ impl From<CalendarError> for ApiError {
             CalendarError::EventNotFound(id) => {
                 ApiError::NotFound(format!("Event not found: {}", id))
             }
-            CalendarError::CalendarNotFound(id) => {
-                ApiError::NotFound(format!("Calendar not found: {}", id))
-            }
-            CalendarError::UserNotFound(id) => {
-                ApiError::NotFound(format!("User not found: {}", id))
-            }
             CalendarError::VersionConflict { expected, actual } => ApiError::Conflict(format!(
                 "Version conflict: expected {}, got {}",
                 expected, actual
@@ -88,7 +82,6 @@ impl From<CalendarError> for ApiError {
                 ApiError::BadRequest(format!("Invalid timezone: {}", tz))
             }
             CalendarError::InvalidEventData(msg) => ApiError::BadRequest(msg),
-            CalendarError::PermissionDenied => ApiError::Forbidden,
         }
     }
 }
@@ -166,17 +159,6 @@ mod tests {
                 assert!(msg.contains("got 3"));
             }
             _ => panic!("Expected Conflict error"),
-        }
-    }
-
-    #[test]
-    fn test_permission_denied_conversion() {
-        let err = CalendarError::PermissionDenied;
-        let api_err: ApiError = err.into();
-
-        match api_err {
-            ApiError::Forbidden => {}
-            _ => panic!("Expected Forbidden error"),
         }
     }
 }

@@ -89,21 +89,3 @@ pub async fn increment_sync_token_tx(
 
     Ok(result)
 }
-
-/// Update user's timezone
-#[allow(dead_code)]
-pub async fn update_timezone(
-    pool: &PgPool,
-    user_id: UserId,
-    timezone: &str,
-) -> Result<User, ApiError> {
-    let user = sqlx::query_as::<_, User>(
-        "UPDATE users SET timezone = $2, updated_at = NOW() WHERE telegram_id = $1 RETURNING *",
-    )
-    .bind(user_id)
-    .bind(timezone)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(user)
-}

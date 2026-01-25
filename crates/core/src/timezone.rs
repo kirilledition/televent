@@ -63,39 +63,6 @@ pub fn validate_timezone(tz_str: &str) -> CalendarResult<()> {
     Ok(())
 }
 
-/// Get the default timezone (UTC)
-pub fn default_timezone() -> Tz {
-    Tz::UTC
-}
-
-/// A validated IANA timezone
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Timezone(String);
-
-impl Timezone {
-    /// Create a new Timezone if valid
-    pub fn new(tz: &str) -> CalendarResult<Self> {
-        validate_timezone(tz)?;
-        Ok(Self(tz.to_string()))
-    }
-
-    /// Get the inner string
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// Get the inner string
-    pub fn into_inner(self) -> String {
-        self.0
-    }
-}
-
-impl std::fmt::Display for Timezone {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,27 +135,5 @@ mod tests {
         assert!(validate_timezone("Europe/London").is_ok());
         assert!(validate_timezone("America/Los_Angeles").is_ok());
         assert!(validate_timezone("Invalid/Zone").is_err());
-    }
-
-    #[test]
-    fn test_default_timezone() {
-        let tz = default_timezone();
-        assert_eq!(tz.name(), "UTC");
-    }
-
-    #[test]
-    fn test_timezone_struct_valid() {
-        let tz = Timezone::new("America/New_York");
-        assert!(tz.is_ok());
-        let tz = tz.unwrap();
-        assert_eq!(tz.as_str(), "America/New_York");
-        assert_eq!(tz.to_string(), "America/New_York");
-        assert_eq!(tz.into_inner(), "America/New_York");
-    }
-
-    #[test]
-    fn test_timezone_struct_invalid() {
-        let tz = Timezone::new("Invalid/Zone");
-        assert!(tz.is_err());
     }
 }

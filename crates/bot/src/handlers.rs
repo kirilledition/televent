@@ -29,13 +29,30 @@ pub async fn handle_start(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         return Ok(());
     }
 
-    let welcome_text = "👋 <b>Welcome to Televent!</b>\n\n\
+    let welcome_text = "Welcome to Televent!\n\n\
          Your Telegram-native calendar with CalDAV sync.\n\n\
-         <b>Quick Commands:</b>\n\
+         To create an event, send a message with multiple lines:\n\
+         1. Title\n\
+         2. Date/Time\n\
+         3. Duration (minutes, optional)\n\
+         4. Location (optional)\n\n\
+         Examples:\n\
+         \n\
+         [Exact Syntax]\n\
+         Team Meeting\n\
+         2026-01-25 14:00\n\
+         60\n\
+         Conference Room A\n\
+         \n\
+         [Natural Language]\n\
+         Coffee with Alice\n\
+         tomorrow at 3pm\n\
+         30\n\
+         Starbucks\n\n\
+         Commands:\n\
          /list - View upcoming events\n\
          /device - Manage CalDAV device passwords\n\
-         /help - Show all commands\n\n\
-         Your account is ready! Get started by sending a message to create your first event.";
+         /help - Show all commands";
 
     bot.send_message(msg.chat.id, welcome_text)
         .parse_mode(ParseMode::Html)
@@ -703,9 +720,22 @@ pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()
         return Ok(());
     }
 
-    // Skip messages with fewer than 2 lines (not enough for event creation)
+    // Skip messages with fewer than 2 lines (not enough for event creation), but send help
     let line_count = text.lines().count();
     if line_count < 2 {
+        let help_text = "To create an event, please use the following format:\n\n\
+             [Exact Syntax]\n\
+             Team Meeting\n\
+             2026-01-25 14:00\n\
+             60\n\
+             Conference Room A\n\n\
+             [Natural Language]\n\
+             Coffee with Alice\n\
+             tomorrow at 3pm\n\
+             30\n\
+             Starbucks";
+
+        bot.send_message(msg.chat.id, help_text).await?;
         return Ok(());
     }
 

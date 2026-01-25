@@ -185,13 +185,13 @@ fn parse_datetime(input: &str) -> Result<DateTime<Utc>, ParseError> {
 
 /// Format examples for user help message
 pub fn format_example() -> &'static str {
-    r#"<b>Example:</b>
+    r#"Example:
 Team Meeting
 tomorrow at 2pm
 60
 Conference Room A
 
-<b>Format:</b>
+Format:
 Line 1: Event title
 Line 2: Date/time (e.g., "tomorrow 2pm", "next Monday 10:00", "2026-01-25 14:00")
 Line 3: Duration in minutes (optional, default: 60)
