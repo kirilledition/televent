@@ -65,8 +65,6 @@ erDiagram
         bigint telegram_id PK "Primary Key"
         text telegram_username
         text timezone "Default: UTC"
-        text calendar_name "Default: My Calendar"
-        text calendar_color "Default: #3b82f6"
         text sync_token "CalDAV sync token"
         text ctag "Collection tag"
         timestamptz created_at

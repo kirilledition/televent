@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::Serialize;
 use sqlx::PgPool;
-use televent_core::models::UserId;
+use televent_core::models::{CALENDAR_COLOR, CALENDAR_NAME, UserId};
 use utoipa::ToSchema;
 
 use crate::{db, error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
@@ -50,8 +50,8 @@ async fn list_calendars(
 
     let calendar_info = CalendarInfo {
         id: user.id,
-        name: user.calendar_name,
-        color: user.calendar_color,
+        name: CALENDAR_NAME.to_string(),
+        color: CALENDAR_COLOR.to_string(),
         sync_token: user.sync_token,
     };
 

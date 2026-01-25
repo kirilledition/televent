@@ -3,6 +3,12 @@
 //! These models represent the core business entities and map to database tables.
 
 use chrono::{DateTime, NaiveDate, Utc};
+
+/// Calendar name constant (shared by all users)
+pub const CALENDAR_NAME: &str = "televent";
+
+/// Calendar color constant (shared by all users)
+pub const CALENDAR_COLOR: &str = "#74c7ec";
 use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -190,10 +196,6 @@ pub struct User {
     pub telegram_username: Option<String>,
     /// IANA timezone (e.g., "Asia/Singapore")
     pub timezone: Timezone,
-    /// Calendar display name
-    pub calendar_name: String,
-    /// Calendar hex color for UI
-    pub calendar_color: String,
     /// RFC 6578 sync token for CalDAV sync-collection
     pub sync_token: String,
     /// Collection tag for change detection
@@ -428,8 +430,6 @@ mod tests {
             id: UserId::new(123456789),
             telegram_username: Some("testuser".to_string()),
             timezone: Timezone::default(),
-            calendar_name: "My Calendar".to_string(),
-            calendar_color: "#3b82f6".to_string(),
             sync_token: "0".to_string(),
             ctag: "0".to_string(),
             created_at: Utc::now(),
@@ -445,8 +445,6 @@ mod tests {
             id: UserId::new(123456789),
             telegram_username: None,
             timezone: Timezone::default(),
-            calendar_name: "My Calendar".to_string(),
-            calendar_color: "#3b82f6".to_string(),
             sync_token: "0".to_string(),
             ctag: "0".to_string(),
             created_at: Utc::now(),

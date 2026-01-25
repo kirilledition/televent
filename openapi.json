@@ -1074,22 +1074,12 @@
         "required": [
           "id",
           "timezone",
-          "calendar_name",
-          "calendar_color",
           "sync_token",
           "ctag",
           "created_at",
           "updated_at"
         ],
         "properties": {
-          "calendar_color": {
-            "type": "string",
-            "description": "Calendar hex color for UI"
-          },
-          "calendar_name": {
-            "type": "string",
-            "description": "Calendar display name"
-          },
           "created_at": {
             "type": "string",
             "format": "date-time"

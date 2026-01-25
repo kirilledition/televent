@@ -8,7 +8,7 @@ use quick_xml::Writer;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use std::collections::HashMap;
 use std::io::Cursor;
-use televent_core::models::{Event as CalEvent, User};
+use televent_core::models::{CALENDAR_NAME, Event as CalEvent, User};
 // use uuid::Uuid;
 
 use crate::error::ApiError;
@@ -423,7 +423,7 @@ fn write_calendar_response(
     write_end_tag(writer, "d:resourcetype")?;
 
     // <displayname>
-    write_string_tag(writer, "d:displayname", &user.calendar_name)?;
+    write_string_tag(writer, "d:displayname", CALENDAR_NAME)?;
 
     // <getctag>
     write_string_tag(writer, "cal:getctag", &user.ctag)?;
@@ -595,8 +595,6 @@ mod tests {
             id: UserId::new(123456789),
             telegram_username: Some("testuser".to_string()),
             timezone: Timezone::default(),
-            calendar_name: "Test Calendar".to_string(),
-            calendar_color: "#ff0000".to_string(),
             sync_token: "1".to_string(),
             ctag: "123456".to_string(),
             created_at: now,
@@ -637,7 +635,7 @@ mod tests {
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
-        assert!(xml.contains("Test Calendar"));
+        assert!(xml.contains(CALENDAR_NAME));
         assert!(xml.contains("123456")); // ctag
         assert!(xml.contains("VEVENT"));
         // Should not contain any event hrefs for depth 0
@@ -653,7 +651,7 @@ mod tests {
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
-        assert!(xml.contains("Test Calendar"));
+        assert!(xml.contains(CALENDAR_NAME));
         // Should contain event href for depth 1
         assert!(xml.contains("test-event-1.ics"));
         assert!(xml.contains("abc123")); // etag
@@ -663,8 +661,6 @@ mod tests {
     #[test]
     fn test_xml_structure_valid() {
         let mut user = test_user();
-        user.calendar_name = "Test".to_string();
-        user.calendar_color = "#000000".to_string();
         user.sync_token = "0".to_string();
         user.ctag = "0".to_string();
 

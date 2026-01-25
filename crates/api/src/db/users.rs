@@ -107,21 +107,3 @@ pub async fn update_timezone(
 
     Ok(user)
 }
-
-/// Update user's calendar name
-#[allow(dead_code)]
-pub async fn update_calendar_name(
-    pool: &PgPool,
-    user_id: UserId,
-    name: &str,
-) -> Result<User, ApiError> {
-    let user = sqlx::query_as::<_, User>(
-        "UPDATE users SET calendar_name = $2, updated_at = NOW() WHERE telegram_id = $1 RETURNING *",
-    )
-    .bind(user_id)
-    .bind(name)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(user)
-}

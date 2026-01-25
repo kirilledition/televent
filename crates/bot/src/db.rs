@@ -206,8 +206,8 @@ impl BotDb {
         // Create user if doesn't exist - user now IS the calendar
         sqlx::query(
             r#"
-            INSERT INTO users (telegram_id, telegram_username, timezone, calendar_name, calendar_color, sync_token, ctag)
-            VALUES ($1, $2, 'UTC', 'My Calendar', '#3B82F6', '1', gen_random_uuid()::text)
+            INSERT INTO users (telegram_id, telegram_username, timezone, sync_token, ctag)
+            VALUES ($1, $2, 'UTC', '1', gen_random_uuid()::text)
             ON CONFLICT (telegram_id) DO UPDATE SET
                 telegram_username = COALESCE(EXCLUDED.telegram_username, users.telegram_username)
             "#,

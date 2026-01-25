@@ -18,11 +18,11 @@ async fn setup_user(pool: &PgPool) -> i64 {
     sqlx::query(
         r#"
         INSERT INTO users (
-            telegram_id, telegram_username, timezone, 
-            calendar_name, calendar_color, sync_token, ctag, 
+            telegram_id, telegram_username, timezone,
+            sync_token, ctag,
             created_at, updated_at
-        ) 
-        VALUES ($1, $2, 'UTC', 'Default Calendar', '#3b82f6', '0', '0', NOW(), NOW())
+        )
+        VALUES ($1, $2, 'UTC', '0', '0', NOW(), NOW())
         "#,
     )
     .bind(telegram_id)
