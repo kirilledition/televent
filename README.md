@@ -50,6 +50,106 @@ flowchart TB
 | frontend      | Frontend. Telegram Mini App and Web Dashboard.                   | Next.js, Tailwind, Telegram SDK |
 | migrations/   | Database Schema. SQLx migration files.                           | sql                             |
 
+## Database Schema
+
+```mermaid
+erDiagram
+    users ||--o{ events : "owns"
+    users ||--o{ device_passwords : "has"
+    users ||--o{ deleted_events : "syncs"
+    events ||--o{ event_attendees : "has"
+
+    users {
+        bigint telegram_id PK "Primary Key"
+        text telegram_username
+        text timezone "Default: UTC"
+        text calendar_name "Default: My Calendar"
+        text calendar_color "Default: #3b82f6"
+        text sync_token "CalDAV sync token"
+        text ctag "Collection tag"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    events {
+        uuid id PK
+        bigint user_id FK "Ref: users.telegram_id"
+        text uid "iCaL UID"
+        text summary
+        text description
+        text location
+        timestamptz start
+        timestamptz end
+        boolean is_all_day
+        enum status "CONFIRMED, TENTATIVE, CANCELLED"
+        text rrule "RRULE string"
+        text timezone
+        integer version
+        text etag "SHA256 hash"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    device_passwords {
+        uuid id PK
+        bigint user_id FK "Ref: users.telegram_id"
+        text device_name
+        text password_hash "Argon2id"
+        timestamptz created_at
+        timestamptz last_used_at
+    }
+
+    deleted_events {
+        uuid id PK
+        bigint user_id FK "Ref: users.telegram_id"
+        text uid
+        bigint deletion_token "Sync token at deletion"
+        timestamptz deleted_at
+    }
+
+    event_attendees {
+        uuid id PK
+        uuid event_id FK "Ref: events.id"
+        text email "Internal or External"
+        bigint telegram_id "Nullable"
+        text role "ORGANIZER, ATTENDEE"
+        text status "NEEDS-ACTION, ACCEPTED..."
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    outbox_messages {
+        uuid id PK
+        text message_type
+        jsonb payload
+        enum status "pending, processing, completed, failed"
+        integer retry_count
+        timestamptz scheduled_at
+        timestamptz processed_at
+        text error_message
+    }
+
+    deleted_users {
+        uuid id PK
+        bigint telegram_id
+        text telegram_username
+        jsonb data_snapshot
+        timestamptz deletion_requested_at
+        timestamptz permanent_deletion_at
+        text deleted_by
+    }
+```
+
+### Schema Description
+
+- **users**: Stores Telegram users. `telegram_id` is the primary key and links to Telegram's ecosystem. Calendar data (`sync_token`, `ctag`) is merged directly into this table (each user has one calendar).
+- **events**: Calendar events. Linked to `users` via `telegram_id`.
+- **event_attendees**: Participants in events. Can be internal (linked via `telegram_id` if known) or external (email only).
+- **device_passwords**: App-specific passwords for CalDAV clients (Thunderbird, iOS) to authenticate using Basic Auth, as Telegram doesn't provide passwords.
+- **deleted_events**: Tombstones for tracking deletions during CalDAV sync (RFC 6578).
+- **outbox_messages**: Transactional outbox for asynchronous tasks like sending emails or Telegram notifications.
+- **deleted_users**: Archive of soft-deleted users (GDPR compliance).
+
 ## Bot Commands
 
 ### Account Setup
@@ -220,7 +320,7 @@ Create a lightweight, static Single Page Application (SPA) to serve as the GUI f
 
 
 
-I know that there can be only one telegram handle. and for users who does not have handle, telegram has one numberic id. we also do not allow creation of more then one calendar in our app. Therefor we can use telegram handle as unique identifier for user and calendar in database and data models and code. no need to hide this handle. for users without set handle, i propose using their numeric id as unique identifier. refactor the code to stop using other artificial identifiers.
+I know that there can be only one telegram id. and for users who does not have handle, telegram has one numeric id. we also do not allow creation of more than one calendar in our app. Since handles can be changed, we must use the numeric Telegram ID as the unique identifier for users and calendars in the database and data models no need to generate our own ids. However, for the calendar server URL and login credentials, we should use the Telegram handle if available; otherwise, fall back to the numeric ID. Refactor the code to use the numeric ID as the primary key and stop using other artificial identifiers.
 allowed-tools: [Read, Write, Glob, SlashCommand, AskUserQuestion, serena mcp, context7 mcp, supabase mcp]
 remember to activate serena project
 <context>
