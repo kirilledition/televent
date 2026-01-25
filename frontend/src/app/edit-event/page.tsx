@@ -24,7 +24,7 @@ function EditEventContent() {
   // If no ID is provided, go back
   if (!id) {
     return (
-      <div className="p-8 text-center text-red">
+      <div className="text-red p-8 text-center">
         Invalid Event ID
         <br />
         <button
