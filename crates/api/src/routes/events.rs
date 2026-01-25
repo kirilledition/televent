@@ -12,6 +12,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use televent_core::models::{Event, EventStatus};
+use televent_core::timezone::Timezone;
 use uuid::Uuid;
 
 /// Create event request
@@ -25,7 +26,7 @@ pub struct CreateEventRequest {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
     pub is_all_day: bool,
-    pub timezone: String,
+    pub timezone: Timezone,
     pub rrule: Option<String>,
 }
 
@@ -65,7 +66,7 @@ pub struct EventResponse {
     pub end: DateTime<Utc>,
     pub is_all_day: bool,
     pub status: EventStatus,
-    pub timezone: String,
+    pub timezone: Timezone,
     pub rrule: Option<String>,
     pub version: i32,
     pub etag: String,
@@ -213,7 +214,7 @@ mod tests {
             end: Utc::now(),
             is_all_day: false,
             status: EventStatus::Confirmed,
-            timezone: "UTC".to_string(),
+            timezone: Timezone::new("UTC").unwrap(),
             rrule: None,
             version: 1,
             etag: "abc123".to_string(),
@@ -227,6 +228,7 @@ mod tests {
         assert_eq!(response.summary, event.summary);
         assert_eq!(response.status, event.status);
         assert_eq!(response.version, event.version);
+        assert_eq!(response.timezone.as_str(), "UTC");
     }
 
     #[test]
@@ -248,6 +250,7 @@ mod tests {
         assert_eq!(req.summary, "Test Event");
         assert_eq!(req.description, Some("Test Description".to_string()));
         assert!(req.rrule.is_none());
+        assert_eq!(req.timezone.as_str(), "UTC");
     }
 
     #[test]

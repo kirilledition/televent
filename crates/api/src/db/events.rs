@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use televent_core::models::{Event, EventStatus};
+use televent_core::timezone::Timezone;
 use uuid::Uuid;
 
 /// Create a new event
@@ -19,7 +20,7 @@ pub async fn create_event(
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     is_all_day: bool,
-    timezone: String,
+    timezone: Timezone,
     rrule: Option<String>,
 ) -> Result<Event, ApiError> {
     // Validate time range

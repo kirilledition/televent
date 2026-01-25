@@ -2,6 +2,7 @@
 //!
 //! These models represent the core business entities and map to database tables.
 
+use crate::timezone::Timezone;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -12,7 +13,7 @@ pub struct User {
     pub id: Uuid,
     pub telegram_id: i64,
     pub telegram_username: Option<String>,
-    pub timezone: String, // IANA timezone (e.g., "Asia/Singapore")
+    pub timezone: Timezone, // IANA timezone (e.g., "Asia/Singapore")
     pub created_at: DateTime<Utc>,
 }
 
@@ -43,7 +44,7 @@ pub struct Event {
     pub is_all_day: bool,
     pub status: EventStatus,   // CONFIRMED | TENTATIVE | CANCELLED
     pub rrule: Option<String>, // RFC 5545 recurrence rule
-    pub timezone: String,      // VTIMEZONE reference
+    pub timezone: Timezone,    // VTIMEZONE reference
     pub version: i32,          // Optimistic locking
     pub etag: String,          // HTTP ETag for conflict detection
     pub created_at: DateTime<Utc>,
@@ -155,7 +156,7 @@ mod tests {
             id: Uuid::new_v4(),
             telegram_id: 123456789,
             telegram_username: Some("testuser".to_string()),
-            timezone: "America/New_York".to_string(),
+            timezone: Timezone::new("America/New_York").unwrap(),
             created_at: Utc::now(),
         };
 
@@ -224,7 +225,7 @@ mod tests {
             is_all_day: false,
             status: EventStatus::Confirmed,
             rrule: None,
-            timezone: "UTC".to_string(),
+            timezone: Timezone::new("UTC").unwrap(),
             version: 1,
             etag: "abc123".to_string(),
             created_at: Utc::now(),
@@ -239,6 +240,7 @@ mod tests {
         assert_eq!(event.summary, deserialized.summary);
         assert_eq!(event.status, deserialized.status);
         assert_eq!(event.version, deserialized.version);
+        assert_eq!(event.timezone.as_str(), "UTC");
     }
 
     #[test]

@@ -615,6 +615,7 @@ mod tests {
     use super::*;
     use chrono::{Datelike, Utc};
     use televent_core::models::EventStatus;
+    use televent_core::timezone::Timezone;
     use uuid::Uuid;
 
     #[test]
@@ -673,7 +674,7 @@ mod tests {
             is_all_day: false,
             rrule: None,
             status: EventStatus::Confirmed,
-            timezone: "UTC".to_string(),
+            timezone: Timezone::new("UTC").unwrap(),
             created_at: now,
             updated_at: now,
         };
@@ -837,7 +838,7 @@ mod tests {
             is_all_day: false,
             rrule: None,
             status: EventStatus::Confirmed,
-            timezone: "UTC".to_string(),
+            timezone: Timezone::new("UTC").unwrap(),
             created_at: now,
             updated_at: now,
         };
@@ -888,7 +889,7 @@ mod tests {
             is_all_day: false,
             rrule: None,
             status: EventStatus::Confirmed,
-            timezone: "UTC".to_string(),
+            timezone: Timezone::new("UTC").unwrap(),
             created_at: now,
             updated_at: now,
         };
@@ -964,7 +965,7 @@ mod tests {
                 is_all_day: false,
                 rrule: None,
                 status: EventStatus::Confirmed,
-                timezone: "UTC".to_string(),
+                timezone: Timezone::new("UTC").unwrap(),
                 created_at: now,
                 updated_at: now,
             };

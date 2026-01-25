@@ -8,6 +8,7 @@ mod tests {
     use super::*;
     use chrono::{TimeZone, Utc};
     use sqlx::PgPool;
+    use televent_core::timezone::Timezone;
     use uuid::Uuid;
 
     #[sqlx::test]
@@ -52,7 +53,7 @@ mod tests {
             start,
             end,
             false,
-            "UTC".to_string(),
+            Timezone::new("UTC").unwrap(),
             None,
         )
         .await

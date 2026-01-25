@@ -5,6 +5,7 @@
 use chrono::{DateTime, Utc};
 use icalendar::{Calendar, Component, Event as IcalEvent, EventLike};
 use televent_core::models::{Event, EventStatus};
+use televent_core::timezone::Timezone;
 
 use crate::error::ApiError;
 
@@ -85,7 +86,7 @@ pub fn ical_to_event_data(
         bool,
         Option<String>,
         EventStatus,
-        String,
+        Timezone,
     ),
     ApiError,
 > {
@@ -100,7 +101,7 @@ pub fn ical_to_event_data(
     let mut is_all_day = false;
     let mut rrule = None;
     let mut status = EventStatus::Confirmed;
-    let mut timezone = "UTC".to_string();
+    let mut timezone = Timezone::new("UTC").unwrap();
 
     for line in ical_str.lines() {
         let line = line.trim();
@@ -142,7 +143,8 @@ pub fn ical_to_event_data(
                         if let Some(tzid_start) = params_str.find("TZID=") {
                             let tz_part = &params_str[tzid_start + 5..];
                             let tz_end = tz_part.find(';').unwrap_or(tz_part.len());
-                            timezone = tz_part[..tz_end].to_string();
+                            let tz_str = &tz_part[..tz_end];
+                            timezone = Timezone::new(tz_str).unwrap_or_else(|_| Timezone::new("UTC").unwrap());
                         }
                     }
                     dtstart = Some(value.to_string());
@@ -239,7 +241,7 @@ mod tests {
             is_all_day: false,
             rrule: None,
             status: EventStatus::Confirmed,
-            timezone: "UTC".to_string(),
+            timezone: Timezone::new("UTC").unwrap(),
             created_at: now,
             updated_at: now,
         }
@@ -324,7 +326,7 @@ END:VCALENDAR"#;
         assert!(!is_all_day);
         assert_eq!(rrule, None);
         assert_eq!(status, EventStatus::Confirmed);
-        assert_eq!(timezone, "UTC");
+        assert_eq!(timezone.as_str(), "UTC");
         assert!(end > start);
     }
 
@@ -411,6 +413,6 @@ END:VCALENDAR"#;
 
         let (_, _, _, _, _, _, _, _, _, timezone) = ical_to_event_data(ical).unwrap();
 
-        assert_eq!(timezone, "America/New_York");
+        assert_eq!(timezone.as_str(), "America/New_York");
     }
 }

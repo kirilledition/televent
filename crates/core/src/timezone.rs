@@ -4,6 +4,8 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use chrono_tz::Tz;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::str::FromStr;
 
 use crate::error::{CalendarError, CalendarResult};
 
@@ -69,30 +71,94 @@ pub fn default_timezone() -> Tz {
 }
 
 /// A validated IANA timezone
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Timezone(String);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Timezone(Tz);
 
 impl Timezone {
     /// Create a new Timezone if valid
     pub fn new(tz: &str) -> CalendarResult<Self> {
-        validate_timezone(tz)?;
-        Ok(Self(tz.to_string()))
+        let parsed = parse_timezone(tz)?;
+        Ok(Self(parsed))
     }
 
-    /// Get the inner string
-    pub fn as_str(&self) -> &str {
-        &self.0
+    /// Get the inner string name
+    pub fn as_str(&self) -> &'static str {
+        self.0.name()
     }
 
-    /// Get the inner string
-    pub fn into_inner(self) -> String {
+    /// Get the inner Tz
+    pub fn into_inner(self) -> Tz {
         self.0
+    }
+}
+
+impl Default for Timezone {
+    fn default() -> Self {
+        Self(Tz::UTC)
     }
 }
 
 impl std::fmt::Display for Timezone {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.0.name())
+    }
+}
+
+impl FromStr for Timezone {
+    type Err = CalendarError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s)
+    }
+}
+
+impl Serialize for Timezone {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Timezone {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::new(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+// SQLx integration
+use sqlx::{postgres::PgTypeInfo, Decode, Encode, Postgres, Type};
+
+impl Type<Postgres> for Timezone {
+    fn type_info() -> PgTypeInfo {
+        <String as Type<Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &PgTypeInfo) -> bool {
+        <String as Type<Postgres>>::compatible(ty)
+    }
+}
+
+impl Encode<'_, Postgres> for Timezone {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as sqlx::Database>::ArgumentBuffer<'_>,
+    ) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync + 'static>> {
+        <String as Encode<Postgres>>::encode(self.as_str().to_string(), buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for Timezone {
+    fn decode(
+        value: <Postgres as sqlx::Database>::ValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
+        let s = <String as Decode<Postgres>>::decode(value)?;
+        Ok(Self::new(&s)?)
     }
 }
 
@@ -183,12 +249,28 @@ mod tests {
         let tz = tz.unwrap();
         assert_eq!(tz.as_str(), "America/New_York");
         assert_eq!(tz.to_string(), "America/New_York");
-        assert_eq!(tz.into_inner(), "America/New_York");
+        assert_eq!(tz.into_inner().name(), "America/New_York");
     }
 
     #[test]
     fn test_timezone_struct_invalid() {
         let tz = Timezone::new("Invalid/Zone");
         assert!(tz.is_err());
+    }
+
+    #[test]
+    fn test_timezone_serde() {
+        let tz = Timezone::new("America/New_York").unwrap();
+        let json = serde_json::to_string(&tz).unwrap();
+        assert_eq!(json, "\"America/New_York\"");
+
+        let de: Timezone = serde_json::from_str(&json).unwrap();
+        assert_eq!(de, tz);
+    }
+
+    #[test]
+    fn test_timezone_from_str() {
+        let tz = Timezone::from_str("Europe/London").unwrap();
+        assert_eq!(tz.as_str(), "Europe/London");
     }
 }
