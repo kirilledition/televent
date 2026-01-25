@@ -1,11 +1,23 @@
 //! Event repository for database operations
 
 use crate::error::ApiError;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use televent_core::models::{Event, EventStatus, UserId};
+use televent_core::models::{Event, EventStatus, Timezone, UserId};
 use uuid::Uuid;
+
+/// Helper Enum to enforce valid input states
+pub enum EventTiming {
+    Timed {
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    },
+    AllDay {
+        date: NaiveDate,
+        end_date: NaiveDate,
+    },
+}
 
 /// Create a new event
 #[allow(clippy::too_many_arguments)]
@@ -16,30 +28,41 @@ pub async fn create_event(
     summary: String,
     description: Option<String>,
     location: Option<String>,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-    is_all_day: bool,
-    timezone: String,
+    timing: EventTiming,
+    timezone: Timezone,
     rrule: Option<String>,
 ) -> Result<Event, ApiError> {
-    // Validate time range
-    if end <= start {
-        return Err(ApiError::BadRequest(
-            "Event end time must be after start time".to_string(),
-        ));
-    }
+    let (start, end, start_date, end_date, is_all_day) = match timing {
+        EventTiming::Timed { start, end } => {
+            if end <= start {
+                return Err(ApiError::BadRequest(
+                    "Event end time must be after start time".to_string(),
+                ));
+            }
+            (Some(start), Some(end), None, None, false)
+        }
+        EventTiming::AllDay { date, end_date } => {
+            if end_date <= date {
+                return Err(ApiError::BadRequest(
+                    "Event end date must be after start date".to_string(),
+                ));
+            }
+            (None, None, Some(date), Some(end_date), true)
+        }
+    };
 
     let status = EventStatus::Confirmed;
 
-    // Generate ETag (SHA256 of event data)
+    // Generate ETag
     let etag = generate_etag(
         &uid,
         &summary,
         description.as_deref(),
         location.as_deref(),
-        &start,
-        &end,
-        is_all_day,
+        start.as_ref(),
+        end.as_ref(),
+        start_date.as_ref(),
+        end_date.as_ref(),
         &status,
         rrule.as_deref(),
     );
@@ -48,9 +71,9 @@ pub async fn create_event(
         r#"
         INSERT INTO events (
             user_id, uid, summary, description, location,
-            start, "end", is_all_day, status, timezone, rrule, etag
+            start, "end", start_date, end_date, is_all_day, status, timezone, rrule, etag
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING *
         "#,
     )
@@ -61,9 +84,11 @@ pub async fn create_event(
     .bind(&location)
     .bind(start)
     .bind(end)
+    .bind(start_date)
+    .bind(end_date)
     .bind(is_all_day)
     .bind(status)
-    .bind(&timezone)
+    .bind(timezone)
     .bind(&rrule)
     .bind(&etag)
     .fetch_one(pool)
@@ -232,6 +257,8 @@ pub async fn update_event(
     location: Option<String>,
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
+    start_date: Option<NaiveDate>,
+    end_date: Option<NaiveDate>,
     is_all_day: Option<bool>,
     status: Option<EventStatus>,
     rrule: Option<String>,
@@ -239,13 +266,45 @@ pub async fn update_event(
     // Get current event to compute new ETag with merged fields
     let current = get_event(pool, event_id).await?;
 
-    // Compute new field values for ETag generation
     let new_summary = summary.clone().unwrap_or_else(|| current.summary.clone());
     let new_description = description.clone().or_else(|| current.description.clone());
     let new_location = location.clone().or_else(|| current.location.clone());
-    let new_start = start.unwrap_or(current.start);
-    let new_end = end.unwrap_or(current.end);
+
     let new_is_all_day = is_all_day.unwrap_or(current.is_all_day);
+
+    // Resolve timing fields
+    let (new_start, new_end, new_start_date, new_end_date) = if new_is_all_day {
+        // Switching to or staying as All Day
+        let s_date = start_date.or(current.start_date).ok_or_else(|| {
+            ApiError::BadRequest("Missing start_date for all-day event".to_string())
+        })?;
+        let e_date = end_date.or(current.end_date).ok_or_else(|| {
+            ApiError::BadRequest("Missing end_date for all-day event".to_string())
+        })?;
+
+        if e_date <= s_date {
+            return Err(ApiError::BadRequest(
+                "End date must be after start date".to_string(),
+            ));
+        }
+        (None, None, Some(s_date), Some(e_date))
+    } else {
+        // Switching to or staying as Timed
+        let s = start.or(current.start).ok_or_else(|| {
+            ApiError::BadRequest("Missing start time for timed event".to_string())
+        })?;
+        let e = end
+            .or(current.end)
+            .ok_or_else(|| ApiError::BadRequest("Missing end time for timed event".to_string()))?;
+
+        if e <= s {
+            return Err(ApiError::BadRequest(
+                "End time must be after start time".to_string(),
+            ));
+        }
+        (Some(s), Some(e), None, None)
+    };
+
     let new_status = status.unwrap_or(current.status);
     let new_rrule = if rrule.is_some() {
         rrule.clone()
@@ -259,9 +318,10 @@ pub async fn update_event(
         &new_summary,
         new_description.as_deref(),
         new_location.as_deref(),
-        &new_start,
-        &new_end,
-        new_is_all_day,
+        new_start.as_ref(),
+        new_end.as_ref(),
+        new_start_date.as_ref(),
+        new_end_date.as_ref(),
         &new_status,
         new_rrule.as_deref(),
     );
@@ -272,27 +332,31 @@ pub async fn update_event(
         SET summary = COALESCE($2, summary),
             description = COALESCE($3, description),
             location = COALESCE($4, location),
-            start = COALESCE($5, start),
-            "end" = COALESCE($6, "end"),
-            is_all_day = COALESCE($7, is_all_day),
-            status = COALESCE($8, status),
-            rrule = COALESCE($9, rrule),
+            start = $5,
+            "end" = $6,
+            start_date = $7,
+            end_date = $8,
+            is_all_day = $9,
+            status = COALESCE($10, status),
+            rrule = COALESCE($11, rrule),
             version = version + 1,
-            etag = $10,
+            etag = $12,
             updated_at = NOW()
         WHERE id = $1
         RETURNING *
         "#,
     )
     .bind(event_id)
-    .bind(summary)
-    .bind(description)
-    .bind(location)
-    .bind(start)
-    .bind(end)
-    .bind(is_all_day)
-    .bind(status)
-    .bind(rrule)
+    .bind(new_summary)
+    .bind(new_description)
+    .bind(new_location)
+    .bind(new_start)
+    .bind(new_end)
+    .bind(new_start_date)
+    .bind(new_end_date)
+    .bind(new_is_all_day)
+    .bind(new_status)
+    .bind(new_rrule)
     .bind(new_etag)
     .fetch_optional(pool)
     .await?
@@ -324,9 +388,10 @@ fn generate_etag(
     summary: &str,
     description: Option<&str>,
     location: Option<&str>,
-    start: &DateTime<Utc>,
-    end: &DateTime<Utc>,
-    is_all_day: bool,
+    start: Option<&DateTime<Utc>>,
+    end: Option<&DateTime<Utc>>,
+    start_date: Option<&NaiveDate>,
+    end_date: Option<&NaiveDate>,
     status: &EventStatus,
     rrule: Option<&str>,
 ) -> String {
@@ -339,12 +404,19 @@ fn generate_etag(
     hasher.update("|");
     hasher.update(location.unwrap_or(""));
     hasher.update("|");
-    hasher.update(start.to_rfc3339());
+
+    if let (Some(s), Some(e)) = (start, end) {
+        hasher.update(s.to_rfc3339());
+        hasher.update("|");
+        hasher.update(e.to_rfc3339());
+    } else if let (Some(sd), Some(ed)) = (start_date, end_date) {
+        hasher.update(sd.to_string());
+        hasher.update("|");
+        hasher.update(ed.to_string());
+    }
+
     hasher.update("|");
-    hasher.update(end.to_rfc3339());
-    hasher.update("|");
-    hasher.update(if is_all_day { "true" } else { "false" });
-    hasher.update("|");
+    // status and rrule...
     match status {
         EventStatus::Confirmed => hasher.update("Confirmed"),
         EventStatus::Tentative => hasher.update("Tentative"),
@@ -353,8 +425,7 @@ fn generate_etag(
     hasher.update("|");
     hasher.update(rrule.unwrap_or(""));
 
-    let hash = hasher.finalize();
-    format!("{:x}", hash)
+    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]
@@ -369,8 +440,30 @@ mod tests {
         let end = "2026-01-18T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let status = EventStatus::Confirmed;
 
-        let etag1 = generate_etag(uid, summary, None, None, &start, &end, false, &status, None);
-        let etag2 = generate_etag(uid, summary, None, None, &start, &end, false, &status, None);
+        let etag1 = generate_etag(
+            uid,
+            summary,
+            None,
+            None,
+            Some(&start),
+            Some(&end),
+            None,
+            None,
+            &status,
+            None,
+        );
+        let etag2 = generate_etag(
+            uid,
+            summary,
+            None,
+            None,
+            Some(&start),
+            Some(&end),
+            None,
+            None,
+            &status,
+            None,
+        );
 
         assert_eq!(etag1, etag2);
         assert_eq!(etag1.len(), 64); // SHA256 produces 64 hex characters
@@ -386,10 +479,28 @@ mod tests {
         let status = EventStatus::Confirmed;
 
         let etag1 = generate_etag(
-            uid, summary1, None, None, &start, &end, false, &status, None,
+            uid,
+            summary1,
+            None,
+            None,
+            Some(&start),
+            Some(&end),
+            None,
+            None,
+            &status,
+            None,
         );
         let etag2 = generate_etag(
-            uid, summary2, None, None, &start, &end, false, &status, None,
+            uid,
+            summary2,
+            None,
+            None,
+            Some(&start),
+            Some(&end),
+            None,
+            None,
+            &status,
+            None,
         );
 
         assert_ne!(etag1, etag2);
@@ -405,10 +516,28 @@ mod tests {
         let status = EventStatus::Confirmed;
 
         let etag1 = generate_etag(
-            uid, summary, None, None, &start1, &end, false, &status, None,
+            uid,
+            summary,
+            None,
+            None,
+            Some(&start1),
+            Some(&end),
+            None,
+            None,
+            &status,
+            None,
         );
         let etag2 = generate_etag(
-            uid, summary, None, None, &start2, &end, false, &status, None,
+            uid,
+            summary,
+            None,
+            None,
+            Some(&start2),
+            Some(&end),
+            None,
+            None,
+            &status,
+            None,
         );
 
         assert_ne!(etag1, etag2);
@@ -422,15 +551,27 @@ mod tests {
         let end = "2026-01-18T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let status = EventStatus::Confirmed;
 
-        let etag1 = generate_etag(uid, summary, None, None, &start, &end, false, &status, None);
+        let etag1 = generate_etag(
+            uid,
+            summary,
+            None,
+            None,
+            Some(&start),
+            Some(&end),
+            None,
+            None,
+            &status,
+            None,
+        );
         let etag2 = generate_etag(
             uid,
             summary,
             Some("Description"),
             None,
-            &start,
-            &end,
-            false,
+            Some(&start),
+            Some(&end),
+            None,
+            None,
             &status,
             None,
         );
@@ -450,9 +591,10 @@ mod tests {
             summary,
             None,
             None,
-            &start,
-            &end,
-            false,
+            Some(&start),
+            Some(&end),
+            None,
+            None,
             &EventStatus::Confirmed,
             None,
         );
@@ -461,9 +603,10 @@ mod tests {
             summary,
             None,
             None,
-            &start,
-            &end,
-            false,
+            Some(&start),
+            Some(&end),
+            None,
+            None,
             &EventStatus::Cancelled,
             None,
         );

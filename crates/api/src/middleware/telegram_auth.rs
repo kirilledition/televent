@@ -3,7 +3,7 @@ use crate::error::ApiError;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
-use televent_core::models::UserId;
+use televent_core::models::{Timezone, UserId};
 
 // Constants
 const AUTH_HEADER_PREFIX: &str = "tma ";
@@ -24,7 +24,7 @@ pub struct TelegramUser {
 pub struct AuthenticatedTelegramUser {
     pub id: UserId,
     pub username: Option<String>,
-    pub timezone: String,
+    pub timezone: Timezone,
 }
 
 /// Middleware to validate Telegram initData and inject TelegramUser into extensions

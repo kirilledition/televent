@@ -585,23 +585,53 @@ fn write_empty_tag<W: std::io::Write>(writer: &mut Writer<W>, tag: &str) -> Resu
 mod tests {
     use super::*;
     use chrono::{Datelike, Utc};
-    use televent_core::models::{EventStatus, UserId};
+    use televent_core::models::{EventStatus, Timezone, UserId};
     use uuid::Uuid;
 
-    #[test]
-    fn test_generate_propfind_depth_0() {
+    // Test helper: create a User fixture
+    fn test_user() -> User {
         let now = Utc::now();
-        let user = User {
+        User {
             id: UserId::new(123456789),
             telegram_username: Some("testuser".to_string()),
-            timezone: "UTC".to_string(),
+            timezone: Timezone::default(),
             calendar_name: "Test Calendar".to_string(),
             calendar_color: "#ff0000".to_string(),
             sync_token: "1".to_string(),
             ctag: "123456".to_string(),
             created_at: now,
             updated_at: now,
-        };
+        }
+    }
+
+    // Test helper: create an Event fixture
+    fn test_event(uid: &str) -> CalEvent {
+        let now = Utc::now();
+        CalEvent {
+            id: Uuid::new_v4(),
+            user_id: UserId::new(123456789),
+            uid: uid.to_string(),
+            version: 1,
+            etag: "abc123".to_string(),
+            summary: "Test Event".to_string(),
+            description: None,
+            location: None,
+            start: Some(now),
+            end: Some(now),
+            start_date: None,
+            end_date: None,
+            is_all_day: false,
+            rrule: None,
+            status: EventStatus::Confirmed,
+            timezone: Timezone::default(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn test_generate_propfind_depth_0() {
+        let user = test_user();
 
         let xml = generate_propfind_multistatus("testuser", &user, &[], "0").unwrap();
 
@@ -616,37 +646,8 @@ mod tests {
 
     #[test]
     fn test_generate_propfind_depth_1() {
-        let now = Utc::now();
-        let user = User {
-            id: UserId::new(123456789),
-            telegram_username: Some("testuser".to_string()),
-            timezone: "UTC".to_string(),
-            calendar_name: "Test Calendar".to_string(),
-            calendar_color: "#ff0000".to_string(),
-            sync_token: "1".to_string(),
-            ctag: "123456".to_string(),
-            created_at: now,
-            updated_at: now,
-        };
-
-        let event = CalEvent {
-            id: uuid::Uuid::new_v4(),
-            user_id: user.id,
-            uid: "test-event-1".to_string(),
-            version: 1,
-            etag: "abc123".to_string(),
-            summary: "Test Event".to_string(),
-            description: None,
-            location: None,
-            start: now,
-            end: now,
-            is_all_day: false,
-            rrule: None,
-            status: EventStatus::Confirmed,
-            timezone: "UTC".to_string(),
-            created_at: now,
-            updated_at: now,
-        };
+        let user = test_user();
+        let event = test_event("test-event-1");
 
         let xml = generate_propfind_multistatus("testuser", &user, &[event], "1").unwrap();
 
@@ -661,18 +662,11 @@ mod tests {
 
     #[test]
     fn test_xml_structure_valid() {
-        let now = Utc::now();
-        let user = User {
-            id: UserId::new(123456789),
-            telegram_username: Some("testuser".to_string()),
-            timezone: "UTC".to_string(),
-            calendar_name: "Test".to_string(),
-            calendar_color: "#000000".to_string(),
-            sync_token: "0".to_string(),
-            ctag: "0".to_string(),
-            created_at: now,
-            updated_at: now,
-        };
+        let mut user = test_user();
+        user.calendar_name = "Test".to_string();
+        user.calendar_color = "#000000".to_string();
+        user.sync_token = "0".to_string();
+        user.ctag = "0".to_string();
 
         let xml = generate_propfind_multistatus("testuser", &user, &[], "0").unwrap();
 
@@ -789,28 +783,7 @@ mod tests {
 
     #[test]
     fn test_generate_calendar_query_response() {
-        let user_id = UserId::new(123456789);
-        let now = Utc::now();
-
-        let event = CalEvent {
-            id: Uuid::new_v4(),
-            user_id,
-            uid: "event-123".to_string(),
-            version: 1,
-            etag: "etag-abc".to_string(),
-            summary: "Test Event".to_string(),
-            description: Some("Description".to_string()),
-            location: None,
-            start: now,
-            end: now,
-            is_all_day: false,
-            rrule: None,
-            status: EventStatus::Confirmed,
-            timezone: "UTC".to_string(),
-            created_at: now,
-            updated_at: now,
-        };
-
+        let event = test_event("event-123");
         let ical_data = vec![(
             "event-123".to_string(),
             "BEGIN:VCALENDAR...END:VCALENDAR".to_string(),
@@ -820,7 +793,7 @@ mod tests {
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
         assert!(xml.contains("event-123.ics"));
-        assert!(xml.contains("etag-abc"));
+        assert!(xml.contains("abc123"));
         assert!(xml.contains("cal:calendar-data"));
         assert!(xml.contains("BEGIN:VCALENDAR"));
         assert!(xml.contains("HTTP/1.1 200 OK"));
@@ -828,39 +801,14 @@ mod tests {
 
     #[test]
     fn test_generate_sync_collection_response_with_changes() {
-        let user_id = UserId::new(123456789);
-        let now = Utc::now();
+        let mut user = test_user();
+        user.sync_token = "55".to_string();
+        user.ctag = "ctag-123".to_string();
 
-        let user = User {
-            id: user_id,
-            telegram_username: Some("testuser".to_string()),
-            timezone: "UTC".to_string(),
-            calendar_name: "Test".to_string(),
-            calendar_color: "#000000".to_string(),
-            sync_token: "55".to_string(),
-            ctag: "ctag-123".to_string(),
-            created_at: now,
-            updated_at: now,
-        };
-
-        let event = CalEvent {
-            id: Uuid::new_v4(),
-            user_id,
-            uid: "changed-event".to_string(),
-            version: 2,
-            etag: "new-etag".to_string(),
-            summary: "Updated Event".to_string(),
-            description: None,
-            location: None,
-            start: now,
-            end: now,
-            is_all_day: false,
-            rrule: None,
-            status: EventStatus::Confirmed,
-            timezone: "UTC".to_string(),
-            created_at: now,
-            updated_at: now,
-        };
+        let mut event = test_event("changed-event");
+        event.version = 2;
+        event.etag = "new-etag".to_string();
+        event.summary = "Updated Event".to_string();
 
         let xml = generate_sync_collection_response("testuser", &user, &[event], &[]).unwrap();
 
@@ -870,27 +818,14 @@ mod tests {
         assert!(xml.contains("changed-event.ics"));
         assert!(xml.contains("new-etag"));
         // New sync token
-        // New sync token
         assert!(xml.contains("<d:sync-token>"));
         assert!(xml.contains("/sync/55"));
     }
 
     #[test]
     fn test_generate_sync_collection_response_empty() {
-        let user_id = UserId::new(123456789);
-        let now = Utc::now();
-
-        let user = User {
-            id: user_id,
-            telegram_username: Some("testuser".to_string()),
-            timezone: "UTC".to_string(),
-            calendar_name: "Test".to_string(),
-            calendar_color: "#000000".to_string(),
-            sync_token: "100".to_string(),
-            ctag: "ctag".to_string(),
-            created_at: now,
-            updated_at: now,
-        };
+        let mut user = test_user();
+        user.sync_token = "100".to_string();
 
         let xml = generate_sync_collection_response("testuser", &user, &[], &[]).unwrap();
 
@@ -905,33 +840,16 @@ mod tests {
     #[test]
     #[ignore] // benchmark
     fn test_benchmark_generate_calendar_query_response() {
-        let user_id = UserId::new(123456789);
-        let now = Utc::now();
-
         let count = 2000;
         let mut events = Vec::with_capacity(count);
         let mut ical_data = Vec::with_capacity(count);
 
         for i in 0..count {
             let uid = format!("event-{}", i);
-            let event = CalEvent {
-                id: Uuid::new_v4(),
-                user_id,
-                uid: uid.clone(),
-                version: 1,
-                etag: format!("etag-{}", i),
-                summary: format!("Event {}", i),
-                description: None,
-                location: None,
-                start: now,
-                end: now,
-                is_all_day: false,
-                rrule: None,
-                status: EventStatus::Confirmed,
-                timezone: "UTC".to_string(),
-                created_at: now,
-                updated_at: now,
-            };
+            let mut event = test_event(&uid);
+            event.etag = format!("etag-{}", i);
+            event.summary = format!("Event {}", i);
+
             events.push(event);
             ical_data.push((uid, "BEGIN:VCALENDAR...END:VCALENDAR".to_string()));
         }

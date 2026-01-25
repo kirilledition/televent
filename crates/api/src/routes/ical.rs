@@ -31,10 +31,12 @@ pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
     // Start and end times
     if event.is_all_day {
         // All-day events use DATE format (no time component)
-        ical_event.all_day(event.start.date_naive());
-    } else {
-        ical_event.starts(event.start);
-        ical_event.ends(event.end);
+        if let Some(start_date) = event.start_date {
+            ical_event.all_day(start_date);
+        }
+    } else if let (Some(start), Some(end)) = (event.start, event.end) {
+        ical_event.starts(start);
+        ical_event.ends(end);
     }
 
     // Status
@@ -221,11 +223,11 @@ fn parse_datetime(value: &str, is_all_day: bool) -> Result<DateTime<Utc>, ApiErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::*;
     use televent_core::models::UserId;
     use uuid::Uuid;
 
     fn create_test_event() -> Event {
+        use televent_core::models::Timezone;
         let now = Utc::now();
         Event {
             id: Uuid::new_v4(),
@@ -236,12 +238,14 @@ mod tests {
             summary: "Test Event".to_string(),
             description: Some("Test Description".to_string()),
             location: Some("Test Location".to_string()),
-            start: now,
-            end: now + chrono::Duration::hours(1),
+            start: Some(now),
+            end: Some(now + chrono::Duration::hours(1)),
+            start_date: None,
+            end_date: None,
             is_all_day: false,
             rrule: None,
             status: EventStatus::Confirmed,
-            timezone: "UTC".to_string(),
+            timezone: Timezone::default(),
             created_at: now,
             updated_at: now,
         }
@@ -267,13 +271,15 @@ mod tests {
     fn test_event_to_ical_all_day() {
         let mut event = create_test_event();
         event.is_all_day = true;
+        event.start_date = Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+        event.end_date = Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 2).unwrap());
 
         let ical = event_to_ical(&event).unwrap();
 
         assert!(ical.contains("BEGIN:VEVENT"));
         assert!(ical.contains("UID:test-event-123"));
-        // All-day events should not have time component
-        assert!(ical.contains("DTSTART;"));
+        // All-day events should have DATE value
+        assert!(ical.contains("DTSTART;VALUE=DATE:20240101"));
     }
 
     #[test]

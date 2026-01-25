@@ -2,7 +2,7 @@
 //!
 //! Parses multi-line text messages into event data for creation.
 
-use chrono::{DateTime, Duration, Local, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
 use chrono_english::{Dialect, parse_date_string};
 use thiserror::Error;
 
@@ -27,24 +27,30 @@ pub enum ParseError {
     TooFewLines,
 }
 
+/// Timing information for a parsed event
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParsedTiming {
+    /// Normal timed event
+    Timed {
+        start: DateTime<Utc>,
+        duration_minutes: u32,
+    },
+    /// All-day event
+    AllDay { date: NaiveDate },
+}
+
 /// A successfully parsed event ready for creation
 #[derive(Debug, Clone)]
 pub struct ParsedEvent {
     /// Event title/summary
     pub title: String,
-    /// Event start time in UTC
-    pub start: DateTime<Utc>,
-    /// Duration in minutes (default: 60)
-    pub duration_minutes: u32,
+    /// Event timing
+    pub timing: ParsedTiming,
     /// Optional location
     pub location: Option<String>,
 }
 
 impl ParsedEvent {
-    /// Calculate the end time based on start + duration
-    pub fn end_time(&self) -> DateTime<Utc> {
-        self.start + Duration::minutes(i64::from(self.duration_minutes))
-    }
 }
 
 /// Parse a multi-line message into event data
@@ -85,6 +91,26 @@ pub fn parse_event_message(text: &str) -> Result<ParsedEvent, ParseError> {
     // Parse datetime using chrono-english for natural language
     let start = parse_datetime(datetime_str)?;
 
+    // Simple heuristic to detect All-Day: if no time-like keywords or symbols are present
+    // and the resulting time is midnight local.
+    // Keywords: "at", ":", "am", "pm", "morning", "afternoon", "evening", "noon"
+    let has_time_marker = {
+        let low = datetime_str.to_lowercase();
+        low.contains(':')
+            || low.contains("at")
+            || low.contains("am")
+            || low.contains("pm")
+            || low.contains("morning")
+            || low.contains("afternoon")
+            || low.contains("evening")
+            || low.contains("noon")
+            || low.contains("h")
+    };
+
+    let is_midnight =
+        start.with_timezone(&Local).time() == chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap();
+    let is_all_day = !has_time_marker && is_midnight;
+
     // Line 3: Duration in minutes (optional, default: 60)
     let duration_minutes = if lines.len() > 2 && !lines[2].is_empty() {
         lines[2]
@@ -94,9 +120,20 @@ pub fn parse_event_message(text: &str) -> Result<ParsedEvent, ParseError> {
         60
     };
 
-    if duration_minutes == 0 {
+    if !is_all_day && duration_minutes == 0 {
         return Err(ParseError::InvalidDuration);
     }
+
+    let timing = if is_all_day {
+        ParsedTiming::AllDay {
+            date: start.with_timezone(&Local).date_naive(),
+        }
+    } else {
+        ParsedTiming::Timed {
+            start,
+            duration_minutes,
+        }
+    };
 
     // Line 4: Location (optional)
     let location = if lines.len() > 3 && !lines[3].is_empty() {
@@ -107,8 +144,7 @@ pub fn parse_event_message(text: &str) -> Result<ParsedEvent, ParseError> {
 
     Ok(ParsedEvent {
         title,
-        start,
-        duration_minutes,
+        timing,
         location,
     })
 }
@@ -175,7 +211,12 @@ mod tests {
         assert!(result.is_ok());
         let event = result.expect("should parse");
         assert_eq!(event.title, "Team Meeting");
-        assert_eq!(event.duration_minutes, 60); // default
+        match event.timing {
+            ParsedTiming::Timed {
+                duration_minutes, ..
+            } => assert_eq!(duration_minutes, 60),
+            _ => panic!("Expected Timed event"),
+        }
         assert!(event.location.is_none());
     }
 
@@ -186,7 +227,12 @@ mod tests {
         assert!(result.is_ok());
         let event = result.expect("should parse");
         assert_eq!(event.title, "Sprint Planning");
-        assert_eq!(event.duration_minutes, 90);
+        match event.timing {
+            ParsedTiming::Timed {
+                duration_minutes, ..
+            } => assert_eq!(duration_minutes, 90),
+            _ => panic!("Expected Timed event"),
+        }
         assert_eq!(event.location, Some("Conference Room B".to_string()));
     }
 
@@ -196,8 +242,13 @@ mod tests {
         let result = parse_event_message(input);
         assert!(result.is_ok());
         let event = result.expect("should parse");
-        assert_eq!(event.start.with_timezone(&Local).hour(), 14);
-        assert_eq!(event.start.with_timezone(&Local).minute(), 30);
+        match event.timing {
+            ParsedTiming::Timed { start, .. } => {
+                assert_eq!(start.with_timezone(&Local).hour(), 14);
+                assert_eq!(start.with_timezone(&Local).minute(), 30);
+            }
+            _ => panic!("Expected Timed event"),
+        }
     }
 
     #[test]
@@ -237,12 +288,17 @@ mod tests {
     }
 
     #[test]
-    fn test_end_time_calculation() {
+    fn test_timing_calculation() {
         let input = "Event\n2026-01-20 14:00\n90";
         let event = parse_event_message(input).expect("should parse");
-        let end = event.end_time();
-        assert_eq!(end.with_timezone(&Local).hour(), 15);
-        assert_eq!(end.with_timezone(&Local).minute(), 30);
+        match event.timing {
+            ParsedTiming::Timed { start, duration_minutes } => {
+                let end = start + Duration::minutes(i64::from(duration_minutes));
+                assert_eq!(end.with_timezone(&Local).hour(), 15);
+                assert_eq!(end.with_timezone(&Local).minute(), 30);
+            }
+            _ => panic!("Expected Timed event"),
+        }
     }
 
     #[test]
@@ -273,5 +329,16 @@ mod tests {
         let event = result.expect("should parse");
         assert_eq!(event.title, "Team Meeting");
         assert_eq!(event.location, Some("Room A".to_string()));
+    }
+
+    #[test]
+    fn test_parse_all_day_event() {
+        // Use an ISO date which chrono-english/ISO parsers treat as midnight
+        let input = "Holidays\n2026-01-26";
+        let result = parse_event_message(input);
+        assert!(result.is_ok());
+        let event = result.expect("should parse");
+        assert_eq!(event.title, "Holidays");
+        assert!(matches!(event.timing, ParsedTiming::AllDay { .. }));
     }
 }

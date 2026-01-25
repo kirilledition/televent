@@ -33,9 +33,11 @@ flowchart TB
     API --> CORE
     WORKER --> CORE
     
-    BOT --> DB
-    API --> DB
-    WORKER --> DB
+    BOT -->|1. Commit + Outbox| DB
+    API -->|1. Commit + Outbox| DB
+    DB -->|2. Poll| WORKER
+    WORKER -->|3. Side Effect| TG
+    WORKER -->|3. Side Effect| EMAIL["Email Client"]
 ```
 
 ### Component Breakdown
@@ -168,8 +170,12 @@ Location (optional)
 ### Interceptor Pattern
 The system generates internal email addresses (tg_telegramid@televent.internal). The background worker intercepts invites to these addresses and routes them to the Telegram Bot API as messages instead of sending them via SMTP.
 
-### Outbox Pattern
-Database transactions include both the data change and a pending record in the `outbox_messages` table. The background worker polls this table to perform side effects (emails, TG messages), ensuring atomicity and reliability.
+### Outbox Pattern (Reliable Messaging)
+The system uses the **Transactional Outbox** pattern to ensure that side effects (like sending a Telegram notification or an email) are guaranteed to happen if a database transaction succeeds.
+
+1.  **Atomicity**: Both the data change (e.g., creating an event) and the "outbox" record are committed in a single database transaction.
+2.  **Reliability**: The Background Worker polls the `outbox_messages` table and processes pending items. If a process fails or the worker crashes, the message remains in the outbox (often with a retry count) and will be picked up again.
+3.  **Decoupling**: The main request handlers (Bot or API) don't wait for the external delivery to finish, making the system more responsive and resilient to external service outages (Telegram API or SMTP server).
 
 ### CalDAV Protocol
 - ETag: SHA256 hash of the serialized event fields (clock-skew resistant).

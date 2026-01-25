@@ -12,24 +12,38 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use televent_core::models::{Event, EventStatus, UserId};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Create event request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateEventRequest {
+    /// iCalendar UID (stable across syncs)
+    #[schema(example = "unique-uid-123")]
     pub uid: String,
+    /// Event summary/title
+    #[schema(example = "Team Meeting")]
     pub summary: String,
+    /// Detailed description
     pub description: Option<String>,
+    /// Event location
     pub location: Option<String>,
+    /// Start time (for timed events)
     pub start: DateTime<Utc>,
+    /// End time (for timed events)
     pub end: DateTime<Utc>,
+    /// Whether this is an all-day event
     pub is_all_day: bool,
+    /// IANA timezone name
+    #[schema(example = "UTC")]
     pub timezone: String,
+    /// RFC 5545 recurrence rule
+    #[schema(example = "FREQ=WEEKLY;BYDAY=MO")]
     pub rrule: Option<String>,
 }
 
 /// Update event request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateEventRequest {
     pub summary: Option<String>,
     pub description: Option<String>,
@@ -42,25 +56,36 @@ pub struct UpdateEventRequest {
 }
 
 /// List events query parameters
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 pub struct ListEventsQuery {
+    /// Filter events starting after this time
     pub start: Option<DateTime<Utc>>,
+    /// Filter events ending before this time
     pub end: Option<DateTime<Utc>>,
+    /// Maximum number of events to return
+    #[schema(default = 100)]
     pub limit: Option<i64>,
+    /// Number of events to skip
+    #[schema(default = 0)]
     pub offset: Option<i64>,
 }
 
 /// Event response (same as Event model)
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct EventResponse {
     pub id: Uuid,
+    #[schema(value_type = String)]
     pub user_id: UserId,
     pub uid: String,
     pub summary: String,
     pub description: Option<String>,
     pub location: Option<String>,
-    pub start: DateTime<Utc>,
-    pub end: DateTime<Utc>,
+    pub start: Option<DateTime<Utc>>,
+    pub end: Option<DateTime<Utc>>,
+    #[schema(value_type = Option<String>)]
+    pub start_date: Option<chrono::NaiveDate>,
+    #[schema(value_type = Option<String>)]
+    pub end_date: Option<chrono::NaiveDate>,
     pub is_all_day: bool,
     pub status: EventStatus,
     pub timezone: String,
@@ -82,9 +107,11 @@ impl From<Event> for EventResponse {
             location: event.location,
             start: event.start,
             end: event.end,
+            start_date: event.start_date,
+            end_date: event.end_date,
             is_all_day: event.is_all_day,
             status: event.status,
-            timezone: event.timezone,
+            timezone: event.timezone.to_string(),
             rrule: event.rrule,
             version: event.version,
             etag: event.etag,
@@ -95,11 +122,43 @@ impl From<Event> for EventResponse {
 }
 
 /// Create a new event
+#[utoipa::path(
+    post,
+    path = "/events",
+    request_body = CreateEventRequest,
+    responses(
+        (status = 201, description = "Event created successfully", body = EventResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "events",
+    security(
+        ("telegram_auth" = [])
+    )
+)]
 async fn create_event(
     State(pool): State<PgPool>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Json(req): Json<CreateEventRequest>,
 ) -> Result<Response, ApiError> {
+    use crate::db::events::EventTiming;
+    use televent_core::models::Timezone;
+
+    let timing = if req.is_all_day {
+        EventTiming::AllDay {
+            date: req.start.date_naive(),
+            end_date: req.end.date_naive(),
+        }
+    } else {
+        EventTiming::Timed {
+            start: req.start,
+            end: req.end,
+        }
+    };
+
+    // Parse timezone (default to UTC if invalid)
+    let tz = Timezone::parse(&req.timezone).unwrap_or_default();
+
     let event = db::events::create_event(
         &pool,
         auth_user.id,
@@ -107,10 +166,8 @@ async fn create_event(
         req.summary,
         req.description,
         req.location,
-        req.start,
-        req.end,
-        req.is_all_day,
-        req.timezone,
+        timing,
+        tz,
         req.rrule,
     )
     .await?;
@@ -120,6 +177,22 @@ async fn create_event(
 }
 
 /// Get event by ID
+#[utoipa::path(
+    get,
+    path = "/events/{id}",
+    responses(
+        (status = 200, description = "Event details", body = EventResponse),
+        (status = 404, description = "Event not found"),
+        (status = 401, description = "Unauthorized")
+    ),
+    params(
+        ("id" = Uuid, Path, description = "Event ID")
+    ),
+    tag = "events",
+    security(
+        ("telegram_auth" = [])
+    )
+)]
 async fn get_event(
     State(pool): State<PgPool>,
     Path(event_id): Path<Uuid>,
@@ -129,6 +202,19 @@ async fn get_event(
 }
 
 /// List events
+#[utoipa::path(
+    get,
+    path = "/events",
+    params(ListEventsQuery),
+    responses(
+        (status = 200, description = "List of events", body = Vec<EventResponse>),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "events",
+    security(
+        ("telegram_auth" = [])
+    )
+)]
 async fn list_events(
     State(pool): State<PgPool>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
@@ -152,19 +238,56 @@ async fn list_events(
 }
 
 /// Update event
+#[utoipa::path(
+    put,
+    path = "/events/{id}",
+    request_body = UpdateEventRequest,
+    responses(
+        (status = 200, description = "Event updated successfully", body = EventResponse),
+        (status = 404, description = "Event not found"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized")
+    ),
+    params(
+        ("id" = Uuid, Path, description = "Event ID")
+    ),
+    tag = "events",
+    security(
+        ("telegram_auth" = [])
+    )
+)]
 async fn update_event(
     State(pool): State<PgPool>,
     Path(event_id): Path<Uuid>,
     Json(req): Json<UpdateEventRequest>,
 ) -> Result<Json<EventResponse>, ApiError> {
+    // Get current event to determine how to set date fields
+    let current = db::events::get_event(&pool, event_id).await?;
+    let is_all_day = req.is_all_day.unwrap_or(current.is_all_day);
+
+    // Determine start_date/end_date based on is_all_day
+    let (start, end, start_date, end_date) = if is_all_day {
+        // For all-day events, use date fields
+        let sd = req.start.map(|s| s.date_naive()).or(current.start_date);
+        let ed = req.end.map(|e| e.date_naive()).or(current.end_date);
+        (None, None, sd, ed)
+    } else {
+        // For timed events, use time fields
+        let s = req.start.or(current.start);
+        let e = req.end.or(current.end);
+        (s, e, None, None)
+    };
+
     let event = db::events::update_event(
         &pool,
         event_id,
         req.summary,
         req.description,
         req.location,
-        req.start,
-        req.end,
+        start,
+        end,
+        start_date,
+        end_date,
         req.is_all_day,
         req.status,
         req.rrule,
@@ -174,6 +297,22 @@ async fn update_event(
 }
 
 /// Delete event
+#[utoipa::path(
+    delete,
+    path = "/events/{id}",
+    responses(
+        (status = 201, description = "Event deleted successfully"),
+        (status = 404, description = "Event not found"),
+        (status = 401, description = "Unauthorized")
+    ),
+    params(
+        ("id" = Uuid, Path, description = "Event ID")
+    ),
+    tag = "events",
+    security(
+        ("telegram_auth" = [])
+    )
+)]
 async fn delete_event_handler(
     State(pool): State<PgPool>,
     Path(event_id): Path<Uuid>,
@@ -202,6 +341,8 @@ mod tests {
 
     #[test]
     fn test_event_response_from_event() {
+        use televent_core::models::Timezone;
+
         let event = Event {
             id: Uuid::new_v4(),
             user_id: UserId::new(123456789),
@@ -209,11 +350,13 @@ mod tests {
             summary: "Test Event".to_string(),
             description: Some("Description".to_string()),
             location: Some("Location".to_string()),
-            start: Utc::now(),
-            end: Utc::now(),
+            start: Some(Utc::now()),
+            end: Some(Utc::now()),
+            start_date: None,
+            end_date: None,
             is_all_day: false,
             status: EventStatus::Confirmed,
-            timezone: "UTC".to_string(),
+            timezone: Timezone::default(),
             rrule: None,
             version: 1,
             etag: "abc123".to_string(),

@@ -12,29 +12,33 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use televent_core::models::UserId;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
 
 /// Request to create a new device password
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateDeviceRequest {
+    /// Device name/label (e.g., "iPhone", "Desktop")
+    #[schema(example = "iPhone")]
     pub name: String,
 }
 
 /// Response containing generated device password
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct DevicePasswordResponse {
     pub id: Uuid,
     pub name: String,
     /// Plain text password - only shown once at creation
+    #[schema(example = "aB1c2D3e4F5g6H7i8J9k0L1m")]
     pub password: Option<String>,
     pub created_at: String,
     pub last_used_at: Option<String>,
 }
 
 /// Device password list item (without password)
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct DeviceListItem {
     pub id: Uuid,
     pub name: String,
@@ -56,6 +60,19 @@ struct DevicePassword {
 }
 
 /// Create a new device password
+#[utoipa::path(
+    post,
+    path = "/devices",
+    request_body = CreateDeviceRequest,
+    responses(
+        (status = 201, description = "Device password created", body = DevicePasswordResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "devices",
+    security(
+        ("telegram_auth" = [])
+    )
+)]
 async fn create_device_password(
     State(pool): State<PgPool>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
@@ -99,6 +116,18 @@ async fn create_device_password(
 }
 
 /// List all device passwords for a user
+#[utoipa::path(
+    get,
+    path = "/devices",
+    responses(
+        (status = 200, description = "List of device passwords", body = Vec<DeviceListItem>),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "devices",
+    security(
+        ("telegram_auth" = [])
+    )
+)]
 async fn list_device_passwords(
     State(pool): State<PgPool>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
@@ -124,6 +153,22 @@ async fn list_device_passwords(
 }
 
 /// Delete a device password
+#[utoipa::path(
+    delete,
+    path = "/devices/{device_id}",
+    responses(
+        (status = 204, description = "Device password deleted successfully"),
+        (status = 404, description = "Device password not found"),
+        (status = 401, description = "Unauthorized")
+    ),
+    params(
+        ("device_id" = Uuid, Path, description = "Device ID")
+    ),
+    tag = "devices",
+    security(
+        ("telegram_auth" = [])
+    )
+)]
 async fn delete_device_password(
     State(pool): State<PgPool>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,

@@ -9,17 +9,31 @@ use axum::{
 };
 use serde::Serialize;
 use sqlx::PgPool;
+use utoipa::ToSchema;
 
 /// Health check response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct HealthResponse {
+    /// Server status ("ok" or "degraded")
+    #[schema(example = "ok")]
     pub status: String,
+    /// Database status ("healthy" or "unhealthy")
+    #[schema(example = "healthy")]
     pub database: String,
 }
 
 /// Health check endpoint
 ///
 /// Returns 200 OK if the server and database are healthy
+#[utoipa::path(
+    get,
+    path = "/health",
+    responses(
+        (status = 200, description = "Server is healthy", body = HealthResponse),
+        (status = 503, description = "Server is degraded", body = HealthResponse)
+    ),
+    tag = "health"
+)]
 async fn health_check(State(pool): State<PgPool>) -> Response {
     // Check database connectivity
     let db_status = match sqlx::query("SELECT 1").fetch_one(&pool).await {

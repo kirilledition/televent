@@ -175,8 +175,18 @@ async fn caldav_put_event(
             Some(summary),
             description,
             location,
-            Some(start),
-            Some(end),
+            if is_all_day { None } else { Some(start) },
+            if is_all_day { None } else { Some(end) },
+            if is_all_day {
+                Some(start.date_naive())
+            } else {
+                None
+            },
+            if is_all_day {
+                Some(end.date_naive())
+            } else {
+                None
+            },
             Some(is_all_day),
             Some(status),
             rrule,
@@ -185,6 +195,21 @@ async fn caldav_put_event(
         (StatusCode::NO_CONTENT, updated.etag)
     } else {
         // Create new event
+        use crate::db::events::EventTiming;
+        use televent_core::models::Timezone;
+
+        let timing = if is_all_day {
+            EventTiming::AllDay {
+                date: start.date_naive(),
+                end_date: end.date_naive(),
+            }
+        } else {
+            EventTiming::Timed { start, end }
+        };
+
+        // Parse timezone (default to UTC if invalid)
+        let tz = Timezone::parse(&timezone).unwrap_or_default();
+
         let created = db::events::create_event(
             &pool,
             user.id,
@@ -192,10 +217,8 @@ async fn caldav_put_event(
             summary,
             description,
             location,
-            start,
-            end,
-            is_all_day,
-            timezone,
+            timing,
+            tz,
             rrule,
         )
         .await?;

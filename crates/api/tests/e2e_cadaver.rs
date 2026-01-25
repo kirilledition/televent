@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::process::Command;
-use uuid::Uuid;
+// use uuid::Uuid; (already imported or unused)
 
 async fn setup_user_and_auth(pool: &PgPool) -> (i64, String, String) {
     let telegram_id: i64 = rand::random::<i64>().abs();
@@ -182,7 +182,7 @@ async fn test_cadaver_full_flow(pool: PgPool) {
     );
 
     // 3. Cadaver: PUT, GET, DELETE
-    let event_uid = "e2e-123";
+    let _event_uid = "e2e-123";
     let ics_content = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:e2e-123\r\nSUMMARY:E2E Event\r\nDTSTART:20250101T100000Z\r\nDTEND:20250101T110000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
     let ics_path = "e2e-123.ics";
     std::fs::write(ics_path, ics_content).expect("Failed to write ics");

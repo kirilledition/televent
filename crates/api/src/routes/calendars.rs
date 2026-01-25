@@ -11,12 +11,14 @@ use axum::{
 use serde::Serialize;
 use sqlx::PgPool;
 use televent_core::models::UserId;
+use utoipa::ToSchema;
 
 use crate::{db, error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
 
 /// Calendar response (subset of User relevant to calendar functionality)
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct CalendarInfo {
+    #[schema(value_type = String)]
     pub id: UserId,
     pub name: String,
     pub color: String,
@@ -27,6 +29,18 @@ pub struct CalendarInfo {
 ///
 /// Returns a list containing the single user calendar.
 /// Since user = calendar, this returns calendar properties from the user record.
+#[utoipa::path(
+    get,
+    path = "/calendars",
+    responses(
+        (status = 200, description = "List of calendars", body = Vec<CalendarInfo>),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "calendars",
+    security(
+        ("telegram_auth" = [])
+    )
+)]
 async fn list_calendars(
     State(pool): State<PgPool>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,

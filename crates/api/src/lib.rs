@@ -21,12 +21,79 @@ use crate::middleware::rate_limit::{
     API_BURST_SIZE, API_PERIOD_MS, CALDAV_BURST_SIZE, CALDAV_PERIOD_MS, UserOrIpKeyExtractor,
 };
 use crate::middleware::telegram_auth::telegram_auth;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
     pub auth_cache: Cache<(LoginId, String), UserId>,
     pub telegram_bot_token: String,
+}
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        routes::health::health_check,
+        routes::me::get_me,
+        routes::events::create_event,
+        routes::events::list_events,
+        routes::events::get_event,
+        routes::events::update_event,
+        routes::events::delete_event_handler,
+        routes::calendars::list_calendars,
+        routes::devices::create_device_password,
+        routes::devices::list_device_passwords,
+        routes::devices::delete_device_password,
+    ),
+    components(
+        schemas(
+            televent_core::models::UserId,
+            televent_core::models::Timezone,
+            televent_core::models::User,
+            televent_core::models::Event,
+            televent_core::models::EventStatus,
+            televent_core::models::EventAttendee,
+            televent_core::models::AttendeeRole,
+            televent_core::models::ParticipationStatus,
+            routes::health::HealthResponse,
+            routes::me::MeResponse,
+            routes::events::CreateEventRequest,
+            routes::events::UpdateEventRequest,
+            routes::events::ListEventsQuery,
+            routes::events::EventResponse,
+            routes::calendars::CalendarInfo,
+            routes::devices::CreateDeviceRequest,
+            routes::devices::DevicePasswordResponse,
+            routes::devices::DeviceListItem,
+        )
+    ),
+    tags(
+        (name = "health", description = "Health check endpoints"),
+        (name = "user", description = "User profile endpoints"),
+        (name = "events", description = "Event management endpoints"),
+        (name = "calendars", description = "Calendar management endpoints"),
+        (name = "devices", description = "Device management endpoints"),
+    ),
+    modifiers(&SecurityAddon)
+)]
+pub struct ApiDoc;
+
+struct SecurityAddon;
+
+impl utoipa::Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "telegram_auth",
+                utoipa::openapi::security::SecurityScheme::ApiKey(
+                    utoipa::openapi::security::ApiKey::Header(
+                        utoipa::openapi::security::ApiKeyValue::new("x-telegram-init-data"),
+                    ),
+                ),
+            );
+        }
+    }
 }
 
 impl FromRef<AppState> for PgPool {
@@ -61,6 +128,7 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
 
     Router::new()
         .merge(routes::health::routes())
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .nest(
             "/api",
             routes::events::routes()
@@ -176,4 +244,23 @@ pub async fn run_api(state: AppState, config: &config::Config) -> Result<(), std
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+
+    #[test]
+    fn export_openapi_json() {
+        let openapi = ApiDoc::openapi();
+        let json = openapi.to_pretty_json().expect("Failed to serialize OpenAPI to JSON");
+        
+        let path = "../../openapi.json";
+        let mut file = File::create(path).expect("Failed to create openapi.json");
+        file.write_all(json.as_bytes()).expect("Failed to write openapi.json");
+        
+        println!("OpenAPI JSON exported to {}", path);
+    }
 }

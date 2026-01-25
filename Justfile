@@ -76,3 +76,18 @@ gen-types:
     @echo "Generating TypeScript types..."
     typeshare . --lang=typescript --output-file=frontend/src/types/schema.ts
     @echo "✅ Types generated to frontend/src/types/schema.ts"
+
+# Generate Markdown API documentation from OpenAPI spec
+gen-api-docs:
+    @echo "Generating OpenAPI JSON..."
+    cargo test -p api --lib tests::export_openapi_json -- --nocapture
+    @echo "Converting OpenAPI JSON to Markdown..."
+    # We use npx to run openapi-markdown-notes or similar if available, 
+    # but openapi-generator-cli is more robust.
+    # Note: openapi-generator-cli requires java.
+    # If java is not available, we might need a different tool.
+    # Let's try openapi-markdown (npm package) which is JS based.
+    npx -y openapi-markdown -i openapi.json -o API.md
+    @echo "Cleaning up..."
+    rm openapi.json
+    @echo "✅ API documentation generated to API.md"

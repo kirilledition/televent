@@ -291,15 +291,17 @@ pub async fn handle_list(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
 
     // Get upcoming events (next 7 days)
     let now = Utc::now();
-    let start = now
+    let start_range = now
         .date_naive()
         .and_hms_opt(0, 0, 0)
         .ok_or_else(|| anyhow::anyhow!("Invalid time"))?
         .and_utc();
-    let end = start + Duration::days(7);
+    let end_range = start_range + Duration::days(7);
 
     // Query events from database
-    let events = db.get_events_for_user(telegram_id, start, end).await?;
+    let events = db
+        .get_events_for_user(telegram_id, start_range, end_range)
+        .await?;
 
     if events.is_empty() {
         bot.send_message(msg.chat.id, "📅 No upcoming events in the next 7 days.")
@@ -311,12 +313,19 @@ pub async fn handle_list(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         );
 
         for (idx, event) in events.iter().enumerate() {
+            let start = event.display_start();
+            let time_str = if event.is_all_day {
+                "All Day".to_string()
+            } else {
+                start.format("%H:%M").to_string()
+            };
+
             response.push_str(&format!(
                 "{}. <b>{}</b>\n   📆 {}\n   🕐 {}\n",
                 idx + 1,
                 event.summary,
-                event.start.format("%a, %b %d"),
-                event.start.format("%H:%M")
+                start.format("%a, %b %d"),
+                time_str
             ));
 
             if let Some(location) = &event.location {
@@ -444,11 +453,19 @@ pub async fn handle_invite(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
     {
         Ok(_) => {
             // Queue calendar invite message
+            let start = event_info.start.unwrap_or_else(|| {
+                event_info
+                    .start_date
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap()
+                    .and_utc()
+            });
             db.queue_calendar_invite(
                 &invitee_email,
                 invitee_telegram_id,
                 &event_info.summary,
-                event_info.start,
+                start,
                 event_info.location.as_deref(),
             )
             .await?;
@@ -536,10 +553,25 @@ pub async fn handle_rsvp(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                 .map(|loc| format!("\n📍 {}", loc))
                 .unwrap_or_default();
 
+            let start = invite.start.unwrap_or_else(|| {
+                invite
+                    .start_date
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap()
+                    .and_utc()
+            });
+            let time_str = if invite.is_all_day {
+                "All Day".to_string()
+            } else {
+                start.format("%H:%M UTC").to_string()
+            };
+
             response.push_str(&format!(
-                "🔹 <b>{}</b>\n   🕒 {}\n   👤 From: {}{}\n   <code>/rsvp {} accept</code>\n\n",
+                "🔹 <b>{}</b>\n   🕒 {} {}\n   👤 From: {}{}\n   <code>/rsvp {} accept</code>\n\n",
                 invite.summary,
-                invite.start.format("%a %b %d at %H:%M UTC"),
+                start.format("%a %b %d"),
+                time_str,
                 organizer,
                 location_text,
                 invite.event_id
@@ -688,7 +720,6 @@ pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()
         Ok(parsed_event) => {
             // Generate unique UID for the event
             let uid = format!("{}@televent.bot", uuid::Uuid::new_v4());
-            let end_time = parsed_event.end_time();
 
             // Create event in database
             match db
@@ -698,8 +729,7 @@ pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()
                     &parsed_event.title,
                     None, // description
                     parsed_event.location.as_deref(),
-                    parsed_event.start,
-                    end_time,
+                    parsed_event.timing.clone(),
                     "UTC",
                 )
                 .await
@@ -712,17 +742,32 @@ pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()
                         .map(|loc| format!("\n📍 <b>Location:</b> {}", loc))
                         .unwrap_or_default();
 
+                    let start = event.display_start();
+                    let timing_details = match event.timing() {
+                        crate::event_parser::ParsedTiming::Timed {
+                            duration_minutes, ..
+                        } => {
+                            let end_time =
+                                start + chrono::Duration::minutes(i64::from(duration_minutes));
+                            format!(
+                                "{} - {} ({} min)",
+                                start.format("%H:%M"),
+                                end_time.format("%H:%M"),
+                                duration_minutes
+                            )
+                        }
+                        crate::event_parser::ParsedTiming::AllDay { .. } => "All Day".to_string(),
+                    };
+
                     let response = format!(
                         "✅ <b>Event Created!</b>\n\n\
                          📌 <b>{}</b>\n\
                          📅 {}\n\
-                         🕐 {} - {} ({} min){}\n\n\
+                         🕐 {}{}\n\n\
                          Use /list to view your upcoming events.",
                         event.summary,
-                        event.start.format("%A, %B %d, %Y"),
-                        event.start.format("%H:%M"),
-                        end_time.format("%H:%M"),
-                        parsed_event.duration_minutes,
+                        start.format("%A, %B %d, %Y"),
+                        timing_details,
                         location_text
                     );
 
@@ -734,7 +779,7 @@ pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()
                         "User {} created event: {} at {}",
                         telegram_id,
                         event.summary,
-                        event.start
+                        start
                     );
                 }
                 Err(e) => {
@@ -782,11 +827,20 @@ fn generate_ics(events: &[crate::db::BotEvent]) -> String {
 
     for event in events {
         let mut ics_event = Event::new();
-        ics_event
-            .summary(&event.summary)
-            .starts(event.start)
-            .ends(event.end)
-            .uid(&event.id.to_string());
+        ics_event.summary(&event.summary).uid(&event.id.to_string());
+
+        if event.is_all_day {
+            if let Some(start_date) = event.start_date {
+                ics_event.all_day(start_date);
+            }
+        } else {
+            if let Some(start) = event.start {
+                ics_event.starts(start);
+            }
+            if let Some(end) = event.end {
+                ics_event.ends(end);
+            }
+        }
 
         if let Some(desc) = &event.description {
             ics_event.description(desc);
@@ -804,11 +858,13 @@ fn generate_ics(events: &[crate::db::BotEvent]) -> String {
 #[cfg(test)]
 mod tests {
     use crate::commands::Command;
-    use crate::db::BotDb;
+    use crate::db::{BotDb, BotEvent};
+    use chrono::{TimeZone, Utc};
     use sqlx::PgPool;
     use teloxide::Bot;
     use teloxide::types::Message;
     use teloxide::utils::command::BotCommands;
+    use uuid::Uuid;
 
     #[test]
     fn test_command_descriptions() {
@@ -821,18 +877,17 @@ mod tests {
 
     #[test]
     fn test_generate_ics() {
-        use crate::db::BotEvent;
-        use chrono::{TimeZone, Utc};
-        use uuid::Uuid;
-
         let start = Utc.with_ymd_and_hms(2023, 10, 27, 10, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 10, 27, 11, 0, 0).unwrap();
 
         let event = BotEvent {
             id: Uuid::new_v4(),
             summary: "Test Event".to_string(),
-            start,
-            end,
+            start: Some(start),
+            end: Some(end),
+            start_date: None,
+            end_date: None,
+            is_all_day: false,
             location: Some("Online".to_string()),
             description: Some("Description".to_string()),
         };
@@ -998,15 +1053,16 @@ mod tests {
 
         // Create an event first
         let start = chrono::Utc::now();
-        let end = start + chrono::Duration::hours(1);
         db.create_event(
             telegram_id,
             &format!("{}", uuid::Uuid::new_v4()),
             "Export Test Event",
             None,
             Some("Test Location"),
-            start,
-            end,
+            crate::event_parser::ParsedTiming::Timed {
+                start,
+                duration_minutes: 60,
+            },
             "UTC",
         )
         .await
@@ -1183,7 +1239,6 @@ mod tests {
 
         // Create event
         let start = chrono::Utc::now();
-        let end = start + chrono::Duration::hours(1);
         let event = db
             .create_event(
                 organizer_id,
@@ -1191,8 +1246,10 @@ mod tests {
                 "Party Event",
                 None,
                 None,
-                start,
-                end,
+                crate::event_parser::ParsedTiming::Timed {
+                    start,
+                    duration_minutes: 60,
+                },
                 "UTC",
             )
             .await
@@ -1245,7 +1302,6 @@ mod tests {
 
         // Create event and invite
         let start = chrono::Utc::now();
-        let end = start + chrono::Duration::hours(1);
         let event = db
             .create_event(
                 organizer_id,
@@ -1253,8 +1309,10 @@ mod tests {
                 "RSVP Event",
                 None,
                 None,
-                start,
-                end,
+                crate::event_parser::ParsedTiming::Timed {
+                    start,
+                    duration_minutes: 60,
+                },
                 "UTC",
             )
             .await

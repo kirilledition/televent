@@ -2,10 +2,13 @@
 //!
 //! These models represent the core business entities and map to database tables.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::str::FromStr;
 use typeshare::typeshare;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// User ID newtype wrapping Telegram's permanent numeric ID
@@ -13,8 +16,9 @@ use uuid::Uuid;
 /// This serves as the primary identifier for both users and their calendars,
 /// since each user has exactly one calendar.
 #[typeshare]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(transparent)]
+#[schema(value_type = String, example = "123456789")]
 pub struct UserId(#[typeshare(serialized_as = "string")] pub i64);
 
 impl UserId {
@@ -76,20 +80,116 @@ impl sqlx::Encode<'_, sqlx::Postgres> for UserId {
     }
 }
 
+/// Timezone newtype wrapping chrono_tz::Tz with SQLx and Serde support
+///
+/// Stored in database as TEXT (IANA timezone name like "America/New_York")
+#[typeshare]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ToSchema)]
+#[schema(value_type = String, example = "UTC")]
+pub struct Timezone(pub Tz);
+
+impl Timezone {
+    /// Create a new Timezone from an IANA timezone name
+    pub fn new(tz: Tz) -> Self {
+        Self(tz)
+    }
+
+    /// Parse timezone from string
+    pub fn parse(s: &str) -> Result<Self, String> {
+        Tz::from_str(s)
+            .map(Timezone)
+            .map_err(|_| format!("Invalid timezone: {}", s))
+    }
+
+    /// Get the inner Tz value
+    pub fn inner(self) -> Tz {
+        self.0
+    }
+}
+
+impl Default for Timezone {
+    fn default() -> Self {
+        Timezone(Tz::UTC)
+    }
+}
+
+impl fmt::Display for Timezone {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0.name())
+    }
+}
+
+impl FromStr for Timezone {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+impl Serialize for Timezone {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.0.name())
+    }
+}
+
+impl<'de> Deserialize<'de> for Timezone {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Timezone::parse(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+// SQLx support for Timezone
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Timezone {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
+        let inner = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Timezone::parse(&inner).map_err(|e| e.into())
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for Timezone {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for Timezone {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync + 'static>> {
+        <String as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.0.name().to_string(), buf)
+    }
+}
+
 /// User entity (includes calendar data since user = calendar)
 ///
 /// The telegram_id serves as the primary key and unique identifier.
 /// Calendar properties are merged into this struct since each user has exactly one calendar.
 #[typeshare]
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct User {
     /// Primary key: Telegram's permanent numeric ID
     #[sqlx(rename = "telegram_id")]
+    #[schema(value_type = String)]
     pub id: UserId,
     /// Telegram username/handle (can change, used for CalDAV URLs)
     pub telegram_username: Option<String>,
     /// IANA timezone (e.g., "Asia/Singapore")
-    pub timezone: String,
+    pub timezone: Timezone,
     /// Calendar display name
     pub calendar_name: String,
     /// Calendar hex color for UI
@@ -115,30 +215,56 @@ impl User {
 
 /// Event entity
 #[typeshare]
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct Event {
     pub id: Uuid,
     /// Owner's user ID (telegram_id)
+    #[schema(value_type = String)]
     pub user_id: UserId,
     pub uid: String, // iCalendar UID (stable across syncs)
     pub summary: String,
     pub description: Option<String>,
     pub location: Option<String>,
-    pub start: DateTime<Utc>,
-    pub end: DateTime<Utc>,
+
+    // Time-based Event (Maps to Postgres TIMESTAMPTZ)
+    pub start: Option<DateTime<Utc>>,
+    pub end: Option<DateTime<Utc>>,
+
+    // Date-based Event (Maps to Postgres DATE)
+    // Typeshare sees this as 'string' (YYYY-MM-DD)
+    #[typeshare(serialized_as = "string")]
+    pub start_date: Option<NaiveDate>,
+    #[typeshare(serialized_as = "string")]
+    pub end_date: Option<NaiveDate>,
+
     pub is_all_day: bool,
     pub status: EventStatus,   // CONFIRMED | TENTATIVE | CANCELLED
     pub rrule: Option<String>, // RFC 5545 recurrence rule
-    pub timezone: String,      // VTIMEZONE reference
+    pub timezone: Timezone,    // VTIMEZONE reference
     pub version: i32,          // Optimistic locking
     pub etag: String,          // HTTP ETag for conflict detection
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
+impl Event {
+    pub fn start_as_timestamp(&self) -> DateTime<Utc> {
+        if let Some(s) = self.start {
+            s
+        } else {
+            // Treat Date as 00:00 UTC for sorting purposes only
+            self.start_date
+                .unwrap_or_default()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc()
+        }
+    }
+}
+
 /// Event status enumeration
 #[typeshare]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(type_name = "event_status", rename_all = "UPPERCASE")]
 pub enum EventStatus {
     Confirmed,
@@ -147,9 +273,10 @@ pub enum EventStatus {
 }
 
 /// Device password for CalDAV authentication
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct DevicePassword {
     pub id: Uuid,
+    #[schema(value_type = String)]
     pub user_id: UserId,
     #[sqlx(rename = "password_hash")]
     pub hashed_password: String, // Argon2id hash
@@ -160,7 +287,7 @@ pub struct DevicePassword {
 }
 
 /// Outbox message for asynchronous processing
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct OutboxMessage {
     pub id: Uuid,
     pub message_type: String, // "email" | "telegram_notification"
@@ -173,7 +300,7 @@ pub struct OutboxMessage {
 }
 
 /// Outbox message status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(type_name = "outbox_status", rename_all = "lowercase")]
 pub enum OutboxStatus {
     Pending,
@@ -183,9 +310,10 @@ pub enum OutboxStatus {
 }
 
 /// Audit log entry for GDPR compliance
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct AuditLog {
     pub id: Uuid,
+    #[schema(value_type = String)]
     pub user_id: UserId,
     pub action: String, // "event_created" | "data_exported" | "account_deleted"
     pub entity_type: String,
@@ -197,7 +325,7 @@ pub struct AuditLog {
 
 /// Event attendee with RSVP status
 #[typeshare]
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct EventAttendee {
     pub id: Uuid,
     pub event_id: Uuid,
@@ -212,7 +340,7 @@ pub struct EventAttendee {
 
 /// Attendee role (RFC 5545 ROLE parameter)
 #[typeshare]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(type_name = "attendee_role", rename_all = "UPPERCASE")]
 pub enum AttendeeRole {
     Organizer,
@@ -221,7 +349,7 @@ pub enum AttendeeRole {
 
 /// Participation status (RFC 5545 PARTSTAT parameter)
 #[typeshare]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, ToSchema)]
 #[sqlx(type_name = "participation_status")]
 pub enum ParticipationStatus {
     #[sqlx(rename = "NEEDS-ACTION")]
@@ -299,7 +427,7 @@ mod tests {
         let user = User {
             id: UserId::new(123456789),
             telegram_username: Some("testuser".to_string()),
-            timezone: "UTC".to_string(),
+            timezone: Timezone::default(),
             calendar_name: "My Calendar".to_string(),
             calendar_color: "#3b82f6".to_string(),
             sync_token: "0".to_string(),
@@ -316,7 +444,7 @@ mod tests {
         let user = User {
             id: UserId::new(123456789),
             telegram_username: None,
-            timezone: "UTC".to_string(),
+            timezone: Timezone::default(),
             calendar_name: "My Calendar".to_string(),
             calendar_color: "#3b82f6".to_string(),
             sync_token: "0".to_string(),
@@ -379,12 +507,14 @@ mod tests {
             summary: "Team Meeting".to_string(),
             description: Some("Weekly sync".to_string()),
             location: Some("Conference Room A".to_string()),
-            start: Utc::now(),
-            end: Utc::now(),
+            start: Some(Utc::now()),
+            end: Some(Utc::now()),
+            start_date: None,
+            end_date: None,
             is_all_day: false,
             status: EventStatus::Confirmed,
             rrule: None,
-            timezone: "UTC".to_string(),
+            timezone: Timezone::default(),
             version: 1,
             etag: "abc123".to_string(),
             created_at: Utc::now(),

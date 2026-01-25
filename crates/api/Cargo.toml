@@ -52,6 +52,9 @@ base64 = "0.22"
 dotenvy.workspace = true
 tracing-appender = "0.2.4"
 url.workspace = true
+utoipa = "5.4.0"
+utoipa-axum = "0.2.0"
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 [dev-dependencies]
 hex = "0.4"

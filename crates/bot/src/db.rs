@@ -34,15 +34,49 @@ pub struct BotDb {
 /// Event data structure for bot display
 #[derive(Debug, Clone, FromRow)]
 pub struct BotEvent {
-    #[allow(dead_code)]
     pub id: Uuid,
     pub summary: String,
-    pub start: DateTime<Utc>,
-    #[allow(dead_code)]
-    pub end: DateTime<Utc>,
+    pub start: Option<DateTime<Utc>>,
+    pub end: Option<DateTime<Utc>>,
+    pub start_date: Option<chrono::NaiveDate>,
+    pub end_date: Option<chrono::NaiveDate>,
+    pub is_all_day: bool,
     pub location: Option<String>,
-    #[allow(dead_code)]
     pub description: Option<String>,
+}
+
+impl BotEvent {
+    /// Get a unified start time for display/sorting
+    pub fn display_start(&self) -> DateTime<Utc> {
+        if self.is_all_day {
+            self.start_date
+                .and_then(|d| d.and_hms_opt(0, 0, 0))
+                .unwrap()
+                .and_utc()
+        } else {
+            self.start.unwrap_or_else(Utc::now)
+        }
+    }
+
+    /// Get timing as ParsedTiming enum
+    pub fn timing(&self) -> crate::event_parser::ParsedTiming {
+        if self.is_all_day {
+            crate::event_parser::ParsedTiming::AllDay {
+                date: self.start_date.unwrap_or_else(|| Utc::now().date_naive()),
+            }
+        } else {
+            // Calculate duration in minutes
+            let duration_minutes = if let (Some(s), Some(e)) = (self.start, self.end) {
+                (e - s).num_minutes() as u32
+            } else {
+                60
+            };
+            crate::event_parser::ParsedTiming::Timed {
+                start: self.start.unwrap_or_else(Utc::now),
+                duration_minutes,
+            }
+        }
+    }
 }
 
 /// Device password information for display
@@ -65,14 +99,14 @@ pub struct UserInfo {
 /// Event information with ownership check
 #[derive(Debug, Clone, FromRow)]
 pub struct EventInfo {
-    #[allow(dead_code)]
     pub id: Uuid,
     pub summary: String,
-    pub start: DateTime<Utc>,
-    #[allow(dead_code)]
-    pub end: DateTime<Utc>,
+    pub start: Option<DateTime<Utc>>,
+    pub end: Option<DateTime<Utc>>,
+    pub start_date: Option<chrono::NaiveDate>,
+    pub end_date: Option<chrono::NaiveDate>,
+    pub is_all_day: bool,
     pub location: Option<String>,
-    #[allow(dead_code)]
     pub user_id: UserId,
 }
 
@@ -81,7 +115,9 @@ pub struct EventInfo {
 pub struct PendingInvite {
     pub event_id: Uuid,
     pub summary: String,
-    pub start: DateTime<Utc>,
+    pub start: Option<DateTime<Utc>>,
+    pub start_date: Option<chrono::NaiveDate>,
+    pub is_all_day: bool,
     pub location: Option<String>,
     pub organizer_username: Option<String>,
 }
@@ -107,24 +143,32 @@ impl BotDb {
     pub async fn get_events_for_user(
         &self,
         telegram_id: i64,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start_range: DateTime<Utc>,
+        end_range: DateTime<Utc>,
     ) -> Result<Vec<BotEvent>, sqlx::Error> {
-        // Query events directly by user_id (telegram_id)
+        let start_date = start_range.date_naive();
+        let end_date = end_range.date_naive();
+
+        // Query both timed and all-day events
         let events = sqlx::query_as::<_, BotEvent>(
             r#"
-            SELECT id, summary, start, "end", location, description
+            SELECT id, summary, start, "end", start_date, end_date, is_all_day, location, description
             FROM events
             WHERE user_id = $1
-              AND start >= $2
-              AND start < $3
+              AND (
+                  (is_all_day = false AND start >= $2 AND start < $3)
+                  OR 
+                  (is_all_day = true AND start_date >= $4 AND start_date < $5)
+              )
               AND status != 'CANCELLED'
-            ORDER BY start ASC
+            ORDER BY COALESCE(start, (start_date AT TIME ZONE 'UTC')) ASC
             "#,
         )
         .bind(telegram_id)
-        .bind(start)
-        .bind(end)
+        .bind(start_range)
+        .bind(end_range)
+        .bind(start_date)
+        .bind(end_date)
         .fetch_all(&self.pool)
         .await?;
 
@@ -139,11 +183,11 @@ impl BotDb {
         // Query events directly by user_id
         let events = sqlx::query_as::<_, BotEvent>(
             r#"
-            SELECT id, summary, start, "end", location, description
+            SELECT id, summary, start, "end", start_date, end_date, is_all_day, location, description
             FROM events
             WHERE user_id = $1
               AND status != 'CANCELLED'
-            ORDER BY start ASC
+            ORDER BY COALESCE(start, (start_date AT TIME ZONE 'UTC')) ASC
             "#,
         )
         .bind(telegram_id)
@@ -291,7 +335,7 @@ impl BotDb {
     ) -> Result<Option<EventInfo>, sqlx::Error> {
         let event = sqlx::query_as::<_, EventInfo>(
             r#"
-            SELECT id, summary, start, "end", location, user_id
+            SELECT id, summary, start, "end", start_date, end_date, is_all_day, location, user_id
             FROM events
             WHERE id = $1 AND user_id = $2
             "#,
@@ -363,14 +407,14 @@ impl BotDb {
     ) -> Result<Vec<PendingInvite>, sqlx::Error> {
         let invites = sqlx::query_as::<_, PendingInvite>(
             r#"
-            SELECT e.id AS event_id, e.summary, e.start, e.location,
+            SELECT e.id AS event_id, e.summary, e.start, e.start_date, e.is_all_day, e.location,
                    u.telegram_username AS organizer_username
             FROM event_attendees ea
             JOIN events e ON ea.event_id = e.id
             JOIN users u ON e.user_id = u.telegram_id
             WHERE ea.telegram_id = $1
               AND ea.status = 'NEEDS-ACTION'
-            ORDER BY e.start ASC
+            ORDER BY COALESCE(e.start, (e.start_date AT TIME ZONE 'UTC')) ASC
             "#,
         )
         .bind(telegram_id)
@@ -501,8 +545,7 @@ impl BotDb {
         summary: &str,
         description: Option<&str>,
         location: Option<&str>,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        timing: crate::event_parser::ParsedTiming,
         timezone: &str,
     ) -> Result<BotEvent, sqlx::Error> {
         use sha2::{Digest, Sha256};
@@ -510,15 +553,32 @@ impl BotDb {
         // Ensure user exists
         self.ensure_user_setup(telegram_id, None).await?;
 
+        let (start, end, start_date, end_date, is_all_day) = match timing {
+            crate::event_parser::ParsedTiming::Timed {
+                start,
+                duration_minutes,
+            } => {
+                let end = start + chrono::Duration::minutes(i64::from(duration_minutes));
+                (Some(start), Some(end), None, None, false)
+            }
+            crate::event_parser::ParsedTiming::AllDay { date } => {
+                let end_date = date + chrono::Duration::days(1);
+                (None, None, Some(date), Some(end_date), true)
+            }
+        };
+
         // Generate ETag (SHA256 of event data)
         let etag_data = format!(
-            "{}|{}|{}|{}|{}|{}|false|Confirmed|",
+            "{}|{}|{}|{}|{:?}|{:?}|{:?}|{:?}|{}|Confirmed|",
             uid,
             summary,
             description.unwrap_or(""),
             location.unwrap_or(""),
-            start.to_rfc3339(),
-            end.to_rfc3339()
+            start,
+            end,
+            start_date,
+            end_date,
+            is_all_day
         );
         let hash = Sha256::digest(etag_data.as_bytes());
         let etag = format!("{:x}", hash);
@@ -528,10 +588,10 @@ impl BotDb {
             r#"
             INSERT INTO events (
                 user_id, uid, summary, description, location,
-                start, "end", is_all_day, status, timezone, etag
+                start, "end", start_date, end_date, is_all_day, status, timezone, etag
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, false, 'CONFIRMED', $8, $9)
-            RETURNING id, summary, start, "end", location, description
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'CONFIRMED', $11, $12)
+            RETURNING id, summary, start, "end", start_date, end_date, is_all_day, location, description
             "#,
         )
         .bind(telegram_id)
@@ -541,6 +601,9 @@ impl BotDb {
         .bind(location)
         .bind(start)
         .bind(end)
+        .bind(start_date)
+        .bind(end_date)
+        .bind(is_all_day)
         .bind(timezone)
         .bind(etag)
         .fetch_one(&self.pool)
@@ -578,7 +641,6 @@ mod tests {
             .expect("Failed setup");
 
         let start = Utc::now();
-        let end = start + Duration::hours(1);
         let uid = format!("{}", Uuid::new_v4());
 
         // Create event
@@ -589,8 +651,10 @@ mod tests {
                 "Test Event",
                 Some("Description"),
                 Some("Location"),
-                start,
-                end,
+                crate::event_parser::ParsedTiming::Timed {
+                    start,
+                    duration_minutes: 60,
+                },
                 "UTC",
             )
             .await
@@ -604,7 +668,7 @@ mod tests {
             .get_events_for_user(
                 telegram_id,
                 start - Duration::minutes(10),
-                end + Duration::minutes(10),
+                start + Duration::hours(2),
             )
             .await
             .expect("Failed to get events");
@@ -695,11 +759,21 @@ mod tests {
 
         // Organizer creates event
         let start = Utc::now();
-        let end = start + Duration::hours(1);
         let uid = format!("{}", Uuid::new_v4());
 
         let event = db
-            .create_event(organizer_id, &uid, "Party", None, None, start, end, "UTC")
+            .create_event(
+                organizer_id,
+                &uid,
+                "Party",
+                None,
+                None,
+                crate::event_parser::ParsedTiming::Timed {
+                    start,
+                    duration_minutes: 60,
+                },
+                "UTC",
+            )
             .await
             .expect("Create event failed");
 
