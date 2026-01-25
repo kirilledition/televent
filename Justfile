@@ -43,7 +43,12 @@ run:
 
 # Run all tests
 test:
-    cargo test --workspace
+    @echo "Running normal tests (libs, bins)..."
+    cargo test --workspace --lib --bins
+    @echo "Running doc tests..."
+    cargo test --workspace --doc
+    @echo "Running integration tests..."
+    cargo test --workspace --tests
 
 # Run tests with coverage report (HTML)
 test-coverage:

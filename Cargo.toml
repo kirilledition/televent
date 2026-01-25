@@ -88,4 +88,9 @@ all = "warn"
 pedantic = "warn"
 nursery = "warn"
 unwrap_used = "warn"
-expect_used = "warn"
+
+[profile.test]
+opt-level = 1
+debug = true
+# Enable full parallelism for tests
+incremental = true
