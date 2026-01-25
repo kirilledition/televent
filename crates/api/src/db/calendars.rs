@@ -47,6 +47,23 @@ pub async fn increment_sync_token(pool: &PgPool, calendar_id: Uuid) -> Result<St
     Ok(result)
 }
 
+/// Check if a user owns a calendar
+pub async fn is_owner(
+    pool: &PgPool,
+    calendar_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, ApiError> {
+    let result = sqlx::query_scalar::<_, i32>(
+        "SELECT 1 FROM calendars WHERE id = $1 AND user_id = $2",
+    )
+    .bind(calendar_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(result.is_some())
+}
+
 /// Increment sync token for a calendar (within transaction)
 pub async fn increment_sync_token_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

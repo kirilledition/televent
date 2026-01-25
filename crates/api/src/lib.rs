@@ -69,6 +69,10 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
                         .key_extractor(UserOrIpKeyExtractor)
                         .finish()
                         .expect("Failed to create API governor config"),
+                ))
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    caldav_basic_auth,
                 )),
         )
         .nest(

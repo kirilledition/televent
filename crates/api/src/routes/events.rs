@@ -3,7 +3,7 @@
 use crate::{db, error::ApiError};
 use axum::{
     Json, Router,
-    extract::{FromRef, Path, Query, State},
+    extract::{Extension, FromRef, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
@@ -99,8 +99,13 @@ impl From<Event> for EventResponse {
 /// Create a new event
 async fn create_event(
     State(pool): State<PgPool>,
+    Extension(user_id): Extension<Uuid>,
     Json(req): Json<CreateEventRequest>,
 ) -> Result<Response, ApiError> {
+    if !db::calendars::is_owner(&pool, req.calendar_id, user_id).await? {
+        return Err(ApiError::Forbidden);
+    }
+
     let event = db::events::create_event(
         &pool,
         req.calendar_id,
@@ -123,8 +128,13 @@ async fn create_event(
 /// Get event by ID
 async fn get_event(
     State(pool): State<PgPool>,
+    Extension(user_id): Extension<Uuid>,
     Path(event_id): Path<Uuid>,
 ) -> Result<Json<EventResponse>, ApiError> {
+    if !db::events::is_owner(&pool, event_id, user_id).await? {
+        return Err(ApiError::Forbidden);
+    }
+
     let event = db::events::get_event(&pool, event_id).await?;
     Ok(Json(EventResponse::from(event)))
 }
@@ -132,8 +142,13 @@ async fn get_event(
 /// List events
 async fn list_events(
     State(pool): State<PgPool>,
+    Extension(user_id): Extension<Uuid>,
     Query(query): Query<ListEventsQuery>,
 ) -> Result<Json<Vec<EventResponse>>, ApiError> {
+    if !db::calendars::is_owner(&pool, query.calendar_id, user_id).await? {
+        return Err(ApiError::Forbidden);
+    }
+
     // Default limit to 100 to prevent OOM
     let limit = query.limit.unwrap_or(100);
     let offset = query.offset.unwrap_or(0);
@@ -154,9 +169,14 @@ async fn list_events(
 /// Update event
 async fn update_event(
     State(pool): State<PgPool>,
+    Extension(user_id): Extension<Uuid>,
     Path(event_id): Path<Uuid>,
     Json(req): Json<UpdateEventRequest>,
 ) -> Result<Json<EventResponse>, ApiError> {
+    if !db::events::is_owner(&pool, event_id, user_id).await? {
+        return Err(ApiError::Forbidden);
+    }
+
     let event = db::events::update_event(
         &pool,
         event_id,
@@ -176,8 +196,13 @@ async fn update_event(
 /// Delete event
 async fn delete_event_handler(
     State(pool): State<PgPool>,
+    Extension(user_id): Extension<Uuid>,
     Path(event_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
+    if !db::events::is_owner(&pool, event_id, user_id).await? {
+        return Err(ApiError::Forbidden);
+    }
+
     db::events::delete_event(&pool, event_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

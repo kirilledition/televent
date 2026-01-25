@@ -344,6 +344,28 @@ pub async fn delete_event(pool: &PgPool, event_id: Uuid) -> Result<(), ApiError>
     Ok(())
 }
 
+/// Check if a user owns an event (via calendar ownership)
+pub async fn is_owner(
+    pool: &PgPool,
+    event_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, ApiError> {
+    let result = sqlx::query_scalar::<_, i32>(
+        r#"
+        SELECT 1
+        FROM events e
+        JOIN calendars c ON e.calendar_id = c.id
+        WHERE e.id = $1 AND c.user_id = $2
+        "#,
+    )
+    .bind(event_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(result.is_some())
+}
+
 /// Generate ETag for an event (SHA256 hash)
 ///
 /// Includes all mutable fields to ensure ETag changes when any field changes
