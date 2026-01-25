@@ -315,14 +315,18 @@ pub enum OutboxStatus {
 #[typeshare]
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct EventAttendee {
+    #[typeshare(serialized_as = "string")]
     pub id: Uuid,
+    #[typeshare(serialized_as = "string")]
     pub event_id: Uuid,
     pub email: String, // tg_123@televent.internal or external
     #[typeshare(serialized_as = "string")]
     pub telegram_id: Option<i64>, // Populated for internal users
     pub role: AttendeeRole,
     pub status: ParticipationStatus,
+    #[typeshare(serialized_as = "string")]
     pub created_at: DateTime<Utc>,
+    #[typeshare(serialized_as = "string")]
     pub updated_at: DateTime<Utc>,
 }
 

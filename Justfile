@@ -88,3 +88,12 @@ upgrade:
     cargo update
     
 # cargo msrv find --write-msrv --min 1.85
+
+# Upgrade frontend dependencies to bleeding edge
+upgrade-frontend:
+    # 1. Upgrade (Equivalent to `cargo upgrade --incompatible`)
+    pnpm up -r --latest
+    # 2. Machete (Equivalent to `cargo machete`)
+    npx depcheck
+    # 3. Update (Equivalent to `cargo update`)
+    pnpm install

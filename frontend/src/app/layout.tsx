@@ -1,23 +1,14 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-import { TelegramProvider } from "@/components/TelegramProvider";
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
+import { TelegramProvider } from '@/components/TelegramProvider';
+import { QueryProvider } from '@/components/QueryProvider';
 
-import { QueryProvider } from "@/components/QueryProvider";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: "Televent",
-  description: "Telegram Mini App for Event Management",
+  title: 'Televent',
+  description: 'Telegram Calendar Management',
 };
 
 export default function RootLayout({
@@ -27,9 +18,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className={inter.className}>
         <QueryProvider>
           <TelegramProvider>
             {children}

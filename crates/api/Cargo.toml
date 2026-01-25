@@ -53,6 +53,7 @@ hex.workspace = true
 urlencoding.workspace = true
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
+typeshare.workspace = true
 
 [dev-dependencies]
 hmac.workspace = true

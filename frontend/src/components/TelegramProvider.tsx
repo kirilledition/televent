@@ -1,16 +1,13 @@
 'use client';
 
-import { PropsWithChildren, useEffect, useState, useMemo } from 'react';
+import { PropsWithChildren, useEffect, useState, Component, ErrorInfo, ReactNode } from 'react';
 import {
     useSignal,
     miniApp,
     themeParams,
     viewport,
-    bindMiniAppCssVars,
-    bindThemeParamsCssVars,
-    bindViewportCssVars,
     useLaunchParams,
-} from '@telegram-apps/sdk-react';
+} from '@tma.js/sdk-react';
 import { AppRoot } from '@telegram-apps/telegram-ui';
 // import eruda from 'eruda'; // Removed for SSR safety
 
@@ -38,10 +35,13 @@ function useTelegramMock() {
     }, []);
 }
 
-import { Component, ErrorInfo, ReactNode } from 'react';
+interface ErrorBoundaryProps {
+    children: ReactNode;
+    fallback?: ReactNode;
+}
 
-class ErrorBoundary extends Component<{ children: ReactNode, fallback?: ReactNode }, { hasError: boolean }> {
-    constructor(props: any) {
+class ErrorBoundary extends Component<ErrorBoundaryProps, { hasError: boolean }> {
+    constructor(props: ErrorBoundaryProps) {
         super(props);
         this.state = { hasError: false };
     }
@@ -63,22 +63,10 @@ class ErrorBoundary extends Component<{ children: ReactNode, fallback?: ReactNod
     }
 }
 
-function AppInitializer({ children }: PropsWithChildren) {
-    let lp;
-    try {
-        lp = useLaunchParams();
-    } catch (e) {
-        // Fallback for non-Telegram environment
-        // Return children without SDK initialization if params are missing
-        return <>{children}</>;
-    }
-
-    const isMobile = lp.platform === 'android' || lp.platform === 'ios';
-
+function SDKBinder({ children }: { children: ReactNode }) {
     // Get signal values
-    const miniAppInstance = useSignal(miniApp.state);
-    const themeParamsInstance = useSignal(themeParams.state);
     const viewportInstance = useSignal(viewport.state);
+
 
     // Initialize and mount components
     useEffect(() => {
@@ -95,20 +83,32 @@ function AppInitializer({ children }: PropsWithChildren) {
 
     // Bind CSS variables
     useEffect(() => {
-        return bindMiniAppCssVars();
-    }, [miniAppInstance]);
+        return miniApp.bindCssVars();
+    }, []);
 
     useEffect(() => {
-        return bindThemeParamsCssVars();
-    }, [themeParamsInstance]);
+        return themeParams.bindCssVars();
+    }, []);
 
     useEffect(() => {
         if (viewportInstance) {
-            return bindViewportCssVars();
+            return viewport.bindCssVars();
         }
     }, [viewportInstance]);
 
     return <>{children}</>;
+}
+
+function AppInitializer({ children }: PropsWithChildren) {
+    try {
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        useLaunchParams();
+    } catch (e) {
+        // Fallback for non-Telegram environment
+        return <>{children}</>;
+    }
+
+    return <SDKBinder>{children}</SDKBinder>;
 }
 
 export function TelegramProvider({ children }: PropsWithChildren) {

@@ -12,10 +12,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use televent_core::models::{Event, EventStatus, Timezone, UserId};
+use typeshare::typeshare;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Create event request
+#[typeshare]
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateEventRequest {
     /// iCalendar UID (stable across syncs)
@@ -29,8 +31,10 @@ pub struct CreateEventRequest {
     /// Event location
     pub location: Option<String>,
     /// Start time (for timed events)
+    #[typeshare(serialized_as = "string")]
     pub start: DateTime<Utc>,
     /// End time (for timed events)
+    #[typeshare(serialized_as = "string")]
     pub end: DateTime<Utc>,
     /// Whether this is an all-day event
     pub is_all_day: bool,
@@ -42,12 +46,15 @@ pub struct CreateEventRequest {
 }
 
 /// Update event request
+#[typeshare]
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateEventRequest {
     pub summary: Option<String>,
     pub description: Option<String>,
     pub location: Option<String>,
+    #[typeshare(serialized_as = "string")]
     pub start: Option<DateTime<Utc>>,
+    #[typeshare(serialized_as = "string")]
     pub end: Option<DateTime<Utc>>,
     pub is_all_day: Option<bool>,
     pub status: Option<EventStatus>,
@@ -55,23 +62,30 @@ pub struct UpdateEventRequest {
 }
 
 /// List events query parameters
+#[typeshare]
 #[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 pub struct ListEventsQuery {
     /// Filter events starting after this time
+    #[typeshare(serialized_as = "string")]
     pub start: Option<DateTime<Utc>>,
     /// Filter events ending before this time
+    #[typeshare(serialized_as = "string")]
     pub end: Option<DateTime<Utc>>,
     /// Maximum number of events to return
     #[schema(default = 100)]
+    #[typeshare(serialized_as = "number")]
     pub limit: Option<i64>,
     /// Number of events to skip
     #[schema(default = 0)]
+    #[typeshare(serialized_as = "number")]
     pub offset: Option<i64>,
 }
 
 /// Event response (same as Event model)
+#[typeshare]
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EventResponse {
+    #[typeshare(serialized_as = "string")]
     pub id: Uuid,
     #[schema(value_type = String)]
     pub user_id: UserId,
@@ -79,11 +93,15 @@ pub struct EventResponse {
     pub summary: String,
     pub description: Option<String>,
     pub location: Option<String>,
+    #[typeshare(serialized_as = "string")]
     pub start: Option<DateTime<Utc>>,
+    #[typeshare(serialized_as = "string")]
     pub end: Option<DateTime<Utc>>,
     #[schema(value_type = Option<String>)]
+    #[typeshare(serialized_as = "string")]
     pub start_date: Option<chrono::NaiveDate>,
     #[schema(value_type = Option<String>)]
+    #[typeshare(serialized_as = "string")]
     pub end_date: Option<chrono::NaiveDate>,
     pub is_all_day: bool,
     pub status: EventStatus,
@@ -91,7 +109,9 @@ pub struct EventResponse {
     pub rrule: Option<String>,
     pub version: i32,
     pub etag: String,
+    #[typeshare(serialized_as = "string")]
     pub created_at: DateTime<Utc>,
+    #[typeshare(serialized_as = "string")]
     pub updated_at: DateTime<Utc>,
 }
 

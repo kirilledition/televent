@@ -218,9 +218,13 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 - Full end-to-end testing with GUI CalDAV clients.
 
 ### Phase 4: Frontend Development (Current)
-- Next.js foundation with Telegram SDK.
-- Typeshare integration for Rust-to-TypeScript safety.
-- Mock mode for quick local iteration.
+- [x] Next.js foundation with Telegram SDK.
+- [ ] Event Management (CRUD)
+    - [ ] Create/Edit Event Form (Catppuccin Mocha Theme)
+    - [ ] Event Listing
+    - [ ] Event Deletion
+- [ ] Typeshare integration for Rust-to-TypeScript safety.
+- [ ] Mock mode for quick local iteration.
 
 ### Phase 5: Production Deployment
 - Railway deployment (API, Bot, Worker, and Static Frontend).
@@ -242,75 +246,14 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 - Event invitations and RSVP via Telegram Bot.
 
 
+Create professional prompt for following task:
 
-description: Create a new prompt that another Agent can execute
-Prompt: ## Task: Develop Telegram Mini App Frontend
-
-**Objective:**
-Create a lightweight, static Single Page Application (SPA) to serve as the GUI for Televent inside Telegram. The app must be served by the existing Rust backend and provide a native-feeling experience using Telegram’s design paradigms.
-
-### 1. Technical Foundation
-
-* **Stack:** TypeScript, React, Next.js (App Router), Tailwind CSS.
-* **Package Manager:** `pnpm`.
-* **Build Target:** The application must be configured for **Static Export** (`output: 'export'`) to generate pure HTML/CSS/JS files for the backend to serve.
-* **Type Safety:** Synchronize frontend types with backend Rust models (using `typeshare` or equivalent) to ensure data consistency.
-
-### 2. Authentication & Security
-
-* **Auth Mechanism:** The app must capture the raw Telegram `initData` string.
-* **API Client:** All HTTP requests to the backend must automatically attach this `initData` to the `Authorization` header for validation.
-* **Sensitive Data:** Device passwords must never be visible by default. They require a specific user interaction ("Click to Reveal") to be displayed.
-
-### 3. Feature Requirements
-
-#### A. Event Dashboard (Home View)
-
-* **Display:** A scrollable, clean list of the user's upcoming calendar events.
-* **Grouping:** Events should be visually grouped by date/day for readability.
-* **UI Integration:**
-* Use the native Telegram **MainButton** labeled **"ADD EVENT"** to trigger event creation.
-* Ensure the app automatically expands to full height (`WebApp.expand()`).
-
-
-
-#### B. Event Creation
-
-* **Input:** A form to capture necessary event details (Summary, Start Time, End Time).
-* **UI Integration:**
-* Use the native Telegram **BackButton** to navigate back to the dashboard.
-* Use the native Telegram **MainButton** labeled **"SAVE EVENT"** to submit the form.
-
-
-* **Validation:** Prevent submission if required fields are missing.
-
-#### C. Device Management (CalDAV Access)
-
-* **List View:** Display all connected CalDAV devices/passwords for the user.
-* **Privacy UI:** Passwords must be obscured behind a "Spoiler" effect (blur) by default.
-* **Interaction:** Tapping a password entry should reveal it; tapping again (or clicking away) should ideally hide it.
-* **Creation:** Provide a mechanism to generate a new device password (e.g., a simple "Add Device" button or form).
-
-### 4. Telegram Native Integration
-
-* **Theming:** The interface must strictly use Telegram's injected CSS variables (e.g., `--tg-theme-bg-color`, `--tg-theme-button-color`) to ensure it looks native in both Light and Dark modes.
-* **Haptics:** Implement native haptic feedback (impact/notification style) for key interactions:
-* Pressing "Save".
-* Pressing "Add Event".
-* Revealing a password.
-* Form validation errors.
-
-
-
-### 5. Deployment Constraints
-
-* The final build artifact must be a directory of static files (`out/` or `dist/`) capable of being hosted directly by the `axum` backend at the `/app` route without a separate Node.js server.
-
-
-
-I know that there can be only one telegram id. and for users who does not have handle, telegram has one numeric id. we also do not allow creation of more than one calendar in our app. Since handles can be changed, we must use the numeric Telegram ID as the unique identifier for users and calendars in the database and data models no need to generate our own ids. However, for the calendar server URL and login credentials, we should use the Telegram handle if available; otherwise, fall back to the numeric ID. Refactor the code to use the numeric ID as the primary key and stop using other artificial identifiers.
-allowed-tools: [Read, Write, Glob, SlashCommand, AskUserQuestion, serena mcp, context7 mcp, supabase mcp]
+For this app we are developing frontend that will be telegram mini app, for debugging it is regular web app. ir uses react and tailwindcss. my theme of choice is catppuccin mocha with sapphire color. i want to implement two features: event creation with fields and event list with with control buttons for event deletion and editing. work on frontend started, but was stopped. update readme with plan and current status. 
+allowed-tools: [Read, Write, Glob, SlashCommand, AskUserQuestion, serena mcp, context7 mcp, supabase mcp, brower]
 remember to activate serena project
+remeber to use tools through nix develop
+can use browser for debugging
+
 <context>
 Before generating prompts, use the Glob tool to check `./prompts/*.md` to:
 1. Determine if the prompts directory exists

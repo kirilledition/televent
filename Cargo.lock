@@ -416,6 +416,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "typeshare",
  "url",
  "urlencoding",
  "utoipa",
