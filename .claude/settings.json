@@ -1,10 +1,4 @@
 {
-  "enabledPlugins": {
-    "feature-dev@claude-plugins-official": true,
-    "ralph-loop@claude-plugins-official": true,
-    "rust-analyzer-lsp@claude-plugins-official": true,
-    "context7@claude-plugins-official": true
-  },
   "permissions": {
     "allow": [
       "Bash(cargo:*)",
@@ -44,6 +38,19 @@
       "Bash(ps:*)",
       "Bash(sqlite3:*)"
     ]
+  },
+  "enabledPlugins": {
+    "feature-dev@claude-plugins-official": true,
+    "ralph-loop@claude-plugins-official": false,
+    "rust-analyzer-lsp@claude-plugins-official": false,
+    "context7@claude-plugins-official": true,
+    "serena@claude-plugins-official": false,
+    "typescript-lsp@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "supabase@claude-plugins-official": false,
+    "claude-md-management@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true
   },
   "mcpServers": {
     "sequential-thinking": {

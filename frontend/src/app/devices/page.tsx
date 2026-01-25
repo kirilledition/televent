@@ -24,11 +24,11 @@ export default function DevicesPage() {
     const [createdDevice, setCreatedDevice] = useState<DevicePasswordResponse | null>(null);
     const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
-    // Fetch User & Devices
+    // Fetch User & Devices (no userId needed - uses authenticated user)
     const { data: user } = useSWR<User, Error>('user', api.getMe);
     const { data: devices, isLoading } = useSWR<DeviceListItem[]>(
-        user ? ['devices', user.id] : null,
-        () => api.getDevices(user!.id)
+        user ? 'devices' : null,
+        api.getDevices
     );
 
     // Setup SDK
@@ -52,13 +52,13 @@ export default function DevicesPage() {
         if (!user || !newDeviceName) return;
 
         try {
-            const device = await api.createDevice(user.id, newDeviceName);
+            const device = await api.createDevice(newDeviceName);
             setCreatedDevice(device);
             setNewDeviceName('');
             setIsCreating(false);
             try { hapticFeedback.notificationOccurred('success'); } catch { }
             // Refresh list
-            mutate(['devices', user.id]);
+            mutate('devices');
         } catch (err) {
             console.error(err);
             try { hapticFeedback.notificationOccurred('error'); } catch { }
@@ -75,8 +75,8 @@ export default function DevicesPage() {
         if (!confirm('Revoke this device password?')) return;
 
         try {
-            await api.deleteDevice(user.id, deviceId);
-            mutate(['devices', user.id]);
+            await api.deleteDevice(deviceId);
+            mutate('devices');
             try { hapticFeedback.notificationOccurred('success'); } catch { }
         } catch (err) {
             console.error(err);
@@ -85,42 +85,64 @@ export default function DevicesPage() {
     };
 
     return (
-        <List>
-            <Section header="Connected Devices" footer="Use these passwords to log in via CalDAV on your phone or computer.">
-                {isLoading && <Cell><Spinner size="s" /></Cell>}
+        <div style={{ background: 'var(--ctp-base)', minHeight: '100vh' }}>
+            <List>
+                <Section header="Connected Devices" footer="Use these passwords to log in via CalDAV on your phone or computer.">
+                    {isLoading && (
+                        <Cell>
+                            <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem' }}>
+                                <Spinner size="s" />
+                            </div>
+                        </Cell>
+                    )}
 
-                {devices?.map((device) => (
-                    <Cell
-                        key={device.id}
-                        subhead={new Date(device.created_at).toLocaleDateString()}
-                        after={
-                            <Button
-                                mode="plain"
-                                size="s"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    handleDelete(device.id);
-                                }}
-                                style={{ color: 'var(--tgui--destructive_text_color)' }}
-                            >
-                                Revoke
-                            </Button>
-                        }
-                    >
-                        {device.name}
+                    {devices?.map((device) => (
+                        <Cell
+                            key={device.id}
+                            subhead={new Date(device.created_at).toLocaleDateString()}
+                            after={
+                                <Button
+                                    mode="plain"
+                                    size="s"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        handleDelete(device.id);
+                                    }}
+                                    style={{
+                                        color: 'var(--ctp-red)',
+                                        fontWeight: 600
+                                    }}
+                                >
+                                    Revoke
+                                </Button>
+                            }
+                        >
+                            <Text style={{ color: 'var(--ctp-text)' }}>{device.name}</Text>
+                        </Cell>
+                    ))}
+
+                    {devices && devices.length === 0 && (
+                        <Cell>
+                            <Text style={{ color: 'var(--ctp-subtext0)' }}>
+                                No devices connected yet.
+                            </Text>
+                        </Cell>
+                    )}
+
+                    <Cell>
+                        <Button
+                            size="m"
+                            stretched
+                            onClick={() => setIsCreating(true)}
+                            style={{
+                                background: 'var(--ctp-sapphire)',
+                                color: 'var(--ctp-base)'
+                            }}
+                        >
+                            Create New Device Password
+                        </Button>
                     </Cell>
-                ))}
-
-                {devices && devices.length === 0 && (
-                    <Cell><Text>No devices connected yet.</Text></Cell>
-                )}
-
-                <Cell>
-                    <Button size="m" stretched onClick={() => setIsCreating(true)}>
-                        Create New Device Password
-                    </Button>
-                </Cell>
-            </Section>
+                </Section>
 
             {createdDevice && (
                 <Section header="New Password Created">
@@ -179,6 +201,7 @@ export default function DevicesPage() {
                     </List>
                 </Modal>
             )}
-        </List>
+            </List>
+        </div>
     );
 }

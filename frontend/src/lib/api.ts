@@ -1,7 +1,7 @@
 import { retrieveLaunchParams } from '@telegram-apps/sdk-react';
-import type { Calendar, Event, EventStatus } from '@/types/schema';
 
-const API_BASE = '/api';
+// Backend is served at root, not /api
+const API_BASE = '';
 
 /**
  * API client for Televent backend.
@@ -12,12 +12,41 @@ interface FetchOptions extends Omit<RequestInit, 'headers'> {
     headers?: Record<string, string>;
 }
 
-// Re-export types from schema
-export type { Calendar, Event, EventStatus };
+// Event status matches backend enum
+export type EventStatus = 'Confirmed' | 'Tentative' | 'Cancelled';
+
+// Event entity - matches backend EventResponse
+export interface Event {
+    id: string;
+    user_id: string;
+    uid: string;
+    summary: string;
+    description?: string;
+    location?: string;
+    start?: string; // ISO string for timed events
+    end?: string; // ISO string for timed events
+    start_date?: string; // Date string for all-day events
+    end_date?: string; // Date string for all-day events
+    is_all_day: boolean;
+    status: EventStatus;
+    rrule?: string;
+    timezone: string;
+    version: number;
+    etag: string;
+    created_at: string;
+    updated_at: string;
+}
+
+// Calendar entity - matches backend CalendarInfo
+export interface Calendar {
+    id: string;
+    name: string;
+    color: string;
+    sync_token: string;
+}
 
 // Request Types
 export interface CreateEventRequest {
-    calendar_id: string; // Uuid
     uid: string;
     summary: string;
     description?: string;
@@ -41,7 +70,6 @@ export interface UpdateEventRequest {
 }
 
 export interface ListEventsQuery {
-    calendar_id: string;
     start?: string;
     end?: string;
     limit?: number;
@@ -52,9 +80,9 @@ export interface CreateDeviceRequest {
     name: string;
 }
 
-// Response Types matches Schema but we might need specific ones like DevicePasswordResponse
+// Response Types
 export interface DevicePasswordResponse {
-    id: string; // Uuid
+    id: string;
     name: string;
     password?: string;
     created_at: string;
@@ -70,7 +98,6 @@ export interface DeviceListItem {
 
 export interface User {
     id: string;
-    telegram_id: number;
     username: string | null;
     authenticated: boolean;
     timezone: string;
@@ -124,17 +151,17 @@ export const api = {
     getCalendars: () => fetchApi<Calendar[]>('/calendars'),
 
     /**
-     * Events
+     * Events - all operations are user-scoped (no calendar_id needed)
      */
-    getEvents: (query: ListEventsQuery) => {
+    getEvents: (query?: ListEventsQuery) => {
         const params = new URLSearchParams();
-        params.append('calendar_id', query.calendar_id);
-        if (query.start) params.append('start', query.start);
-        if (query.end) params.append('end', query.end);
-        if (query.limit) params.append('limit', query.limit.toString());
-        if (query.offset) params.append('offset', query.offset.toString());
+        if (query?.start) params.append('start', query.start);
+        if (query?.end) params.append('end', query.end);
+        if (query?.limit) params.append('limit', query.limit.toString());
+        if (query?.offset) params.append('offset', query.offset.toString());
 
-        return fetchApi<Event[]>(`/events?${params.toString()}`);
+        const queryString = params.toString();
+        return fetchApi<Event[]>(`/events${queryString ? '?' + queryString : ''}`);
     },
 
     getEvent: (id: string) => fetchApi<Event>(`/events/${id}`),
@@ -157,18 +184,18 @@ export const api = {
         }),
 
     /**
-     * Devices
+     * Devices - simplified API (no userId needed, uses authenticated user)
      */
-    getDevices: (userId: string) => fetchApi<DeviceListItem[]>(`/users/${userId}/devices`),
+    getDevices: () => fetchApi<DeviceListItem[]>('/devices'),
 
-    createDevice: (userId: string, name: string) =>
-        fetchApi<DevicePasswordResponse>(`/users/${userId}/devices`, {
+    createDevice: (name: string) =>
+        fetchApi<DevicePasswordResponse>('/devices', {
             method: 'POST',
             body: JSON.stringify({ name }),
         }),
 
-    deleteDevice: (userId: string, deviceId: string) =>
-        fetchApi<void>(`/users/${userId}/devices/${deviceId}`, {
+    deleteDevice: (deviceId: string) =>
+        fetchApi<void>(`/devices/${deviceId}`, {
             method: 'DELETE',
         }),
 
