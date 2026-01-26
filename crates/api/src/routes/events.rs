@@ -210,9 +210,10 @@ async fn create_event(
 )]
 async fn get_event(
     State(pool): State<PgPool>,
+    Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Path(event_id): Path<Uuid>,
 ) -> Result<Json<EventResponse>, ApiError> {
-    let event = db::events::get_event(&pool, event_id).await?;
+    let event = db::events::get_event(&pool, auth_user.id, event_id).await?;
     Ok(Json(EventResponse::from(event)))
 }
 
@@ -273,11 +274,12 @@ async fn list_events(
 )]
 async fn update_event(
     State(pool): State<PgPool>,
+    Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Path(event_id): Path<Uuid>,
     Json(req): Json<UpdateEventRequest>,
 ) -> Result<Json<EventResponse>, ApiError> {
     // Get current event to determine how to set date fields
-    let current = db::events::get_event(&pool, event_id).await?;
+    let current = db::events::get_event(&pool, auth_user.id, event_id).await?;
     let is_all_day = req.is_all_day.unwrap_or(current.is_all_day);
 
     // Determine start_date/end_date based on is_all_day
@@ -295,6 +297,7 @@ async fn update_event(
 
     let event = db::events::update_event(
         &pool,
+        auth_user.id,
         event_id,
         req.summary,
         req.description,
@@ -330,9 +333,10 @@ async fn update_event(
 )]
 async fn delete_event_handler(
     State(pool): State<PgPool>,
+    Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Path(event_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    db::events::delete_event(&pool, event_id).await?;
+    db::events::delete_event(&pool, auth_user.id, event_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

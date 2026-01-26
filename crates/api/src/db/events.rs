@@ -97,10 +97,15 @@ pub async fn create_event(
     Ok(event)
 }
 
-/// Get event by ID
-pub async fn get_event(pool: &PgPool, event_id: Uuid) -> Result<Event, ApiError> {
-    let event = sqlx::query_as::<_, Event>("SELECT * FROM events WHERE id = $1")
+/// Get event by ID and User ID (checks ownership)
+pub async fn get_event(
+    pool: &PgPool,
+    user_id: UserId,
+    event_id: Uuid,
+) -> Result<Event, ApiError> {
+    let event = sqlx::query_as::<_, Event>("SELECT * FROM events WHERE id = $1 AND user_id = $2")
         .bind(event_id)
+        .bind(user_id)
         .fetch_optional(pool)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Event not found: {}", event_id)))?;
@@ -235,6 +240,7 @@ pub async fn list_events_since_sync(
 #[allow(clippy::too_many_arguments)]
 pub async fn update_event(
     pool: &PgPool,
+    user_id: UserId,
     event_id: Uuid,
     summary: Option<String>,
     description: Option<String>,
@@ -248,7 +254,7 @@ pub async fn update_event(
     rrule: Option<String>,
 ) -> Result<Event, ApiError> {
     // Get current event to compute new ETag with merged fields
-    let current = get_event(pool, event_id).await?;
+    let current = get_event(pool, user_id, event_id).await?;
 
     let new_summary = summary.clone().unwrap_or_else(|| current.summary.clone());
     let new_description = description.clone().or_else(|| current.description.clone());
@@ -313,24 +319,25 @@ pub async fn update_event(
     let event = sqlx::query_as::<_, Event>(
         r#"
         UPDATE events
-        SET summary = COALESCE($2, summary),
-            description = COALESCE($3, description),
-            location = COALESCE($4, location),
-            start = $5,
-            "end" = $6,
-            start_date = $7,
-            end_date = $8,
-            is_all_day = $9,
-            status = COALESCE($10, status),
-            rrule = COALESCE($11, rrule),
+        SET summary = COALESCE($3, summary),
+            description = COALESCE($4, description),
+            location = COALESCE($5, location),
+            start = $6,
+            "end" = $7,
+            start_date = $8,
+            end_date = $9,
+            is_all_day = $10,
+            status = COALESCE($11, status),
+            rrule = COALESCE($12, rrule),
             version = version + 1,
-            etag = $12,
+            etag = $13,
             updated_at = NOW()
-        WHERE id = $1
+        WHERE id = $1 AND user_id = $2
         RETURNING *
         "#,
     )
     .bind(event_id)
+    .bind(user_id)
     .bind(new_summary)
     .bind(new_description)
     .bind(new_location)
@@ -350,9 +357,10 @@ pub async fn update_event(
 }
 
 /// Delete an event
-pub async fn delete_event(pool: &PgPool, event_id: Uuid) -> Result<(), ApiError> {
-    let result = sqlx::query("DELETE FROM events WHERE id = $1")
+pub async fn delete_event(pool: &PgPool, user_id: UserId, event_id: Uuid) -> Result<(), ApiError> {
+    let result = sqlx::query("DELETE FROM events WHERE id = $1 AND user_id = $2")
         .bind(event_id)
+        .bind(user_id)
         .execute(pool)
         .await?;
 
