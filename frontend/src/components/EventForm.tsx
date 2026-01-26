@@ -9,6 +9,7 @@ import {
   UpdateEventRequest,
   EventResponse,
 } from '@/lib/api'
+import { Loader2 } from 'lucide-react'
 import {
   addMinutes,
   format,
@@ -258,14 +259,19 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
         </button>
         <button
           type="submit"
-          className="btn-primary flex-1"
+          className="btn-primary flex flex-1 items-center justify-center gap-2"
           disabled={createMutation.isPending || updateMutation.isPending}
         >
-          {createMutation.isPending || updateMutation.isPending
-            ? 'Saving...'
-            : isEditing
-              ? 'Update Event'
-              : 'Create Event'}
+          {createMutation.isPending || updateMutation.isPending ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Saving...</span>
+            </>
+          ) : isEditing ? (
+            'Update Event'
+          ) : (
+            'Create Event'
+          )}
         </button>
       </div>
     </form>
