@@ -6,11 +6,11 @@ use chrono::{DateTime, Utc};
 use quick_xml::Reader;
 use quick_xml::Writer;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
-use std::collections::HashMap;
 use std::io::Cursor;
 use televent_core::models::{CALENDAR_NAME, Event as CalEvent, User};
 // use uuid::Uuid;
 
+use super::ical;
 use crate::error::ApiError;
 
 /// Parsed REPORT request data
@@ -165,7 +165,6 @@ fn parse_caldav_datetime(s: &str) -> Option<DateTime<Utc>> {
 pub fn generate_calendar_query_response(
     user_identifier: &str,
     events: &[CalEvent],
-    ical_data: &[(String, String)], // (uid, ical_string)
 ) -> Result<String, ApiError> {
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
 
@@ -183,13 +182,10 @@ pub fn generate_calendar_query_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
-    // Create a lookup map for ical data
-    let ical_map = build_uid_map(ical_data);
-
     // Write response for each event with calendar-data
     for event in events {
-        let ical = ical_map.get(event.uid.as_str()).copied().unwrap_or("");
-        write_event_with_data(&mut writer, user_identifier, event, ical)?;
+        let ical = ical::event_to_ical(event)?;
+        write_event_with_data(&mut writer, user_identifier, event, &ical)?;
     }
 
     // </multistatus>
@@ -206,7 +202,6 @@ pub fn generate_sync_collection_response(
     user_identifier: &str,
     user: &User,
     events: &[CalEvent],
-    ical_data: &[(String, String)], // (uid, ical_string)
 ) -> Result<String, ApiError> {
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
 
@@ -224,13 +219,10 @@ pub fn generate_sync_collection_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
-    // Create a lookup map for ical data
-    let ical_map = build_uid_map(ical_data);
-
     // Write response for changed/new events with calendar-data
     for event in events {
-        let ical = ical_map.get(event.uid.as_str()).copied().unwrap_or("");
-        write_event_with_data(&mut writer, user_identifier, event, ical)?;
+        let ical = ical::event_to_ical(event)?;
+        write_event_with_data(&mut writer, user_identifier, event, &ical)?;
     }
 
     // <sync-token>
@@ -260,7 +252,6 @@ pub fn generate_sync_collection_response(
 pub fn generate_calendar_multiget_response(
     user_identifier: &str,
     events: &[CalEvent],
-    ical_data: &[(String, String)], // (uid, ical_string)
 ) -> Result<String, ApiError> {
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
 
@@ -278,13 +269,17 @@ pub fn generate_calendar_multiget_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
-    // Create a lookup map for ical data
-    let ical_map = build_uid_map(ical_data);
-
     // Write response for each event with calendar-data
     for event in events {
-        let ical = ical_map.get(event.uid.as_str()).copied().unwrap_or("");
-        write_event_with_data(&mut writer, user_identifier, event, ical)?;
+        match ical::event_to_ical(event) {
+            Ok(ical) => {
+                write_event_with_data(&mut writer, user_identifier, event, &ical)?;
+            }
+            Err(e) => {
+                tracing::warn!("Failed to generate iCalendar for {}: {:?}", event.uid, e);
+                continue;
+            }
+        }
     }
 
     // </multistatus>
@@ -294,14 +289,6 @@ pub fn generate_calendar_multiget_response(
 
     let result = writer.into_inner().into_inner();
     String::from_utf8(result).map_err(|e| ApiError::Internal(format!("UTF-8 error: {}", e)))
-}
-
-/// Helper to build O(1) lookup map for ical data
-fn build_uid_map(ical_data: &[(String, String)]) -> HashMap<&str, &str> {
-    ical_data
-        .iter()
-        .map(|(uid, data)| (uid.as_str(), data.as_str()))
-        .collect()
 }
 
 /// Write event response with calendar-data (for REPORT)
@@ -780,11 +767,7 @@ mod tests {
     #[test]
     fn test_generate_calendar_query_response() {
         let event = test_event("event-123");
-        let ical_data = vec![(
-            "event-123".to_string(),
-            "BEGIN:VCALENDAR...END:VCALENDAR".to_string(),
-        )];
-        let xml = generate_calendar_query_response("testuser", &[event], &ical_data).unwrap();
+        let xml = generate_calendar_query_response("testuser", &[event]).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -806,7 +789,7 @@ mod tests {
         event.etag = "new-etag".to_string();
         event.summary = "Updated Event".to_string();
 
-        let xml = generate_sync_collection_response("testuser", &user, &[event], &[]).unwrap();
+        let xml = generate_sync_collection_response("testuser", &user, &[event]).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -823,7 +806,7 @@ mod tests {
         let mut user = test_user();
         user.sync_token = "100".to_string();
 
-        let xml = generate_sync_collection_response("testuser", &user, &[], &[]).unwrap();
+        let xml = generate_sync_collection_response("testuser", &user, &[]).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -838,7 +821,6 @@ mod tests {
     fn test_benchmark_generate_calendar_query_response() {
         let count = 2000;
         let mut events = Vec::with_capacity(count);
-        let mut ical_data = Vec::with_capacity(count);
 
         for i in 0..count {
             let uid = format!("event-{}", i);
@@ -847,11 +829,10 @@ mod tests {
             event.summary = format!("Event {}", i);
 
             events.push(event);
-            ical_data.push((uid, "BEGIN:VCALENDAR...END:VCALENDAR".to_string()));
         }
 
         let start = std::time::Instant::now();
-        let _ = generate_calendar_query_response("testuser", &events, &ical_data).unwrap();
+        let _ = generate_calendar_query_response("testuser", &events).unwrap();
         let duration = start.elapsed();
 
         println!(
