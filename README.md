@@ -278,7 +278,10 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 
 Create professional prompt for following task:
 
-For this app we are developing frontend that will be telegram mini app, for debugging it is regular web app. ir uses react and tailwindcss. my theme of choice is catppuccin mocha with sapphire color. i want to implement two features: event creation with fields and event list with with control buttons for event deletion and editing. work on frontend started, but was stopped. update readme with plan and current status. 
+i asked expert ui/ux freelancer to create concept application code for our project. it lays in 
+expert_freelancer
+. your goal is to integrate this design to our app with our backend. feel free to use freelancers code and move whole file and chunks, i bought rights for it. it is ours. but i did not give him our backend specification
+
 allowed-tools: [Read, Write, Glob, SlashCommand, AskUserQuestion, serena mcp, context7 mcp, supabase mcp, brower]
 remember to activate serena project
 remeber to use tools through nix develop

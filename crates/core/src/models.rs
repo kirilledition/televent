@@ -92,7 +92,7 @@ impl sqlx::Encode<'_, sqlx::Postgres> for UserId {
 #[typeshare]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ToSchema)]
 #[schema(value_type = String, example = "UTC")]
-pub struct Timezone(pub Tz);
+pub struct Timezone(#[typeshare(serialized_as = "string")] pub Tz);
 
 impl Timezone {
     /// Create a new Timezone from an IANA timezone name

@@ -12,12 +12,14 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use televent_core::models::UserId;
+use typeshare::typeshare;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
 
 /// Request to create a new device password
+#[typeshare]
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateDeviceRequest {
     /// Device name/label (e.g., "iPhone", "Desktop")
@@ -26,8 +28,10 @@ pub struct CreateDeviceRequest {
 }
 
 /// Response containing generated device password
+#[typeshare]
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DevicePasswordResponse {
+    #[typeshare(serialized_as = "string")]
     pub id: Uuid,
     pub name: String,
     /// Plain text password - only shown once at creation
@@ -38,8 +42,10 @@ pub struct DevicePasswordResponse {
 }
 
 /// Device password list item (without password)
+#[typeshare]
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DeviceListItem {
+    #[typeshare(serialized_as = "string")]
     pub id: Uuid,
     pub name: String,
     pub created_at: String,

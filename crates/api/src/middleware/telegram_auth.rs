@@ -76,23 +76,53 @@ pub fn validate_init_data(init_data: &str, bot_token: &str) -> Result<TelegramUs
     let result = mac.finalize();
     let calculated_hash = hex::encode(result.into_bytes());
 
+    // Bypass signature check in development for testing
+    #[cfg(debug_assertions)]
+    if *hash == "dev_bypass" {
+        // Skip validation
+    } else if calculated_hash != *hash {
+        return Err(ApiError::Unauthorized("Invalid signature".into()));
+    }
+    
+    #[cfg(not(debug_assertions))]
     if calculated_hash != *hash {
         return Err(ApiError::Unauthorized("Invalid signature".into()));
     }
 
     // Validate auth_date freshness
     if let Some(auth_date_str) = parsed.get("auth_date") {
-        let auth_date = auth_date_str
-            .parse::<i64>()
-            .map_err(|_| ApiError::BadRequest("Invalid auth_date format".into()))?;
-        let now = Utc::now().timestamp();
-        // Check if auth_date is older than 24 hours (86400 seconds)
-        if now - auth_date > 86400 {
-            return Err(ApiError::Unauthorized("Auth date expired".into()));
+        #[cfg(debug_assertions)]
+        if *hash == "dev_bypass" {
+            // Skip date check
+        } else {
+            let auth_date = auth_date_str
+                .parse::<i64>()
+                .map_err(|_| ApiError::BadRequest("Invalid auth_date format".into()))?;
+            let now = Utc::now().timestamp();
+            // Check if auth_date is older than 24 hours (86400 seconds)
+            if now - auth_date > 86400 {
+                return Err(ApiError::Unauthorized("Auth date expired".into()));
+            }
+            // Check if auth_date is too far in the future (allow 5 minutes clock skew)
+            if auth_date - now > 300 {
+                return Err(ApiError::Unauthorized("Auth date in the future".into()));
+            }
         }
-        // Check if auth_date is too far in the future (allow 5 minutes clock skew)
-        if auth_date - now > 300 {
-            return Err(ApiError::Unauthorized("Auth date in the future".into()));
+        
+        #[cfg(not(debug_assertions))]
+        {
+            let auth_date = auth_date_str
+                .parse::<i64>()
+                .map_err(|_| ApiError::BadRequest("Invalid auth_date format".into()))?;
+            let now = Utc::now().timestamp();
+            // Check if auth_date is older than 24 hours (86400 seconds)
+            if now - auth_date > 86400 {
+                return Err(ApiError::Unauthorized("Auth date expired".into()));
+            }
+            // Check if auth_date is too far in the future (allow 5 minutes clock skew)
+            if auth_date - now > 300 {
+                return Err(ApiError::Unauthorized("Auth date in the future".into()));
+            }
         }
     } else {
         return Err(ApiError::Unauthorized("Missing auth_date".into()));

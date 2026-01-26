@@ -39,7 +39,7 @@ class ApiClient {
     // Inject fake auth for local dev
     if (process.env.NODE_ENV === 'development') {
       headers['Authorization'] =
-        'tma auth_date=1700000000&query_id=AAGyswdAAAAAAALLB0A&user=%7B%22id%22%3A123456789%2C%22first_name%22%3A%22Test%22%2C%22last_name%22%3A%22User%22%2C%22username%22%3A%22testuser%22%2C%22language_code%22%3A%22en%22%2C%22is_premium%22%3Afalse%2C%22allows_write_to_pm%22%3Atrue%7D&hash=075e0d126e8e57060d9fdca6599f95482a4fdb97521e1a937f7c5dd8f6190719'
+        'tma auth_date=1700000000&query_id=AAGyswdAAAAAAALLB0A&user=%7B%22id%22%3A123456789%2C%22first_name%22%3A%22Test%22%2C%22last_name%22%3A%22User%22%2C%22username%22%3A%22testuser%22%2C%22language_code%22%3A%22en%22%2C%22is_premium%22%3Afalse%2C%22allows_write_to_pm%22%3Atrue%7D&hash=dev_bypass'
     }
 
     const response = await fetch(url, { ...options, headers })

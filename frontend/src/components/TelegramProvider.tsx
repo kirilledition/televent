@@ -62,7 +62,7 @@ class ErrorBoundary extends Component<
     this.state = { hasError: false }
   }
 
-  static getDerivedStateFromError(_: Error) {
+  static getDerivedStateFromError() {
     return { hasError: true }
   }
 
@@ -119,9 +119,9 @@ function SDKBinder({ children }: { children: ReactNode }) {
 
 function AppInitializer({ children }: PropsWithChildren) {
   try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
+
     useLaunchParams()
-  } catch (e) {
+  } catch {
     // Fallback for non-Telegram environment
     return <>{children}</>
   }

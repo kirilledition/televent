@@ -39,7 +39,11 @@ db-stop:
 
 # Run unified server (all services in one process) - DEFAULT for MVP
 run:
-    cargo run --bin televent
+    API_PORT=3001 cargo run --bin televent
+
+# Run frontend dev server
+run-frontend:
+    cd frontend && pnpm dev
 
 # Run all tests
 test:
