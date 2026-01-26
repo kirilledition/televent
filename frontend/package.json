@@ -17,6 +17,7 @@
     "@tma.js/sdk-react": "^3.0.15",
     "date-fns": "^4.1.0",
     "eruda": "^3.4.3",
+    "lucide-react": "^0.563.0",
     "next": "16.1.4",
     "pnpm": "^10.28.1",
     "react": "19.2.3",

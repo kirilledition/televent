@@ -46,9 +46,12 @@ export default function DevicesPage() {
     }
 
     try {
-      // @ts-expect-error
-      if (hapticFeedback.mount && !hapticFeedback.isMounted())
-        hapticFeedback.mount()
+      if (
+        (hapticFeedback as any).mount &&
+        !(hapticFeedback as any).isMounted()
+      ) {
+        ;(hapticFeedback as any).mount()
+      }
     } catch {}
 
     if (backButton.isMounted()) {

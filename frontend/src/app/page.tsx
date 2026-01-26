@@ -1,9 +1,32 @@
 'use client'
 
 import { EventList } from '@/components/EventList'
-import Link from 'next/link'
+import { useMainButton } from '@/components/TelegramProvider'
+import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
 
 export default function Home() {
+  const router = useRouter()
+  const mainButton = useMainButton()
+
+  useEffect(() => {
+    const handleClick = () => {
+      router.push('/create')
+    }
+
+    if (mainButton) {
+      mainButton.setText('ADD EVENT')
+      mainButton.enable()
+      mainButton.show()
+      const cleanup = mainButton.onClick(handleClick)
+
+      return () => {
+        cleanup()
+        mainButton.hide()
+      }
+    }
+  }, [mainButton, router])
+
   return (
     <main className="bg-base text-text min-h-screen pb-20">
       <header className="bg-mantle/80 border-surface0 sticky top-0 z-10 flex items-center justify-between border-b px-4 py-3 backdrop-blur-md">
@@ -13,13 +36,6 @@ export default function Home() {
       </header>
 
       <EventList />
-
-      <Link
-        href="/create"
-        className="bg-sapphire shadow-sapphire/30 fixed right-6 bottom-6 z-50 flex h-14 w-14 items-center justify-center rounded-full text-3xl text-base shadow-lg transition-all hover:scale-110 active:scale-95"
-      >
-        +
-      </Link>
     </main>
   )
 }
