@@ -12,3 +12,8 @@
 **Vulnerability:** Event API endpoints (GET, PUT, DELETE) extracted the event ID from the path and queried the database solely by ID, ignoring the authenticated user context.
 **Learning:** Middleware authentication does not imply authorization at the data access layer.
 **Prevention:** Database functions must accept `user_id` and enforce it in the WHERE clause (e.g., `WHERE id = $1 AND user_id = $2`).
+
+## 2025-02-18 - [DoS in Auth Middleware Order]
+**Vulnerability:** Rate limiting middleware was placed *after* authentication middleware. Attackers could bypass rate limits by sending invalid credentials, triggering expensive Argon2 verification and causing DoS.
+**Learning:** In Axum/Tower, `.layer(A).layer(B)` results in `B` wrapping `A`. To protect Auth, Rate Limit must be the *outer* layer (added *after* Auth in code).
+**Prevention:** Always verify middleware execution order. Place cheap, IP-based rate limiting *before* expensive authentication or database logic.
