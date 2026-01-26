@@ -275,10 +275,8 @@ async fn caldav_report(
                 end
             );
 
-            let response_xml = caldav_xml::generate_calendar_query_response(
-                &user_identifier,
-                &events,
-            )?;
+            let response_xml =
+                caldav_xml::generate_calendar_query_response(&user_identifier, &events)?;
 
             tracing::debug!(
                 "CalendarQuery response XML (first 500 chars): {}",
@@ -321,11 +319,8 @@ async fn caldav_report(
             );
 
             // Fetch deleted events
-            let response_xml = caldav_xml::generate_sync_collection_response(
-                &user_identifier,
-                &user,
-                &events,
-            )?;
+            let response_xml =
+                caldav_xml::generate_sync_collection_response(&user_identifier, &user, &events)?;
 
             // Log the actual XML response for debugging
             if !events.is_empty() {
@@ -366,12 +361,13 @@ async fn caldav_report(
             let uid_strs: Vec<&str> = requested_uids.iter().map(|s: &String| s.as_str()).collect();
             let fetched_events = db::events::get_events_by_uids(&pool, user.id, &uid_strs).await?;
 
-            let response_xml = caldav_xml::generate_calendar_multiget_response(
-                &user_identifier,
-                &fetched_events,
-            )?;
+            let response_xml =
+                caldav_xml::generate_calendar_multiget_response(&user_identifier, &fetched_events)?;
 
-            tracing::info!("CalendarMultiget: returning {} events", fetched_events.len());
+            tracing::info!(
+                "CalendarMultiget: returning {} events",
+                fetched_events.len()
+            );
 
             Ok((
                 StatusCode::MULTI_STATUS,

@@ -169,14 +169,8 @@ mod tests {
     use urlencoding::encode;
 
     // Helper to generate a valid hash for testing
-    fn generate_init_data(
-        params: &[(&str, &str)],
-        bot_token: &str,
-    ) -> String {
-        let mut keys: Vec<String> = params
-            .iter()
-            .map(|(k, _)| k.to_string())
-            .collect();
+    fn generate_init_data(params: &[(&str, &str)], bot_token: &str) -> String {
+        let mut keys: Vec<String> = params.iter().map(|(k, _)| k.to_string()).collect();
         keys.sort();
 
         let mut data_check_string = String::new();
@@ -287,10 +281,7 @@ mod tests {
         let bot_token = "test_token";
         let user_json = r#"{"id":123,"first_name":"Test","last_name":"User"}"#;
 
-        let params = vec![
-            ("query_id", "AAGPK..."),
-            ("user", user_json),
-        ];
+        let params = vec![("query_id", "AAGPK..."), ("user", user_json)];
 
         let init_data = generate_init_data(&params, bot_token);
         let result = validate_init_data(&init_data, bot_token);

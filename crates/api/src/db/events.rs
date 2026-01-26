@@ -98,11 +98,7 @@ pub async fn create_event(
 }
 
 /// Get event by ID and User ID (checks ownership)
-pub async fn get_event(
-    pool: &PgPool,
-    user_id: UserId,
-    event_id: Uuid,
-) -> Result<Event, ApiError> {
+pub async fn get_event(pool: &PgPool, user_id: UserId, event_id: Uuid) -> Result<Event, ApiError> {
     let event = sqlx::query_as::<_, Event>("SELECT * FROM events WHERE id = $1 AND user_id = $2")
         .bind(event_id)
         .bind(user_id)
