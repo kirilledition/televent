@@ -46,10 +46,11 @@ export default function DevicesPage() {
     }
 
     try {
-      // @ts-expect-error: mount() is missing in types but exists at runtime
-      if (hapticFeedback.mount && !hapticFeedback.isMounted()) {
-        // @ts-expect-error: mount() is missing in types but exists at runtime
-        hapticFeedback.mount()
+      if (
+        (hapticFeedback as any).mount &&
+        !(hapticFeedback as any).isMounted()
+      ) {
+        ;(hapticFeedback as any).mount()
       }
     } catch {}
 

@@ -14,6 +14,7 @@ import {
   themeParams,
   viewport,
   useLaunchParams,
+  mainButton,
 } from '@tma.js/sdk-react'
 import { AppRoot } from '@telegram-apps/telegram-ui'
 // import eruda from 'eruda'; // Removed for SSR safety
@@ -93,6 +94,9 @@ function SDKBinder({ children }: { children: ReactNode }) {
     if (viewport.mount.isAvailable() && !viewport.isMounted()) {
       viewport.mount()
     }
+    if (mainButton.mount.isAvailable() && !mainButton.isMounted()) {
+      mainButton.mount()
+    }
   }, [])
 
   // Bind CSS variables
@@ -153,4 +157,8 @@ export function TelegramProvider({ children }: PropsWithChildren) {
       </ErrorBoundary>
     </AppRoot>
   )
+}
+
+export function useMainButton() {
+  return mainButton
 }

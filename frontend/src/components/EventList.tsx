@@ -1,11 +1,13 @@
 'use client'
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { api, EventResponse } from '@/lib/api'
-import { format } from 'date-fns'
+import { format, isToday, isTomorrow } from 'date-fns'
 import { useRouter } from 'next/navigation'
+import { ChevronRight } from 'lucide-react'
 
 export function EventList() {
+  const router = useRouter()
   const {
     data: events,
     isLoading,
@@ -14,20 +16,6 @@ export function EventList() {
     queryKey: ['events'],
     queryFn: () => api.getEvents(),
   })
-
-  const queryClient = useQueryClient()
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.deleteEvent(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['events'] })
-    },
-  })
-
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this event?')) {
-      deleteMutation.mutate(id)
-    }
-  }
 
   if (isLoading) {
     return (
@@ -53,67 +41,56 @@ export function EventList() {
     (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
   )
 
-  return (
-    <div className="flex flex-col gap-3 p-4">
-      {sortedEvents.map((event) => (
-        <EventCard
-          key={event.id}
-          event={event}
-          onDelete={() => handleDelete(event.id)}
-        />
-      ))}
-    </div>
+  // Group events by date
+  const groupedEvents = sortedEvents.reduce(
+    (groups, event) => {
+      const date = new Date(event.start)
+      const dateKey = format(date, 'yyyy-MM-dd')
+      if (!groups[dateKey]) {
+        groups[dateKey] = []
+      }
+      groups[dateKey].push(event)
+      return groups
+    },
+    {} as Record<string, EventResponse[]>
   )
-}
-
-function EventCard({
-  event,
-  onDelete,
-}: {
-  event: EventResponse
-  onDelete: () => void
-}) {
-  const start = new Date(event.start)
-  const end = new Date(event.end)
-  const router = useRouter()
 
   return (
-    <div className="bg-surface0 border-surface1 hover:bg-surface1/50 flex flex-col gap-2 rounded-xl border p-4 shadow-sm transition-all active:scale-[0.99]">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h3 className="text-text line-clamp-1 font-semibold">
-            {event.summary}
-          </h3>
-          <div className="text-subtext0 flex flex-wrap gap-x-3 text-sm">
-            <span className="flex items-center gap-1">
-              🕒 {format(start, 'MMM d, HH:mm')} - {format(end, 'HH:mm')}
-            </span>
-            {event.location && (
-              <span className="line-clamp-1 flex items-center gap-1">
-                📍 {event.location}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
+    <div className="flex flex-col gap-0 pb-20">
+      {Object.entries(groupedEvents).map(([dateKey, groupEvents]) => {
+        const date = new Date(groupEvents[0].start)
+        let title = format(date, 'MMMM d')
+        if (isToday(date)) title = 'Today'
+        else if (isTomorrow(date)) title = 'Tomorrow'
 
-      <div className="border-surface2 mt-2 flex justify-end gap-2 border-t pt-2">
-        <button
-          onClick={() => router.push(`/edit-event?id=${event.id}`)}
-          className="bg-surface2 text-text hover:bg-overlay0 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
-        >
-          Edit
-        </button>
-        <button
-          onClick={() => {
-            console.log('Delete clicked for', event.id)
-            onDelete()
-          }}
-          className="bg-surface2 text-red hover:bg-red/10 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
-        >
-          Delete
-        </button>
-      </div>
+        return (
+          <div key={dateKey} className="flex flex-col">
+            <div className="text-subtext0 px-4 py-2 text-sm font-medium uppercase">
+              {title}
+            </div>
+            <div className="bg-surface0 border-surface1 border-y">
+              {groupEvents.map((event, index) => (
+                <div
+                  key={event.id}
+                  onClick={() => router.push(`/edit-event?id=${event.id}`)}
+                  className={`border-surface1 hover:bg-surface1/50 flex cursor-pointer items-center justify-between px-4 py-3 transition-colors active:bg-surface1 ${
+                    index !== groupEvents.length - 1 ? 'border-b' : ''
+                  }`}
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <div className="text-text font-medium">{event.summary}</div>
+                    <div className="text-subtext0 text-sm">
+                      {format(new Date(event.start), 'HH:mm')} -{' '}
+                      {format(new Date(event.end), 'HH:mm')}
+                    </div>
+                  </div>
+                  <ChevronRight className="text-subtext0 h-5 w-5" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
