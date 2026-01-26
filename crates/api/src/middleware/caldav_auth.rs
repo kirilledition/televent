@@ -96,7 +96,7 @@ pub async fn caldav_basic_auth(
     for (device_id, hashed_password) in &device_passwords {
         // Argon2 verification is expensive, so this loop is the critical path.
         // We limit it to 10 iterations above.
-        if verify_password(&password, hashed_password)? {
+        if verify_password(password.clone(), hashed_password.clone()).await? {
             verified_device_id = Some(*device_id);
             break;
         }
@@ -114,7 +114,7 @@ pub async fn caldav_basic_auth(
     //
     // So if device_passwords is empty, we must do a dummy verification.
     if device_passwords.is_empty() {
-        let _ = verify_password(&password, DUMMY_ARGON2_HASH);
+        let _ = verify_password(password.clone(), DUMMY_ARGON2_HASH.to_string()).await;
     }
 
     let device_id = verified_device_id
@@ -188,13 +188,19 @@ fn parse_basic_auth(auth_header: &str) -> Result<(LoginId, String), ApiError> {
 }
 
 /// Verify password using Argon2id
-fn verify_password(password: &str, hashed_password: &str) -> Result<bool, ApiError> {
-    let parsed_hash = PasswordHash::new(hashed_password)
-        .map_err(|e| ApiError::Internal(format!("Invalid password hash: {}", e)))?;
+///
+/// Runs in a blocking task to avoid blocking the async runtime.
+async fn verify_password(password: String, hashed_password: String) -> Result<bool, ApiError> {
+    tokio::task::spawn_blocking(move || {
+        let parsed_hash = PasswordHash::new(&hashed_password)
+            .map_err(|e| ApiError::Internal(format!("Invalid password hash: {}", e)))?;
 
-    Ok(Argon2::default()
-        .verify_password(password.as_bytes(), &parsed_hash)
-        .is_ok())
+        Ok(Argon2::default()
+            .verify_password(password.as_bytes(), &parsed_hash)
+            .is_ok())
+    })
+    .await
+    .map_err(|e| ApiError::Internal(format!("Task join error: {}", e)))?
 }
 
 #[cfg(test)]
@@ -306,8 +312,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_verify_password_valid() {
+    #[tokio::test]
+    async fn test_verify_password_valid() {
         let password = "test_password_123";
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
@@ -316,13 +322,13 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let result = verify_password(password, &password_hash);
+        let result = verify_password(password.to_string(), password_hash).await;
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
 
-    #[test]
-    fn test_verify_password_invalid() {
+    #[tokio::test]
+    async fn test_verify_password_invalid() {
         let password = "test_password_123";
         let wrong_password = "wrong_password";
         let salt = SaltString::generate(&mut OsRng);
@@ -332,17 +338,17 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let result = verify_password(wrong_password, &password_hash);
+        let result = verify_password(wrong_password.to_string(), password_hash).await;
         assert!(result.is_ok());
         assert!(!result.unwrap());
     }
 
-    #[test]
-    fn test_verify_password_invalid_hash() {
+    #[tokio::test]
+    async fn test_verify_password_invalid_hash() {
         let password = "test_password_123";
         let invalid_hash = "not_a_valid_argon2_hash";
 
-        let result = verify_password(password, invalid_hash);
+        let result = verify_password(password.to_string(), invalid_hash.to_string()).await;
         assert!(result.is_err());
         match result {
             Err(ApiError::Internal(msg)) => {
@@ -352,8 +358,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_verify_password_empty_password() {
+    #[tokio::test]
+    async fn test_verify_password_empty_password() {
         let password = "";
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
@@ -362,7 +368,7 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let result = verify_password(password, &password_hash);
+        let result = verify_password(password.to_string(), password_hash).await;
         assert!(result.is_ok());
         assert!(result.unwrap());
     }

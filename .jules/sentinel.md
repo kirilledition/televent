@@ -12,3 +12,8 @@
 **Vulnerability:** Event API endpoints (GET, PUT, DELETE) extracted the event ID from the path and queried the database solely by ID, ignoring the authenticated user context.
 **Learning:** Middleware authentication does not imply authorization at the data access layer.
 **Prevention:** Database functions must accept `user_id` and enforce it in the WHERE clause (e.g., `WHERE id = $1 AND user_id = $2`).
+
+## 2025-05-19 - [Blocking Async Runtime with Argon2]
+**Vulnerability:** `verify_password` used Argon2id synchronously within an async handler/middleware, blocking the Tokio executor and causing potential DoS.
+**Learning:** CPU-intensive operations like password hashing/verification must be offloaded to `tokio::task::spawn_blocking` in async applications.
+**Prevention:** Wrap all Argon2 calls in `spawn_blocking` to prevent starving the async runtime.
