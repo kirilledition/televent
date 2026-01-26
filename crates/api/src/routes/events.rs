@@ -9,9 +9,9 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sqlx::PgPool;
-use televent_core::models::{Event, EventStatus, Timezone, UserId};
+use televent_core::models::{Event, EventStatus, Timezone};
 use typeshare::typeshare;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -184,62 +184,7 @@ pub struct ListEventsQuery {
 
 /// Event response (same as Event model)
 #[typeshare]
-#[derive(Debug, Serialize, ToSchema)]
-pub struct EventResponse {
-    #[typeshare(serialized_as = "string")]
-    pub id: Uuid,
-    #[schema(value_type = String)]
-    pub user_id: UserId,
-    pub uid: String,
-    pub summary: String,
-    pub description: Option<String>,
-    pub location: Option<String>,
-    #[typeshare(serialized_as = "string")]
-    pub start: Option<DateTime<Utc>>,
-    #[typeshare(serialized_as = "string")]
-    pub end: Option<DateTime<Utc>>,
-    #[schema(value_type = Option<String>)]
-    #[typeshare(serialized_as = "string")]
-    pub start_date: Option<chrono::NaiveDate>,
-    #[schema(value_type = Option<String>)]
-    #[typeshare(serialized_as = "string")]
-    pub end_date: Option<chrono::NaiveDate>,
-    pub is_all_day: bool,
-    pub status: EventStatus,
-    pub timezone: Timezone,
-    pub rrule: Option<String>,
-    pub version: i32,
-    pub etag: String,
-    #[typeshare(serialized_as = "string")]
-    pub created_at: DateTime<Utc>,
-    #[typeshare(serialized_as = "string")]
-    pub updated_at: DateTime<Utc>,
-}
-
-impl From<Event> for EventResponse {
-    fn from(event: Event) -> Self {
-        Self {
-            id: event.id,
-            user_id: event.user_id,
-            uid: event.uid,
-            summary: event.summary,
-            description: event.description,
-            location: event.location,
-            start: event.start,
-            end: event.end,
-            start_date: event.start_date,
-            end_date: event.end_date,
-            is_all_day: event.is_all_day,
-            status: event.status,
-            timezone: event.timezone,
-            rrule: event.rrule,
-            version: event.version,
-            etag: event.etag,
-            created_at: event.created_at,
-            updated_at: event.updated_at,
-        }
-    }
-}
+pub type EventResponse = Event;
 
 /// Create a new event
 #[utoipa::path(
@@ -289,8 +234,7 @@ async fn create_event(
     )
     .await?;
 
-    let response = EventResponse::from(event);
-    Ok((StatusCode::CREATED, Json(response)).into_response())
+    Ok((StatusCode::CREATED, Json(event)).into_response())
 }
 
 /// Get event by ID
@@ -316,7 +260,7 @@ async fn get_event(
     Path(event_id): Path<Uuid>,
 ) -> Result<Json<EventResponse>, ApiError> {
     let event = db::events::get_event(&pool, auth_user.id, event_id).await?;
-    Ok(Json(EventResponse::from(event)))
+    Ok(Json(event))
 }
 
 /// List events
@@ -351,8 +295,7 @@ async fn list_events(
         Some(offset),
     )
     .await?;
-    let response = events.into_iter().map(EventResponse::from).collect();
-    Ok(Json(response))
+    Ok(Json(events))
 }
 
 /// Update event
@@ -415,7 +358,7 @@ async fn update_event(
         req.rrule,
     )
     .await?;
-    Ok(Json(EventResponse::from(event)))
+    Ok(Json(event))
 }
 
 /// Delete event
@@ -462,38 +405,6 @@ where
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_event_response_from_event() {
-        use televent_core::models::Timezone;
-
-        let event = Event {
-            id: Uuid::new_v4(),
-            user_id: UserId::new(123456789),
-            uid: "test-uid".to_string(),
-            summary: "Test Event".to_string(),
-            description: Some("Description".to_string()),
-            location: Some("Location".to_string()),
-            start: Some(Utc::now()),
-            end: Some(Utc::now()),
-            start_date: None,
-            end_date: None,
-            is_all_day: false,
-            status: EventStatus::Confirmed,
-            timezone: Timezone::default(),
-            rrule: None,
-            version: 1,
-            etag: "abc123".to_string(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-
-        let response = EventResponse::from(event.clone());
-
-        assert_eq!(response.id, event.id);
-        assert_eq!(response.summary, event.summary);
-        assert_eq!(response.status, event.status);
-        assert_eq!(response.version, event.version);
-    }
 
     #[test]
     fn test_create_event_request_deserialization() {
