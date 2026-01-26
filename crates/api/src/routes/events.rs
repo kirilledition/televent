@@ -16,6 +16,13 @@ use typeshare::typeshare;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+// Constants for input validation
+const MAX_UID_LENGTH: usize = 256;
+const MAX_SUMMARY_LENGTH: usize = 256;
+const MAX_DESCRIPTION_LENGTH: usize = 10000;
+const MAX_LOCATION_LENGTH: usize = 1024;
+const MAX_RRULE_LENGTH: usize = 1024;
+
 /// Create event request
 #[typeshare]
 #[derive(Debug, Deserialize, ToSchema)]
@@ -45,6 +52,54 @@ pub struct CreateEventRequest {
     pub rrule: Option<String>,
 }
 
+impl CreateEventRequest {
+    pub fn validate(&self) -> Result<(), ApiError> {
+        if self.uid.len() > MAX_UID_LENGTH {
+            return Err(ApiError::BadRequest(format!(
+                "UID too long (max {})",
+                MAX_UID_LENGTH
+            )));
+        }
+        if self.summary.len() > MAX_SUMMARY_LENGTH {
+            return Err(ApiError::BadRequest(format!(
+                "Summary too long (max {})",
+                MAX_SUMMARY_LENGTH
+            )));
+        }
+        if self
+            .description
+            .as_ref()
+            .is_some_and(|d| d.len() > MAX_DESCRIPTION_LENGTH)
+        {
+            return Err(ApiError::BadRequest(format!(
+                "Description too long (max {})",
+                MAX_DESCRIPTION_LENGTH
+            )));
+        }
+        if self
+            .location
+            .as_ref()
+            .is_some_and(|l| l.len() > MAX_LOCATION_LENGTH)
+        {
+            return Err(ApiError::BadRequest(format!(
+                "Location too long (max {})",
+                MAX_LOCATION_LENGTH
+            )));
+        }
+        if self
+            .rrule
+            .as_ref()
+            .is_some_and(|r| r.len() > MAX_RRULE_LENGTH)
+        {
+            return Err(ApiError::BadRequest(format!(
+                "RRule too long (max {})",
+                MAX_RRULE_LENGTH
+            )));
+        }
+        Ok(())
+    }
+}
+
 /// Update event request
 #[typeshare]
 #[derive(Debug, Deserialize, ToSchema)]
@@ -59,6 +114,52 @@ pub struct UpdateEventRequest {
     pub is_all_day: Option<bool>,
     pub status: Option<EventStatus>,
     pub rrule: Option<String>,
+}
+
+impl UpdateEventRequest {
+    pub fn validate(&self) -> Result<(), ApiError> {
+        if self
+            .summary
+            .as_ref()
+            .is_some_and(|s| s.len() > MAX_SUMMARY_LENGTH)
+        {
+            return Err(ApiError::BadRequest(format!(
+                "Summary too long (max {})",
+                MAX_SUMMARY_LENGTH
+            )));
+        }
+        if self
+            .description
+            .as_ref()
+            .is_some_and(|d| d.len() > MAX_DESCRIPTION_LENGTH)
+        {
+            return Err(ApiError::BadRequest(format!(
+                "Description too long (max {})",
+                MAX_DESCRIPTION_LENGTH
+            )));
+        }
+        if self
+            .location
+            .as_ref()
+            .is_some_and(|l| l.len() > MAX_LOCATION_LENGTH)
+        {
+            return Err(ApiError::BadRequest(format!(
+                "Location too long (max {})",
+                MAX_LOCATION_LENGTH
+            )));
+        }
+        if self
+            .rrule
+            .as_ref()
+            .is_some_and(|r| r.len() > MAX_RRULE_LENGTH)
+        {
+            return Err(ApiError::BadRequest(format!(
+                "RRule too long (max {})",
+                MAX_RRULE_LENGTH
+            )));
+        }
+        Ok(())
+    }
 }
 
 /// List events query parameters
@@ -160,6 +261,7 @@ async fn create_event(
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Json(req): Json<CreateEventRequest>,
 ) -> Result<Response, ApiError> {
+    req.validate()?;
     use crate::db::events::EventTiming;
 
     let timing = if req.is_all_day {
@@ -278,6 +380,8 @@ async fn update_event(
     Path(event_id): Path<Uuid>,
     Json(req): Json<UpdateEventRequest>,
 ) -> Result<Json<EventResponse>, ApiError> {
+    req.validate()?;
+
     // Get current event to determine how to set date fields
     let current = db::events::get_event(&pool, auth_user.id, event_id).await?;
     let is_all_day = req.is_all_day.unwrap_or(current.is_all_day);
@@ -446,5 +550,77 @@ mod tests {
         let query: ListEventsQuery = serde_json::from_str(json).unwrap();
         assert!(query.limit.is_none());
         assert!(query.offset.is_none());
+    }
+
+    #[test]
+    fn test_create_event_validation_success() {
+        let req = CreateEventRequest {
+            uid: "valid-uid".to_string(),
+            summary: "Valid Summary".to_string(),
+            description: Some("Valid Description".to_string()),
+            location: Some("Valid Location".to_string()),
+            start: Utc::now(),
+            end: Utc::now(),
+            is_all_day: false,
+            timezone: televent_core::models::Timezone::default(),
+            rrule: None,
+        };
+        assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn test_create_event_validation_too_long() {
+        let req = CreateEventRequest {
+            uid: "a".repeat(MAX_UID_LENGTH + 1),
+            summary: "Valid Summary".to_string(),
+            description: None,
+            location: None,
+            start: Utc::now(),
+            end: Utc::now(),
+            is_all_day: false,
+            timezone: televent_core::models::Timezone::default(),
+            rrule: None,
+        };
+        assert!(req.validate().is_err());
+
+        let req = CreateEventRequest {
+            uid: "valid-uid".to_string(),
+            summary: "a".repeat(MAX_SUMMARY_LENGTH + 1),
+            description: None,
+            location: None,
+            start: Utc::now(),
+            end: Utc::now(),
+            is_all_day: false,
+            timezone: televent_core::models::Timezone::default(),
+            rrule: None,
+        };
+        assert!(req.validate().is_err());
+    }
+
+    #[test]
+    fn test_update_event_validation() {
+        let req = UpdateEventRequest {
+            summary: Some("a".repeat(MAX_SUMMARY_LENGTH + 1)),
+            description: None,
+            location: None,
+            start: None,
+            end: None,
+            is_all_day: None,
+            status: None,
+            rrule: None,
+        };
+        assert!(req.validate().is_err());
+
+        let req = UpdateEventRequest {
+            summary: Some("Valid".to_string()),
+            description: None,
+            location: None,
+            start: None,
+            end: None,
+            is_all_day: None,
+            status: None,
+            rrule: None,
+        };
+        assert!(req.validate().is_ok());
     }
 }
