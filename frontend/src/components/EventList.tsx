@@ -3,11 +3,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { api, EventResponse } from '@/lib/api'
 import { format, isToday, isTomorrow } from 'date-fns'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
 
 export function EventList() {
-  const router = useRouter()
   const {
     data: events,
     isLoading,
@@ -70,10 +69,10 @@ export function EventList() {
             </div>
             <div className="bg-surface0 border-surface1 border-y">
               {groupEvents.map((event, index) => (
-                <div
+                <Link
                   key={event.id}
-                  onClick={() => router.push(`/edit-event?id=${event.id}`)}
-                  className={`border-surface1 hover:bg-surface1/50 flex cursor-pointer items-center justify-between px-4 py-3 transition-colors active:bg-surface1 ${
+                  href={`/edit-event?id=${event.id}`}
+                  className={`border-surface1 hover:bg-surface1/50 active:bg-surface1 flex cursor-pointer items-center justify-between px-4 py-3 transition-colors ${
                     index !== groupEvents.length - 1 ? 'border-b' : ''
                   }`}
                 >
@@ -85,7 +84,7 @@ export function EventList() {
                     </div>
                   </div>
                   <ChevronRight className="text-subtext0 h-5 w-5" />
-                </div>
+                </Link>
               ))}
             </div>
           </div>
