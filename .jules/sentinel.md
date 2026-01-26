@@ -7,3 +7,8 @@
 **Vulnerability:** Telegram initData validation verified the signature but ignored auth_date, allowing replay attacks.
 **Learning:** Signature verification proves authenticity but not freshness. Stateless auth tokens/data always need an expiration check.
 **Prevention:** Verify auth_date is within a validity window (e.g., 24h) immediately after signature validation.
+
+## 2025-05-18 - [IDOR in Event Access]
+**Vulnerability:** Event API endpoints (GET, PUT, DELETE) extracted the event ID from the path and queried the database solely by ID, ignoring the authenticated user context.
+**Learning:** Middleware authentication does not imply authorization at the data access layer.
+**Prevention:** Database functions must accept `user_id` and enforce it in the WHERE clause (e.g., `WHERE id = $1 AND user_id = $2`).

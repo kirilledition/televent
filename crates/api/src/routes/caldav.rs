@@ -171,6 +171,7 @@ async fn caldav_put_event(
         // Update existing event
         let updated = db::events::update_event(
             &pool,
+            user.id,
             existing_event.id,
             Some(summary),
             description,
