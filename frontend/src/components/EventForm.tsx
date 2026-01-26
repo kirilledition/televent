@@ -127,10 +127,14 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
       )}
 
       <div>
-        <label className="text-muted mb-1.5 block text-sm font-medium">
-          Title
+        <label
+          htmlFor="summary"
+          className="text-muted mb-1.5 block text-sm font-medium"
+        >
+          Title <span className="text-red">*</span>
         </label>
         <input
+          id="summary"
           type="text"
           value={formData.summary}
           onChange={(e) =>
@@ -144,10 +148,14 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="text-muted mb-1.5 block text-sm font-medium">
-            Start
+          <label
+            htmlFor="start"
+            className="text-muted mb-1.5 block text-sm font-medium"
+          >
+            Start <span className="text-red">*</span>
           </label>
           <input
+            id="start"
             type="datetime-local"
             value={formData.start}
             onChange={(e) =>
@@ -159,10 +167,14 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
         </div>
 
         <div>
-          <label className="text-muted mb-1.5 block text-sm font-medium">
+          <label
+            htmlFor="duration"
+            className="text-muted mb-1.5 block text-sm font-medium"
+          >
             Duration (min)
           </label>
           <select
+            id="duration"
             value={formData.duration}
             onChange={(e) =>
               setFormData({ ...formData, duration: Number(e.target.value) })
@@ -181,10 +193,14 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
       </div>
 
       <div>
-        <label className="text-muted mb-1.5 block text-sm font-medium">
+        <label
+          htmlFor="description"
+          className="text-muted mb-1.5 block text-sm font-medium"
+        >
           Description
         </label>
         <textarea
+          id="description"
           value={formData.description}
           onChange={(e) =>
             setFormData({ ...formData, description: e.target.value })
@@ -196,10 +212,14 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
       </div>
 
       <div>
-        <label className="text-muted mb-1.5 block text-sm font-medium">
+        <label
+          htmlFor="location"
+          className="text-muted mb-1.5 block text-sm font-medium"
+        >
           Location
         </label>
         <input
+          id="location"
           type="text"
           value={formData.location}
           onChange={(e) =>
