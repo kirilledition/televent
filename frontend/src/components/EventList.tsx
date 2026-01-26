@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api, EventResponse } from '@/lib/api'
 import { format, isToday, isTomorrow } from 'date-fns'
 import Link from 'next/link'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Loader2 } from 'lucide-react'
 
 export function EventList() {
   const {
@@ -18,7 +18,10 @@ export function EventList() {
 
   if (isLoading) {
     return (
-      <div className="text-subtext0 p-4 text-center">Loading events...</div>
+      <div className="flex justify-center p-8">
+        <Loader2 className="text-subtext0 h-8 w-8 animate-spin" />
+        <span className="sr-only">Loading events...</span>
+      </div>
     )
   }
 
