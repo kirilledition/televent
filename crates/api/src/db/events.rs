@@ -1,7 +1,7 @@
 //! Event repository for database operations
 
 use crate::error::ApiError;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{Datelike, DateTime, NaiveDate, Utc};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use televent_core::models::{Event, EventStatus, Timezone, UserId};
@@ -397,14 +397,18 @@ fn generate_etag(
     hasher.update(location.unwrap_or(""));
     hasher.update("|");
 
+    // Use raw byte representation for time/date fields to avoid expensive
+    // string formatting and allocations (e.g., to_rfc3339).
     if let (Some(s), Some(e)) = (start, end) {
-        hasher.update(s.to_rfc3339());
+        hasher.update(s.timestamp().to_be_bytes());
+        hasher.update(s.timestamp_subsec_nanos().to_be_bytes());
         hasher.update("|");
-        hasher.update(e.to_rfc3339());
+        hasher.update(e.timestamp().to_be_bytes());
+        hasher.update(e.timestamp_subsec_nanos().to_be_bytes());
     } else if let (Some(sd), Some(ed)) = (start_date, end_date) {
-        hasher.update(sd.to_string());
+        hasher.update(sd.num_days_from_ce().to_be_bytes());
         hasher.update("|");
-        hasher.update(ed.to_string());
+        hasher.update(ed.num_days_from_ce().to_be_bytes());
     }
 
     hasher.update("|");
@@ -605,4 +609,5 @@ mod tests {
 
         assert_ne!(etag1, etag2);
     }
+
 }
