@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { EventResponse } from '@/types/schema';
 import { EventItem } from './EventItem';
 import { parseISO, format, isSameDay, addDays } from 'date-fns';
@@ -12,20 +13,24 @@ interface EventListProps {
 
 export function EventList({ events, onDeleteEvent, onEditEvent }: EventListProps) {
     // Sort events by start time
-    const sortedEvents = [...events].sort((a, b) => {
-        return new Date(a.start).getTime() - new Date(b.start).getTime();
-    });
+    const sortedEvents = useMemo(() => {
+        return [...events].sort((a, b) => {
+            return new Date(a.start).getTime() - new Date(b.start).getTime();
+        });
+    }, [events]);
 
     // Group events by date (YYYY-MM-DD)
-    const groupedEvents = sortedEvents.reduce((acc, event) => {
-        // Derive date key from start time
-        const date = format(parseISO(event.start), 'yyyy-MM-dd');
-        if (!acc[date]) {
-            acc[date] = [];
-        }
-        acc[date].push(event);
-        return acc;
-    }, {} as Record<string, EventResponse[]>);
+    const groupedEvents = useMemo(() => {
+        return sortedEvents.reduce((acc, event) => {
+            // Derive date key from start time
+            const date = format(parseISO(event.start), 'yyyy-MM-dd');
+            if (!acc[date]) {
+                acc[date] = [];
+            }
+            acc[date].push(event);
+            return acc;
+        }, {} as Record<string, EventResponse[]>);
+    }, [sortedEvents]);
 
     const formatDateHeader = (dateStr: string) => {
         const date = new Date(dateStr + 'T00:00:00');
