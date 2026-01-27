@@ -13,6 +13,9 @@ use televent_core::models::{CALENDAR_NAME, Event as CalEvent, User};
 use super::ical;
 use crate::error::ApiError;
 
+/// Maximum number of hrefs allowed in a calendar-multiget report
+const MAX_MULTIGET_HREFS: usize = 200;
+
 /// Parsed REPORT request data
 #[derive(Debug)]
 pub enum ReportType {
@@ -112,6 +115,12 @@ pub fn parse_report_request(xml_body: &str) -> Result<ReportType, ApiError> {
                 if in_sync_token && !text.is_empty() {
                     sync_token = Some(text.to_string());
                 } else if in_href && !text.is_empty() {
+                    if hrefs.len() >= MAX_MULTIGET_HREFS {
+                        return Err(ApiError::BadRequest(format!(
+                            "Too many hrefs in calendar-multiget (max {})",
+                            MAX_MULTIGET_HREFS
+                        )));
+                    }
                     hrefs.push(text.to_string());
                 }
             }
@@ -839,5 +848,63 @@ mod tests {
             "Benchmark generate_calendar_query_response (N={}): {:?}",
             count, duration
         );
+    }
+
+    #[test]
+    fn test_parse_report_calendar_multiget_limit_exceeded() {
+        use std::fmt::Write;
+        let mut xml = String::from(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <C:calendar-multiget xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+                <D:prop>
+                    <D:getetag/>
+                    <C:calendar-data/>
+                </D:prop>"#,
+        );
+
+        // Add MAX_MULTIGET_HREFS + 1 hrefs
+        for i in 0..MAX_MULTIGET_HREFS + 1 {
+            write!(xml, "<D:href>/caldav/user/event-{}.ics</D:href>", i).unwrap();
+        }
+
+        xml.push_str("</C:calendar-multiget>");
+
+        let result = parse_report_request(&xml);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ApiError::BadRequest(msg) => {
+                assert!(msg.contains("Too many hrefs"));
+            }
+            _ => panic!("Expected BadRequest error"),
+        }
+    }
+
+    #[test]
+    fn test_parse_report_calendar_multiget_limit_ok() {
+        use std::fmt::Write;
+        let mut xml = String::from(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <C:calendar-multiget xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+                <D:prop>
+                    <D:getetag/>
+                    <C:calendar-data/>
+                </D:prop>"#,
+        );
+
+        // Add exactly MAX_MULTIGET_HREFS hrefs
+        for i in 0..MAX_MULTIGET_HREFS {
+            write!(xml, "<D:href>/caldav/user/event-{}.ics</D:href>", i).unwrap();
+        }
+
+        xml.push_str("</C:calendar-multiget>");
+
+        let result = parse_report_request(&xml);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ReportType::CalendarMultiget { hrefs } => {
+                assert_eq!(hrefs.len(), MAX_MULTIGET_HREFS);
+            }
+            _ => panic!("Expected CalendarMultiget"),
+        }
     }
 }
