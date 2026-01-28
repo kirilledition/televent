@@ -231,19 +231,22 @@ pub fn generate_sync_collection_response(
         write_event_with_data(&mut writer, user_identifier, event, &ical)?;
     }
 
-    // <sync-token>
-    writer
-        .write_event(Event::Start(BytesStart::new("d:sync-token")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::Text(BytesText::new(&format!(
-            "http://televent.app/sync/{}",
-            user.sync_token
-        ))))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
-    writer
-        .write_event(Event::End(BytesEnd::new("d:sync-token")))
-        .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    // <sync-token> - use write! to avoid allocation
+    {
+        use std::fmt::Write;
+        let mut sync_token_buf = String::with_capacity(48);
+        write!(sync_token_buf, "http://televent.app/sync/{}", user.sync_token)
+            .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+        writer
+            .write_event(Event::Start(BytesStart::new("d:sync-token")))
+            .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+        writer
+            .write_event(Event::Text(BytesText::new(&sync_token_buf)))
+            .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("d:sync-token")))
+            .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
+    }
 
     // </multistatus>
     writer
@@ -298,21 +301,27 @@ pub fn generate_calendar_multiget_response(
 }
 
 /// Write event response with calendar-data (for REPORT)
+///
+/// Uses a reusable buffer to avoid repeated string allocations in hot loops.
 fn write_event_with_data(
     writer: &mut Writer<Cursor<Vec<u8>>>,
     user_identifier: &str,
     event: &CalEvent,
     ical_data: &str,
 ) -> Result<(), ApiError> {
+    use std::fmt::Write;
+
+    // Reusable buffer to avoid allocations per event (capacity for typical href)
+    let mut buf = String::with_capacity(128);
+
     // <response>
     write_start_tag(writer, "d:response")?;
 
-    // <href>
-    write_string_tag(
-        writer,
-        "d:href",
-        &format!("/caldav/{}/{}.ics", user_identifier, event.uid),
-    )?;
+    // <href> - reuse buffer instead of format!
+    buf.clear();
+    write!(buf, "/caldav/{}/{}.ics", user_identifier, event.uid)
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write_string_tag(writer, "d:href", &buf)?;
 
     // <propstat>
     write_start_tag(writer, "d:propstat")?;
@@ -320,18 +329,20 @@ fn write_event_with_data(
     // <prop>
     write_start_tag(writer, "d:prop")?;
 
-    // <getetag>
-    write_string_tag(writer, "d:getetag", &format!("\"{}\"", event.etag))?;
+    // <getetag> - reuse buffer
+    buf.clear();
+    write!(buf, "\"{}\"", event.etag)
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write_string_tag(writer, "d:getetag", &buf)?;
 
     // <getcontenttype>
     write_string_tag(writer, "d:getcontenttype", "text/calendar; charset=utf-8")?;
 
-    // <getlastmodified> (RFC 2616 HTTP-date format)
-    let http_date = event
-        .updated_at
-        .format("%a, %d %b %Y %H:%M:%S GMT")
-        .to_string();
-    write_string_tag(writer, "d:getlastmodified", &http_date)?;
+    // <getlastmodified> (RFC 2616 HTTP-date format) - reuse buffer
+    buf.clear();
+    write!(buf, "{}", event.updated_at.format("%a, %d %b %Y %H:%M:%S GMT"))
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write_string_tag(writer, "d:getlastmodified", &buf)?;
 
     // <calendar-data>
     write_string_tag(writer, "cal:calendar-data", ical_data)?;
@@ -392,16 +403,26 @@ pub fn generate_propfind_multistatus(
 }
 
 /// Write calendar collection response (user = calendar)
+///
+/// Uses a reusable buffer to reduce allocations.
 fn write_calendar_response(
     writer: &mut Writer<Cursor<Vec<u8>>>,
     user_identifier: &str,
     user: &User,
 ) -> Result<(), ApiError> {
+    use std::fmt::Write;
+
+    // Reusable buffer for formatted strings
+    let mut buf = String::with_capacity(64);
+
     // <response>
     write_start_tag(writer, "d:response")?;
 
-    // <href>/caldav/{user_id}/</href>
-    write_string_tag(writer, "d:href", &format!("/caldav/{}/", user_identifier))?;
+    // <href>/caldav/{user_id}/</href> - reuse buffer
+    buf.clear();
+    write!(buf, "/caldav/{}/", user_identifier)
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write_string_tag(writer, "d:href", &buf)?;
 
     // <propstat>
     write_start_tag(writer, "d:propstat")?;
@@ -421,27 +442,28 @@ fn write_calendar_response(
     // <getctag>
     write_string_tag(writer, "cal:getctag", &user.ctag)?;
 
-    // <sync-token> (RFC 6578)
-    write_string_tag(
-        writer,
-        "d:sync-token",
-        &format!("http://televent.app/sync/{}", user.sync_token),
-    )?;
+    // <sync-token> (RFC 6578) - reuse buffer
+    buf.clear();
+    write!(buf, "http://televent.app/sync/{}", user.sync_token)
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write_string_tag(writer, "d:sync-token", &buf)?;
 
-    // <calendar-home-set>
+    // <calendar-home-set> - reuse the href we already formatted
     write_start_tag(writer, "cal:calendar-home-set")?;
-    write_string_tag(writer, "d:href", &format!("/caldav/{}/", user_identifier))?;
+    buf.clear();
+    write!(buf, "/caldav/{}/", user_identifier)
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write_string_tag(writer, "d:href", &buf)?;
     write_end_tag(writer, "cal:calendar-home-set")?;
 
-    // <current-user-principal>
+    // <current-user-principal> - href is same as calendar-home-set
     write_start_tag(writer, "d:current-user-principal")?;
-    // Simplified: principal is the same as calendar home
-    write_string_tag(writer, "d:href", &format!("/caldav/{}/", user_identifier))?;
+    write_string_tag(writer, "d:href", &buf)?;
     write_end_tag(writer, "d:current-user-principal")?;
 
-    // <owner>
+    // <owner> - href is same
     write_start_tag(writer, "d:owner")?;
-    write_string_tag(writer, "d:href", &format!("/caldav/{}/", user_identifier))?;
+    write_string_tag(writer, "d:href", &buf)?;
     write_end_tag(writer, "d:owner")?;
 
     // <supported-calendar-component-set>
@@ -488,20 +510,26 @@ fn write_calendar_response(
 }
 
 /// Write event resource response
+///
+/// Uses a reusable buffer to avoid repeated string allocations in hot loops.
 fn write_event_response(
     writer: &mut Writer<Cursor<Vec<u8>>>,
     user_identifier: &str,
     event: &CalEvent,
 ) -> Result<(), ApiError> {
+    use std::fmt::Write;
+
+    // Reusable buffer to avoid allocations per event
+    let mut buf = String::with_capacity(128);
+
     // <response>
     write_start_tag(writer, "d:response")?;
 
-    // <href>/caldav/{user_id}/{uid}.ics</href>
-    write_string_tag(
-        writer,
-        "d:href",
-        &format!("/caldav/{}/{}.ics", user_identifier, event.uid),
-    )?;
+    // <href>/caldav/{user_id}/{uid}.ics</href> - reuse buffer
+    buf.clear();
+    write!(buf, "/caldav/{}/{}.ics", user_identifier, event.uid)
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write_string_tag(writer, "d:href", &buf)?;
 
     // <propstat>
     write_start_tag(writer, "d:propstat")?;
@@ -509,18 +537,20 @@ fn write_event_response(
     // <prop>
     write_start_tag(writer, "d:prop")?;
 
-    // <getetag>
-    write_string_tag(writer, "d:getetag", &format!("\"{}\"", event.etag))?;
+    // <getetag> - reuse buffer
+    buf.clear();
+    write!(buf, "\"{}\"", event.etag)
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write_string_tag(writer, "d:getetag", &buf)?;
 
     // <getcontenttype>
     write_string_tag(writer, "d:getcontenttype", "text/calendar; charset=utf-8")?;
 
-    // <getlastmodified> (RFC 2616 HTTP-date format)
-    let http_date = event
-        .updated_at
-        .format("%a, %d %b %Y %H:%M:%S GMT")
-        .to_string();
-    write_string_tag(writer, "d:getlastmodified", &http_date)?;
+    // <getlastmodified> (RFC 2616 HTTP-date format) - reuse buffer
+    buf.clear();
+    write!(buf, "{}", event.updated_at.format("%a, %d %b %Y %H:%M:%S GMT"))
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write_string_tag(writer, "d:getlastmodified", &buf)?;
 
     // </prop>
     write_end_tag(writer, "d:prop")?;
