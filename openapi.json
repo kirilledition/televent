@@ -221,7 +221,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/EventResponse"
+                    "$ref": "#/components/schemas/Event"
                   }
                 }
               }
@@ -259,7 +259,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EventResponse"
+                  "$ref": "#/components/schemas/Event"
                 }
               }
             }
@@ -303,7 +303,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EventResponse"
+                  "$ref": "#/components/schemas/Event"
                 }
               }
             }
@@ -355,7 +355,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EventResponse"
+                  "$ref": "#/components/schemas/Event"
                 }
               }
             }
@@ -796,106 +796,6 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
-          }
-        }
-      },
-      "EventResponse": {
-        "type": "object",
-        "description": "Event response (same as Event model)",
-        "required": [
-          "id",
-          "user_id",
-          "uid",
-          "summary",
-          "is_all_day",
-          "status",
-          "timezone",
-          "version",
-          "etag",
-          "created_at",
-          "updated_at"
-        ],
-        "properties": {
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "end": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "end_date": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "etag": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "is_all_day": {
-            "type": "boolean"
-          },
-          "location": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "rrule": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "start": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "start_date": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "$ref": "#/components/schemas/EventStatus"
-          },
-          "summary": {
-            "type": "string"
-          },
-          "timezone": {
-            "$ref": "#/components/schemas/Timezone"
-          },
-          "uid": {
-            "type": "string"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "user_id": {
-            "type": "string"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32"
           }
         }
       },
