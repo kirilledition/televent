@@ -5,3 +5,8 @@
 ## 2025-02-19 - [Allocation-Free ETag Generation]
 **Learning:** `to_rfc3339()` and `to_string()` on Chrono types allocate new strings, which is expensive in hot paths like ETag generation.
 **Action:** Use `timestamp().to_be_bytes()` (for DateTime) and `num_days_from_ce().to_be_bytes()` (for NaiveDate) to hash the raw numeric data directly, eliminating intermediate string allocations.
+
+## 2025-02-21 - [Buffer Reuse Anti-Pattern]
+**Learning:** Attempted to optimize CalDAV XML generation by reusing a single `String` buffer (passed as `&mut String`) instead of creating a local `String::with_capacity(128)` inside the loop. Benchmarks showed this was ~40-80% SLOWER (23ms -> 38ms).
+**Insight:** For small short-lived strings, the allocator is extremely optimized. Clearing and writing to a reused mutable string reference might introduce overheads (checks, dereferences) or prevent compiler optimizations (like putting the buffer on stack or registers) that outweigh the allocation cost.
+**Action:** Don't assume buffer reuse is always faster. Measure! For small buffers, stack/local allocation might be faster.
