@@ -71,12 +71,23 @@ async fn run_worker_loop(
                 continue;
             }
             Ok(jobs) => {
-                info!("Processing {} jobs", jobs.len());
+                info!("Processing {} jobs concurrently", jobs.len());
 
-                // Process each job
+                // Process jobs concurrently using JoinSet
+                // This provides ~Nx throughput improvement where N = batch_size
+                let mut tasks = tokio::task::JoinSet::new();
+
                 for job in jobs {
-                    process_job(&db, &bot, &config, job).await;
+                    let db = db.clone();
+                    let bot = bot.clone();
+                    let config = config.clone();
+                    tasks.spawn(async move {
+                        process_job(&db, &bot, &config, job).await;
+                    });
                 }
+
+                // Wait for all concurrent jobs to complete
+                while tasks.join_next().await.is_some() {}
 
                 // Log queue status
                 if last_status_log_time.elapsed()
