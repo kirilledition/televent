@@ -18,6 +18,10 @@ use uuid::Uuid;
 
 use crate::{error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
 
+// Input validation constants
+const MAX_DEVICE_NAME_LENGTH: usize = 128;
+const MIN_DEVICE_NAME_LENGTH: usize = 1;
+
 /// Request to create a new device password
 #[typeshare]
 #[derive(Debug, Deserialize, ToSchema)]
@@ -25,6 +29,25 @@ pub struct CreateDeviceRequest {
     /// Device name/label (e.g., "iPhone", "Desktop")
     #[schema(example = "iPhone")]
     pub name: String,
+}
+
+impl CreateDeviceRequest {
+    /// Validate the request fields
+    pub fn validate(&self) -> Result<(), ApiError> {
+        let name_len = self.name.trim().len();
+        if name_len < MIN_DEVICE_NAME_LENGTH {
+            return Err(ApiError::BadRequest(
+                "Device name cannot be empty".to_string(),
+            ));
+        }
+        if name_len > MAX_DEVICE_NAME_LENGTH {
+            return Err(ApiError::BadRequest(format!(
+                "Device name too long (max {} characters)",
+                MAX_DEVICE_NAME_LENGTH
+            )));
+        }
+        Ok(())
+    }
 }
 
 /// Response containing generated device password
@@ -84,6 +107,9 @@ async fn create_device_password(
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Json(request): Json<CreateDeviceRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Validate input
+    request.validate()?;
+
     // Generate random password
     let password = generate_password(24);
 
@@ -242,5 +268,43 @@ mod tests {
         let pwd1 = generate_password(24);
         let pwd2 = generate_password(24);
         assert_ne!(pwd1, pwd2);
+    }
+
+    #[test]
+    fn test_create_device_request_validation_success() {
+        let req = CreateDeviceRequest {
+            name: "iPhone".to_string(),
+        };
+        assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn test_create_device_request_validation_empty_name() {
+        let req = CreateDeviceRequest {
+            name: "".to_string(),
+        };
+        assert!(req.validate().is_err());
+
+        // Whitespace-only should also fail
+        let req = CreateDeviceRequest {
+            name: "   ".to_string(),
+        };
+        assert!(req.validate().is_err());
+    }
+
+    #[test]
+    fn test_create_device_request_validation_too_long() {
+        let req = CreateDeviceRequest {
+            name: "a".repeat(MAX_DEVICE_NAME_LENGTH + 1),
+        };
+        assert!(req.validate().is_err());
+    }
+
+    #[test]
+    fn test_create_device_request_validation_max_length() {
+        let req = CreateDeviceRequest {
+            name: "a".repeat(MAX_DEVICE_NAME_LENGTH),
+        };
+        assert!(req.validate().is_ok());
     }
 }
