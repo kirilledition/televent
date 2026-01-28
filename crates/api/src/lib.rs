@@ -61,7 +61,6 @@ pub struct AppState {
             routes::events::CreateEventRequest,
             routes::events::UpdateEventRequest,
             routes::events::ListEventsQuery,
-            routes::events::EventResponse,
             routes::calendars::CalendarInfo,
             routes::devices::CreateDeviceRequest,
             routes::devices::DevicePasswordResponse,

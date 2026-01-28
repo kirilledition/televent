@@ -17,3 +17,8 @@
 **Vulnerability:** Rate limiting middleware was placed *after* authentication middleware. Attackers could bypass rate limits by sending invalid credentials, triggering expensive Argon2 verification and causing DoS.
 **Learning:** In Axum/Tower, `.layer(A).layer(B)` results in `B` wrapping `A`. To protect Auth, Rate Limit must be the *outer* layer (added *after* Auth in code).
 **Prevention:** Always verify middleware execution order. Place cheap, IP-based rate limiting *before* expensive authentication or database logic.
+
+## 2025-05-19 - [Blocking Async Runtime with Argon2]
+**Vulnerability:** `verify_password` used Argon2id synchronously within an async handler/middleware, blocking the Tokio executor and causing potential DoS.
+**Learning:** CPU-intensive operations like password hashing/verification must be offloaded to `tokio::task::spawn_blocking` in async applications.
+**Prevention:** Wrap all Argon2 calls in `spawn_blocking` to prevent starving the async runtime.

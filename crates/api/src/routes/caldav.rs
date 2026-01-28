@@ -340,6 +340,13 @@ async fn caldav_report(
         caldav_xml::ReportType::CalendarMultiget { hrefs } => {
             tracing::info!("CalendarMultiget: {} hrefs requested", hrefs.len());
 
+            if hrefs.len() > super::MAX_MULTIGET_HREFS {
+                return Err(ApiError::BadRequest(format!(
+                    "Too many hrefs requested (max {})",
+                    super::MAX_MULTIGET_HREFS
+                )));
+            }
+
             // Extract UIDs from hrefs
             // Format: /caldav/{user_id}/{uid}.ics or URL-encoded variants
             let mut requested_uids = Vec::new();
