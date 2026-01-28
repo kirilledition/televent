@@ -118,6 +118,9 @@ async fn caldav_get_event(
 /// Maximum allowed body size for CalDAV requests (1 MB)
 const MAX_CALDAV_BODY_SIZE: usize = 1024 * 1024;
 
+/// Maximum number of hrefs allowed in a calendar-multiget report
+const MAX_MULTIGET_HREFS: usize = 200;
+
 /// CalDAV PUT handler
 ///
 /// Creates or updates an event from iCalendar data
@@ -339,6 +342,13 @@ async fn caldav_report(
         }
         caldav_xml::ReportType::CalendarMultiget { hrefs } => {
             tracing::info!("CalendarMultiget: {} hrefs requested", hrefs.len());
+
+            if hrefs.len() > MAX_MULTIGET_HREFS {
+                return Err(ApiError::BadRequest(format!(
+                    "Too many hrefs requested (max {})",
+                    MAX_MULTIGET_HREFS
+                )));
+            }
 
             // Extract UIDs from hrefs
             // Format: /caldav/{user_id}/{uid}.ics or URL-encoded variants
