@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, EventResponse } from '@/lib/api'
 import { format, isToday, isTomorrow } from 'date-fns'
@@ -15,6 +16,28 @@ export function EventList() {
     queryKey: ['events'],
     queryFn: () => api.getEvents(),
   })
+
+  // Memoize sorting and grouping to prevent recalculation on every render.
+  // Only recalculates when events array reference changes (after fetch/mutation).
+  // Must be called unconditionally to satisfy React hooks rules.
+  const groupedEvents = useMemo(() => {
+    if (!events || events.length === 0) return {}
+    const sorted = [...events].sort(
+      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
+    )
+    return sorted.reduce(
+      (groups, event) => {
+        const date = new Date(event.start)
+        const dateKey = format(date, 'yyyy-MM-dd')
+        if (!groups[dateKey]) {
+          groups[dateKey] = []
+        }
+        groups[dateKey].push(event)
+        return groups
+      },
+      {} as Record<string, EventResponse[]>
+    )
+  }, [events])
 
   if (isLoading) {
     return (
@@ -37,25 +60,6 @@ export function EventList() {
       </div>
     )
   }
-
-  // Sort by start time
-  const sortedEvents = [...events].sort(
-    (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
-  )
-
-  // Group events by date
-  const groupedEvents = sortedEvents.reduce(
-    (groups, event) => {
-      const date = new Date(event.start)
-      const dateKey = format(date, 'yyyy-MM-dd')
-      if (!groups[dateKey]) {
-        groups[dateKey] = []
-      }
-      groups[dateKey].push(event)
-      return groups
-    },
-    {} as Record<string, EventResponse[]>
-  )
 
   return (
     <div className="flex flex-col gap-0 pb-20">
