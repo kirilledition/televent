@@ -175,7 +175,9 @@ pub fn generate_calendar_query_response(
     user_identifier: &str,
     events: &[CalEvent],
 ) -> Result<String, ApiError> {
-    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+    // Pre-allocate buffer: ~512 bytes per event to minimize reallocations
+    let capacity = events.len() * 512 + 1024;
+    let mut writer = Writer::new_with_indent(Cursor::new(Vec::with_capacity(capacity)), b' ', 2);
 
     // XML declaration
     writer
@@ -212,7 +214,9 @@ pub fn generate_sync_collection_response(
     user: &User,
     events: &[CalEvent],
 ) -> Result<String, ApiError> {
-    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+    // Pre-allocate buffer: ~512 bytes per event to minimize reallocations
+    let capacity = events.len() * 512 + 1024;
+    let mut writer = Writer::new_with_indent(Cursor::new(Vec::with_capacity(capacity)), b' ', 2);
 
     // XML declaration
     writer
@@ -265,7 +269,9 @@ pub fn generate_calendar_multiget_response(
     user_identifier: &str,
     events: &[CalEvent],
 ) -> Result<String, ApiError> {
-    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+    // Pre-allocate buffer: ~512 bytes per event to minimize reallocations
+    let capacity = events.len() * 512 + 1024;
+    let mut writer = Writer::new_with_indent(Cursor::new(Vec::with_capacity(capacity)), b' ', 2);
 
     // XML declaration
     writer
@@ -370,7 +376,13 @@ pub fn generate_propfind_multistatus(
     events: &[CalEvent],
     depth: &str,
 ) -> Result<String, ApiError> {
-    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+    // Pre-allocate buffer if we are returning events (Depth: 1)
+    let capacity = if depth == "1" {
+        events.len() * 512 + 2048
+    } else {
+        4096 // Enough for calendar properties
+    };
+    let mut writer = Writer::new_with_indent(Cursor::new(Vec::with_capacity(capacity)), b' ', 2);
 
     // XML declaration
     writer
