@@ -10,6 +10,21 @@ use crate::error::ApiError;
 
 /// Convert our Event model to iCalendar format
 pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
+    let calendar = build_ical_calendar(event);
+    Ok(calendar.to_string())
+}
+
+/// Convert our Event model to iCalendar format, writing to a buffer
+///
+/// This avoids allocating a new String for the result if a buffer is reused.
+pub fn event_to_ical_into(event: &Event, buf: &mut String) -> Result<(), ApiError> {
+    let calendar = build_ical_calendar(event);
+    use std::fmt::Write;
+    write!(buf, "{}", calendar).map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    Ok(())
+}
+
+fn build_ical_calendar(event: &Event) -> Calendar {
     let mut ical_event = IcalEvent::new();
 
     // UID is required and must be stable
@@ -67,7 +82,7 @@ pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
     // icalendar crate adds PRODID by default, do not add another one
     calendar.push(ical_event);
 
-    Ok(calendar.to_string())
+    calendar
 }
 
 /// Parse iCalendar format into event data (simple string-based parser)
@@ -420,5 +435,15 @@ END:VCALENDAR"#;
         let (_, _, _, _, _, _, _, _, _, timezone) = ical_to_event_data(ical).unwrap();
 
         assert_eq!(timezone, "America/New_York");
+    }
+
+    #[test]
+    fn test_event_to_ical_into() {
+        let event = create_test_event();
+        let mut buf = String::new();
+        event_to_ical_into(&event, &mut buf).unwrap();
+
+        assert!(buf.contains("BEGIN:VCALENDAR"));
+        assert!(buf.contains("UID:test-event-123"));
     }
 }

@@ -193,10 +193,14 @@ pub fn generate_calendar_query_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
+    // Reusable buffer for iCalendar data
+    let mut ical_buf = String::with_capacity(1024);
+
     // Write response for each event with calendar-data
     for event in events {
-        let ical = ical::event_to_ical(event)?;
-        write_event_with_data(&mut writer, user_identifier, event, &ical)?;
+        ical_buf.clear();
+        ical::event_to_ical_into(event, &mut ical_buf)?;
+        write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
     }
 
     // </multistatus>
@@ -232,10 +236,14 @@ pub fn generate_sync_collection_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
+    // Reusable buffer for iCalendar data
+    let mut ical_buf = String::with_capacity(1024);
+
     // Write response for changed/new events with calendar-data
     for event in events {
-        let ical = ical::event_to_ical(event)?;
-        write_event_with_data(&mut writer, user_identifier, event, &ical)?;
+        ical_buf.clear();
+        ical::event_to_ical_into(event, &mut ical_buf)?;
+        write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
     }
 
     // <sync-token> - use write! to avoid allocation
@@ -287,11 +295,15 @@ pub fn generate_calendar_multiget_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
+    // Reusable buffer for iCalendar data
+    let mut ical_buf = String::with_capacity(1024);
+
     // Write response for each event with calendar-data
     for event in events {
-        match ical::event_to_ical(event) {
-            Ok(ical) => {
-                write_event_with_data(&mut writer, user_identifier, event, &ical)?;
+        ical_buf.clear();
+        match ical::event_to_ical_into(event, &mut ical_buf) {
+            Ok(()) => {
+                write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
             }
             Err(e) => {
                 tracing::warn!("Failed to generate iCalendar for {}: {:?}", event.uid, e);
