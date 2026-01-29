@@ -34,6 +34,30 @@ impl KeyExtractor for UserOrIpKeyExtractor {
             return Ok(RateLimitKey::User(*user_id));
         }
 
+        let headers = req.headers();
+
+        // 1. Try X-Forwarded-For (standard for proxies like Nginx/Railway)
+        if let Some(header) = headers.get("x-forwarded-for") {
+            if let Ok(val) = header.to_str() {
+                // Takes the first IP in the list (Client, Proxy1, Proxy2)
+                if let Some(client_ip) = val.split(',').next() {
+                    if let Ok(ip) = client_ip.trim().parse::<IpAddr>() {
+                        return Ok(RateLimitKey::Ip(ip));
+                    }
+                }
+            }
+        }
+
+        // 2. Try X-Real-IP
+        if let Some(header) = headers.get("x-real-ip") {
+            if let Ok(val) = header.to_str() {
+                if let Ok(ip) = val.trim().parse::<IpAddr>() {
+                    return Ok(RateLimitKey::Ip(ip));
+                }
+            }
+        }
+
+        // 3. Fallback to direct connection IP
         if let Some(ConnectInfo(addr)) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
             return Ok(RateLimitKey::Ip(addr.ip()));
         }
@@ -68,6 +92,22 @@ mod tests {
         req.extensions_mut().insert(ConnectInfo(addr));
         let key = extractor.extract(&req).unwrap();
         assert_eq!(key, RateLimitKey::Ip(addr.ip()));
+    }
+
+    #[tokio::test]
+    async fn test_rate_limit_key_extraction_with_headers() {
+        let extractor = UserOrIpKeyExtractor;
+
+        // Test X-Forwarded-For extraction
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut().insert(ConnectInfo(addr));
+        req.headers_mut().insert("x-forwarded-for", "203.0.113.195".parse().unwrap());
+
+        let key = extractor.extract(&req).unwrap();
+
+        // It should respect the header
+        assert_eq!(key, RateLimitKey::Ip("203.0.113.195".parse().unwrap()));
     }
 
     #[tokio::test]
