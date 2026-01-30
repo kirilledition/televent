@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { EventResponse } from '@/types/schema';
-import { Trash2, MapPin, Clock } from 'lucide-react';
+import { Trash2, MapPin, Clock, Check, X } from 'lucide-react';
 import { format, differenceInMinutes, parseISO } from 'date-fns';
 
 interface EventItemProps {
@@ -11,6 +12,7 @@ interface EventItemProps {
 }
 
 export function EventItem({ event, onDelete, onEdit }: EventItemProps) {
+    const [isConfirming, setIsConfirming] = useState(false);
     const start = parseISO(event.start);
     const end = parseISO(event.end);
     const duration = differenceInMinutes(end, start);
@@ -42,17 +44,44 @@ export function EventItem({ event, onDelete, onEdit }: EventItemProps) {
                     <h3 className="text-lg font-medium" style={{ color: 'var(--ctp-text)' }}>{event.summary}</h3>
 
                     {/* Delete button - always visible on mobile */}
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onDelete(event.id);
-                        }}
-                        className="p-2 rounded-lg transition-all hover:opacity-70"
-                        style={{ backgroundColor: 'var(--ctp-surface0)' }}
-                        aria-label="Delete event"
-                    >
-                        <Trash2 className="w-4 h-4" style={{ color: 'var(--ctp-subtext0)' }} />
-                    </button>
+                    {isConfirming ? (
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDelete(event.id);
+                                }}
+                                className="p-2 rounded-lg transition-all hover:opacity-90"
+                                style={{ backgroundColor: 'var(--ctp-red)' }}
+                                aria-label="Confirm delete"
+                            >
+                                <Check className="w-4 h-4" style={{ color: 'var(--ctp-base)' }} />
+                            </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsConfirming(false);
+                                }}
+                                className="p-2 rounded-lg transition-all hover:opacity-70"
+                                style={{ backgroundColor: 'var(--ctp-surface0)' }}
+                                aria-label="Cancel delete"
+                            >
+                                <X className="w-4 h-4" style={{ color: 'var(--ctp-text)' }} />
+                            </button>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setIsConfirming(true);
+                            }}
+                            className="p-2 rounded-lg transition-all hover:opacity-70"
+                            style={{ backgroundColor: 'var(--ctp-surface0)' }}
+                            aria-label="Delete event"
+                        >
+                            <Trash2 className="w-4 h-4" style={{ color: 'var(--ctp-subtext0)' }} />
+                        </button>
+                    )}
                 </div>
 
                 <div className="space-y-1">
