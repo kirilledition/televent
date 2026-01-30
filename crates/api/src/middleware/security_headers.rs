@@ -41,6 +41,14 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
         HeaderValue::from_static("strict-origin-when-cross-origin"),
     );
 
+    // Content-Security-Policy
+    // - frame-ancestors: restricts who can embed this site (Telegram)
+    // - script-src: 'self' + 'unsafe-inline' (needed for Next.js/Swagger)
+    headers.insert(
+        "Content-Security-Policy",
+        HeaderValue::from_static("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://t.me https://telegram.org https://*.telegram.org; font-src 'self' data:; connect-src 'self'; frame-ancestors 'self' https://web.telegram.org https://*.telegram.org; object-src 'none'; base-uri 'self';"),
+    );
+
     response
 }
 
@@ -78,6 +86,10 @@ mod tests {
         assert_eq!(
             headers.get("Referrer-Policy").unwrap(),
             "strict-origin-when-cross-origin"
+        );
+        assert_eq!(
+            headers.get("Content-Security-Policy").unwrap(),
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://t.me https://telegram.org https://*.telegram.org; font-src 'self' data:; connect-src 'self'; frame-ancestors 'self' https://web.telegram.org https://*.telegram.org; object-src 'none'; base-uri 'self';"
         );
     }
 }

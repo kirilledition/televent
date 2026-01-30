@@ -22,3 +22,8 @@
 **Vulnerability:** Rate limiter used connection IP (`ConnectInfo`) instead of client IP, causing shared rate limits for all users behind a proxy (DoS risk).
 **Learning:** `ConnectInfo` reflects the immediate peer (proxy), not the origin.
 **Prevention:** Always check `X-Forwarded-For` or use a trusted proxy middleware when extracting IPs for security controls in cloud environments.
+
+## 2025-05-24 - [CSP for Telegram Mini Apps]
+**Vulnerability:** Missing Content Security Policy allowed potential Clickjacking and XSS. Standard defenses (X-Frame-Options: DENY) are incompatible with Telegram Mini Apps which run in iframes.
+**Learning:** Telegram Mini Apps require explicit iframe permission. CSP `frame-ancestors` is the correct control, allowing specific domains (web.telegram.org) while blocking others.
+**Prevention:** Implement CSP with `frame-ancestors 'self' https://web.telegram.org https://*.telegram.org` instead of blocking all framing.
