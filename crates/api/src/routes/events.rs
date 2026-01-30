@@ -22,6 +22,7 @@ const MAX_SUMMARY_LENGTH: usize = 256;
 const MAX_DESCRIPTION_LENGTH: usize = 10000;
 const MAX_LOCATION_LENGTH: usize = 1024;
 const MAX_RRULE_LENGTH: usize = 1024;
+const MAX_EVENTS_LIMIT: i64 = 1000;
 
 /// Create event request
 #[typeshare]
@@ -283,7 +284,7 @@ async fn list_events(
     Query(query): Query<ListEventsQuery>,
 ) -> Result<Json<Vec<EventResponse>>, ApiError> {
     // Default limit to 100 to prevent OOM
-    let limit = query.limit.unwrap_or(100);
+    let limit = query.limit.unwrap_or(100).clamp(1, MAX_EVENTS_LIMIT);
     let offset = query.offset.unwrap_or(0);
 
     let events = db::events::list_events(
