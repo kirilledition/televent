@@ -3,86 +3,169 @@
 //! Converts between our Event model and iCalendar (RFC 5545) format
 
 use chrono::{DateTime, Utc};
-use icalendar::{Calendar, Component, Event as IcalEvent, EventLike};
 use televent_core::models::{Event, EventStatus};
 
 use crate::error::ApiError;
 
 /// Convert our Event model to iCalendar format
 pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
-    let calendar = build_ical_calendar(event);
-    Ok(calendar.to_string())
+    let mut buf = String::with_capacity(512);
+    event_to_ical_into(event, &mut buf)?;
+    Ok(buf)
+}
+
+struct FoldedWriter<'a> {
+    buf: &'a mut String,
+    current_line_len: usize,
+}
+
+impl<'a> FoldedWriter<'a> {
+    fn new(buf: &'a mut String) -> Self {
+        Self {
+            buf,
+            current_line_len: 0,
+        }
+    }
+
+    fn write_str(&mut self, s: &str) {
+        for c in s.chars() {
+            self.write_char(c);
+        }
+    }
+
+    fn write_char(&mut self, c: char) {
+        let len = c.len_utf8();
+        if self.current_line_len + len > 75 {
+            self.buf.push_str("\r\n ");
+            self.current_line_len = 1 + len;
+        } else {
+            self.current_line_len += len;
+        }
+        self.buf.push(c);
+    }
+
+    fn end_line(&mut self) {
+        self.buf.push_str("\r\n");
+        self.current_line_len = 0;
+    }
 }
 
 /// Convert our Event model to iCalendar format, writing to a buffer
 ///
 /// This avoids allocating a new String for the result if a buffer is reused.
+/// optimized to write directly to buffer without intermediate objects.
 pub fn event_to_ical_into(event: &Event, buf: &mut String) -> Result<(), ApiError> {
-    let calendar = build_ical_calendar(event);
-    use std::fmt::Write;
-    write!(buf, "{}", calendar).map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
-    Ok(())
-}
+    let mut writer = FoldedWriter::new(buf);
 
-fn build_ical_calendar(event: &Event) -> Calendar {
-    let mut ical_event = IcalEvent::new();
+    writer.write_str("BEGIN:VCALENDAR");
+    writer.end_line();
+    writer.write_str("VERSION:2.0");
+    writer.end_line();
+    writer.write_str("PRODID:-//Televent//Televent//EN");
+    writer.end_line();
 
-    // UID is required and must be stable
-    ical_event.uid(&event.uid);
+    writer.write_str("BEGIN:VEVENT");
+    writer.end_line();
 
-    // Summary (title)
-    ical_event.summary(&event.summary);
+    // UID
+    writer.write_str("UID:");
+    write_escaped(&mut writer, &event.uid);
+    writer.end_line();
 
-    // Description
-    if let Some(ref description) = event.description {
-        ical_event.description(description);
+    // SUMMARY
+    writer.write_str("SUMMARY:");
+    write_escaped(&mut writer, &event.summary);
+    writer.end_line();
+
+    // DESCRIPTION
+    if let Some(ref desc) = event.description {
+        writer.write_str("DESCRIPTION:");
+        write_escaped(&mut writer, desc);
+        writer.end_line();
     }
 
-    // Location
-    if let Some(ref location) = event.location {
-        ical_event.location(location);
+    // LOCATION
+    if let Some(ref loc) = event.location {
+        writer.write_str("LOCATION:");
+        write_escaped(&mut writer, loc);
+        writer.end_line();
     }
 
-    // Start and end times
+    // DTSTART / DTEND
     if event.is_all_day {
-        // All-day events use DATE format (no time component)
-        if let Some(start_date) = event.start_date {
-            ical_event.all_day(start_date);
-        }
+         if let Some(start_date) = event.start_date {
+             writer.write_str("DTSTART;VALUE=DATE:");
+             write_date(&mut writer, &start_date);
+             writer.end_line();
+         }
     } else if let (Some(start), Some(end)) = (event.start, event.end) {
-        ical_event.starts(start);
-        ical_event.ends(end);
+        writer.write_str("DTSTART:");
+        write_datetime(&mut writer, &start);
+        writer.end_line();
+
+        writer.write_str("DTEND:");
+        write_datetime(&mut writer, &end);
+        writer.end_line();
     }
 
-    // Status
-    let status_str = match event.status {
+    // STATUS
+    writer.write_str("STATUS:");
+    writer.write_str(match event.status {
         EventStatus::Confirmed => "CONFIRMED",
         EventStatus::Tentative => "TENTATIVE",
         EventStatus::Cancelled => "CANCELLED",
-    };
-    ical_event.add_property("STATUS", status_str);
+    });
+    writer.end_line();
 
-    // Recurrence rule
+    // RRULE
     if let Some(ref rrule) = event.rrule {
-        ical_event.add_property("RRULE", rrule);
+        writer.write_str("RRULE:");
+        writer.write_str(rrule);
+        writer.end_line();
     }
 
-    // Sequence number for versioning
-    ical_event.sequence(event.version as u32);
+    // SEQUENCE
+    writer.write_str("SEQUENCE:");
+    writer.write_str(&event.version.to_string());
+    writer.end_line();
 
-    // Created and last modified timestamps
-    ical_event.timestamp(event.created_at);
-    // RFC 5545 requires basic ISO 8601 format for timestamps (e.g. 20240101T120000Z)
-    // chrono's to_rfc3339() produces extended format which causes sync issues in Thunderbird
-    let last_modified_str = event.updated_at.format("%Y%m%dT%H%M%SZ").to_string();
-    ical_event.add_property("LAST-MODIFIED", &last_modified_str);
+    // DTSTAMP (Created)
+    writer.write_str("DTSTAMP:");
+    write_datetime(&mut writer, &event.created_at);
+    writer.end_line();
 
-    // Build calendar container
-    let mut calendar = Calendar::new();
-    // icalendar crate adds PRODID by default, do not add another one
-    calendar.push(ical_event);
+    // LAST-MODIFIED
+    writer.write_str("LAST-MODIFIED:");
+    write_datetime(&mut writer, &event.updated_at);
+    writer.end_line();
 
-    calendar
+    writer.write_str("END:VEVENT");
+    writer.end_line();
+    writer.write_str("END:VCALENDAR");
+    writer.end_line();
+
+    Ok(())
+}
+
+fn write_escaped(writer: &mut FoldedWriter, s: &str) {
+    for c in s.chars() {
+        match c {
+            '\\' => writer.write_str("\\\\"),
+            ';' => writer.write_str("\\;"),
+            ',' => writer.write_str("\\,"),
+            '\n' => writer.write_str("\\n"),
+            '\r' => {}, // Ignore carriage returns
+            _ => writer.write_char(c),
+        }
+    }
+}
+
+fn write_datetime(writer: &mut FoldedWriter, dt: &DateTime<Utc>) {
+    writer.write_str(&dt.format("%Y%m%dT%H%M%SZ").to_string());
+}
+
+fn write_date(writer: &mut FoldedWriter, d: &chrono::NaiveDate) {
+    writer.write_str(&d.format("%Y%m%d").to_string());
 }
 
 /// Parse iCalendar format into event data (simple string-based parser)
@@ -107,6 +190,29 @@ pub fn ical_to_event_data(
     ApiError,
 > {
     // Simple line-by-line parser for iCalendar
+    // Handles line unfolding manually
+    let mut unfolded_lines = Vec::new();
+    let mut current_line = String::new();
+
+    for line in ical_str.lines() {
+        if line.starts_with(' ') || line.starts_with('\t') {
+            // Continuation line
+            if !current_line.is_empty() {
+                // Skip the leading space/tab
+                current_line.push_str(&line[1..]);
+            }
+        } else {
+            // New line
+            if !current_line.is_empty() {
+                unfolded_lines.push(current_line);
+            }
+            current_line = line.to_string();
+        }
+    }
+    if !current_line.is_empty() {
+        unfolded_lines.push(current_line);
+    }
+
     let mut in_vevent = false;
     let mut uid = None;
     let mut summary = None;
@@ -119,7 +225,7 @@ pub fn ical_to_event_data(
     let mut status = EventStatus::Confirmed;
     let mut timezone = "UTC".to_string();
 
-    for line in ical_str.lines() {
+    for line in unfolded_lines {
         let line = line.trim();
 
         if line == "BEGIN:VEVENT" {
@@ -445,5 +551,35 @@ END:VCALENDAR"#;
 
         assert!(buf.contains("BEGIN:VCALENDAR"));
         assert!(buf.contains("UID:test-event-123"));
+    }
+
+    #[test]
+    fn test_escape_text() {
+        let mut buf = String::new();
+        let mut writer = FoldedWriter::new(&mut buf);
+        write_escaped(&mut writer, "Text with , and ; and \\ and \n newline");
+        assert_eq!(buf, "Text with \\, and \\; and \\\\ and \\n newline");
+    }
+
+    #[test]
+    fn test_line_folding() {
+        let mut event = create_test_event();
+        // Create a long description (> 75 chars)
+        let long_desc = "This is a very long description that should be folded because it exceeds the 75 character limit defined by RFC 5545.";
+        event.description = Some(long_desc.to_string());
+
+        let ical = event_to_ical(&event).unwrap();
+
+        // Verify folding
+        // Note: exact split depends on property name length "DESCRIPTION:" (12 chars)
+        // 75 - 12 = 63 chars allowed on first line.
+        // "This is a very long description that should be folded because i" (63 chars)
+        // Next line starts with space.
+
+        assert!(ical.contains("\r\n "));
+
+        // Ensure data is preserved (ical_to_event_data handles unfolding now)
+        let (_, _, description, _, _, _, _, _, _, _) = ical_to_event_data(&ical).unwrap();
+        assert_eq!(description, Some(long_desc.to_string()));
     }
 }
