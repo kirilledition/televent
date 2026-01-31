@@ -8,6 +8,22 @@ use sqlx::{FromRow, PgPool};
 use televent_core::models::OutboxStatus;
 use uuid::Uuid;
 
+/// Result of processing a job
+#[derive(Debug, Clone)]
+pub enum JobResult {
+    Completed(Uuid),
+    Failed {
+        id: Uuid,
+        error: String,
+    },
+    Reschedule {
+        id: Uuid,
+        retry_count: i32,
+        scheduled_at: DateTime<Utc>,
+        error: String,
+    },
+}
+
 /// Outbox message from database
 #[derive(Debug, Clone, FromRow)]
 pub struct OutboxMessage {
@@ -146,6 +162,98 @@ impl WorkerDb {
         .await?;
 
         Ok(result)
+    }
+
+    /// Bulk update jobs based on their processing results
+    pub async fn bulk_update_jobs(&self, results: Vec<JobResult>) -> Result<(), sqlx::Error> {
+        let mut completed_ids = Vec::new();
+
+        let mut failed_ids = Vec::new();
+        let mut failed_errors = Vec::new();
+
+        let mut reschedule_ids = Vec::new();
+        let mut reschedule_counts = Vec::new();
+        let mut reschedule_times = Vec::new();
+        let mut reschedule_errors = Vec::new();
+
+        for result in results {
+            match result {
+                JobResult::Completed(id) => completed_ids.push(id),
+                JobResult::Failed { id, error } => {
+                    failed_ids.push(id);
+                    failed_errors.push(error);
+                }
+                JobResult::Reschedule {
+                    id,
+                    retry_count,
+                    scheduled_at,
+                    error,
+                } => {
+                    reschedule_ids.push(id);
+                    reschedule_counts.push(retry_count);
+                    reschedule_times.push(scheduled_at);
+                    reschedule_errors.push(error);
+                }
+            }
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        if !completed_ids.is_empty() {
+            sqlx::query(
+                r#"
+                UPDATE outbox_messages
+                SET status = 'completed',
+                    processed_at = NOW()
+                WHERE id = ANY($1)
+                "#,
+            )
+            .bind(&completed_ids)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        if !failed_ids.is_empty() {
+            sqlx::query(
+                r#"
+                UPDATE outbox_messages AS m
+                SET status = 'failed',
+                    processed_at = NOW(),
+                    error_message = c.error
+                FROM UNNEST($1::uuid[], $2::text[]) AS c(id, error)
+                WHERE m.id = c.id
+                "#,
+            )
+            .bind(&failed_ids)
+            .bind(&failed_errors)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        if !reschedule_ids.is_empty() {
+            sqlx::query(
+                r#"
+                UPDATE outbox_messages AS m
+                SET status = 'pending',
+                    retry_count = c.retry_count,
+                    scheduled_at = c.scheduled_at,
+                    error_message = c.error
+                FROM UNNEST($1::uuid[], $2::int[], $3::timestamptz[], $4::text[])
+                AS c(id, retry_count, scheduled_at, error)
+                WHERE m.id = c.id
+                "#,
+            )
+            .bind(&reschedule_ids)
+            .bind(&reschedule_counts)
+            .bind(&reschedule_times)
+            .bind(&reschedule_errors)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(())
     }
 }
 
