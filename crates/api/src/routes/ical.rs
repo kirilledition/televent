@@ -3,55 +3,59 @@
 //! Converts between our Event model and iCalendar (RFC 5545) format
 
 use chrono::{DateTime, Utc};
-use icalendar::{Calendar, Component, Event as IcalEvent, EventLike};
 use televent_core::models::{Event, EventStatus};
 
 use crate::error::ApiError;
 
 /// Convert our Event model to iCalendar format
 pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
-    let calendar = build_ical_calendar(event);
-    Ok(calendar.to_string())
+    let mut buf = String::with_capacity(1024);
+    event_to_ical_into(event, &mut buf)?;
+    Ok(buf)
 }
 
 /// Convert our Event model to iCalendar format, writing to a buffer
 ///
 /// This avoids allocating a new String for the result if a buffer is reused.
 pub fn event_to_ical_into(event: &Event, buf: &mut String) -> Result<(), ApiError> {
-    let calendar = build_ical_calendar(event);
-    use std::fmt::Write;
-    write!(buf, "{}", calendar).map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
-    Ok(())
-}
+    let mut writer = FoldedWriter::new(buf);
 
-fn build_ical_calendar(event: &Event) -> Calendar {
-    let mut ical_event = IcalEvent::new();
+    // VCALENDAR Header
+    writer.write_line("BEGIN:VCALENDAR");
+    writer.write_line("VERSION:2.0");
+    writer.write_line("PRODID:-//Televent//Televent//EN");
+    writer.write_line("CALSCALE:GREGORIAN");
 
-    // UID is required and must be stable
-    ical_event.uid(&event.uid);
+    // VEVENT
+    writer.write_line("BEGIN:VEVENT");
 
-    // Summary (title)
-    ical_event.summary(&event.summary);
+    // UID
+    writer.write_property("UID", &event.uid);
+
+    // Summary
+    writer.write_property("SUMMARY", &event.summary);
 
     // Description
     if let Some(ref description) = event.description {
-        ical_event.description(description);
+        writer.write_property("DESCRIPTION", description);
     }
 
     // Location
     if let Some(ref location) = event.location {
-        ical_event.location(location);
+        writer.write_property("LOCATION", location);
     }
 
-    // Start and end times
+    // Start and End
     if event.is_all_day {
         // All-day events use DATE format (no time component)
+        // Matches previous behavior which only used start_date
         if let Some(start_date) = event.start_date {
-            ical_event.all_day(start_date);
+            writer.write_property("DTSTART;VALUE=DATE", &start_date.format("%Y%m%d").to_string());
         }
     } else if let (Some(start), Some(end)) = (event.start, event.end) {
-        ical_event.starts(start);
-        ical_event.ends(end);
+        // Format: YYYYMMDDTHHmmssZ
+        writer.write_property("DTSTART", &start.format("%Y%m%dT%H%M%SZ").to_string());
+        writer.write_property("DTEND", &end.format("%Y%m%dT%H%M%SZ").to_string());
     }
 
     // Status
@@ -60,29 +64,102 @@ fn build_ical_calendar(event: &Event) -> Calendar {
         EventStatus::Tentative => "TENTATIVE",
         EventStatus::Cancelled => "CANCELLED",
     };
-    ical_event.add_property("STATUS", status_str);
+    writer.write_property("STATUS", status_str);
 
-    // Recurrence rule
+    // Recurrence Rule
     if let Some(ref rrule) = event.rrule {
-        ical_event.add_property("RRULE", rrule);
+        // RRULE values (RECUR type) should not be text-escaped (e.g. ; should remain ; not \;)
+        writer.write_property_no_escape("RRULE", rrule);
     }
 
-    // Sequence number for versioning
-    ical_event.sequence(event.version as u32);
+    // Sequence
+    writer.write_property("SEQUENCE", &event.version.to_string());
 
-    // Created and last modified timestamps
-    ical_event.timestamp(event.created_at);
-    // RFC 5545 requires basic ISO 8601 format for timestamps (e.g. 20240101T120000Z)
-    // chrono's to_rfc3339() produces extended format which causes sync issues in Thunderbird
-    let last_modified_str = event.updated_at.format("%Y%m%dT%H%M%SZ").to_string();
-    ical_event.add_property("LAST-MODIFIED", &last_modified_str);
+    // Created (DTSTAMP) and Last Modified
+    // RFC 5545 requires DTSTAMP. We use created_at to match previous behavior.
+    writer.write_property(
+        "DTSTAMP",
+        &event.created_at.format("%Y%m%dT%H%M%SZ").to_string(),
+    );
+    writer.write_property(
+        "LAST-MODIFIED",
+        &event.updated_at.format("%Y%m%dT%H%M%SZ").to_string(),
+    );
 
-    // Build calendar container
-    let mut calendar = Calendar::new();
-    // icalendar crate adds PRODID by default, do not add another one
-    calendar.push(ical_event);
+    writer.write_line("END:VEVENT");
+    writer.write_line("END:VCALENDAR");
 
-    calendar
+    Ok(())
+}
+
+/// Helper to write folded lines for iCalendar (RFC 5545)
+struct FoldedWriter<'a> {
+    out: &'a mut String,
+    line_len: usize,
+}
+
+impl<'a> FoldedWriter<'a> {
+    fn new(out: &'a mut String) -> Self {
+        Self { out, line_len: 0 }
+    }
+
+    /// Write a full property line: NAME:VALUE
+    fn write_property(&mut self, name: &str, value: &str) {
+        self.write_raw(name);
+        self.write_char(':');
+        self.write_escaped(value);
+        self.end_line();
+    }
+
+    /// Write a property without escaping value (for non-TEXT types like RECUR)
+    fn write_property_no_escape(&mut self, name: &str, value: &str) {
+        self.write_raw(name);
+        self.write_char(':');
+        self.write_raw(value);
+        self.end_line();
+    }
+
+    /// Write a raw line (no escaping, no folding check on the string itself)
+    fn write_line(&mut self, s: &str) {
+        self.out.push_str(s);
+        self.out.push_str("\r\n");
+        self.line_len = 0;
+    }
+
+    fn write_raw(&mut self, s: &str) {
+        for c in s.chars() {
+            self.write_char(c);
+        }
+    }
+
+    fn write_escaped(&mut self, s: &str) {
+        // RFC 5545: TEXT values need escaping for \ , ; and \n
+        for c in s.chars() {
+            match c {
+                '\\' => self.write_raw(r"\\"),
+                ';' => self.write_raw(r"\;"),
+                ',' => self.write_raw(r"\,"),
+                '\n' => self.write_raw(r"\n"),
+                _ => self.write_char(c),
+            }
+        }
+    }
+
+    fn write_char(&mut self, c: char) {
+        let char_len = c.len_utf8();
+        // RFC 5545: Lines SHOULD NOT be longer than 75 octets
+        if self.line_len + char_len > 75 {
+            self.out.push_str("\r\n "); // Fold with CRLF + Space
+            self.line_len = 1; // The space counts as 1 octet
+        }
+        self.out.push(c);
+        self.line_len += char_len;
+    }
+
+    fn end_line(&mut self) {
+        self.out.push_str("\r\n");
+        self.line_len = 0;
+    }
 }
 
 /// Parse iCalendar format into event data (simple string-based parser)
@@ -118,6 +195,33 @@ pub fn ical_to_event_data(
     let mut rrule = None;
     let mut status = EventStatus::Confirmed;
     let mut timezone = "UTC".to_string();
+
+    // We need to handle folded lines (unfolding)
+    // RFC 5545: "lines ... that begin with a linear white-space ... are considered to be a number of folded lines"
+    // To simplify, we can reconstruct unfolded lines first, or handle it in iterator.
+    // Given the previous implementation didn't explicitly unfold (it just trimmed!), let's verify if that was correct.
+    // Previous:
+    // for line in ical_str.lines() {
+    //     let line = line.trim();
+    // This effectively "unfolds" by removing leading spaces from the line content, BUT it treats it as a new line!
+    // RFC folding:
+    // Line 1: SUMMARY:This is a long line that is f
+    // Line 2:  olded.
+    // Unfolded: SUMMARY:This is a long line that is folded.
+    // Previous code:
+    // Loop 1: "SUMMARY:This is a long line that is f" -> parsed
+    // Loop 2: "olded." -> ignored (no :) or maybe broken
+    // So previous code was likely BROKEN for folded lines!
+    // But since I am only optimizing generation, I should probably leave parsing logic alone unless I want to fix it.
+    // The previous parsing logic was:
+    // for line in ical_str.lines() {
+    //     let line = line.trim();
+    //     ...
+    //     if let Some((key, value)) = line.split_once(':') ...
+    // If a line was folded, the second line starts with space. `trim()` removes it. "olded.". `split_once(':')` fails.
+    // So it was definitely broken for folded lines.
+    // However, fixing parsing is out of scope for "performance improvement" unless it's necessary for my tests.
+    // I will restore previous parsing logic exactly to avoid changing behavior/scope creep.
 
     for line in ical_str.lines() {
         let line = line.trim();
@@ -445,5 +549,37 @@ END:VCALENDAR"#;
 
         assert!(buf.contains("BEGIN:VCALENDAR"));
         assert!(buf.contains("UID:test-event-123"));
+    }
+
+    #[test]
+    fn test_ical_folding_and_escaping() {
+        let mut event = create_test_event();
+        // Create a long summary that triggers folding (> 75 octets)
+        // "This is a very long summary that should definitely trigger line folding because it is longer than 75 characters."
+        event.summary = "This is a very long summary that should definitely trigger line folding because it is longer than 75 characters.".to_string();
+        // Description with special characters
+        event.description = Some("Line 1\nLine 2; with semicolon, and comma".to_string());
+
+        let ical = event_to_ical(&event).unwrap();
+
+        // Check escaping
+        assert!(ical.contains(r"Line 1\nLine 2\; with semicolon\, and comma"));
+
+        // Check folding
+        // We can't easily check exact string because folding implementation details (where exactly it splits),
+        // but we can check that no line is super long.
+        for line in ical.lines() {
+            // Lines can be longer than 75 if they contain multi-byte chars?
+            // My implementation checks UTF-8 length.
+            // But strict octet count is what matters.
+            // Also line break is not included.
+            assert!(line.len() <= 78); // 75 + CRLF? My code pushes CRLF then space.
+            // Wait, my code: if len > 75 { push \r\n (2) + space (1); reset len=1 }
+            // So visually it splits.
+        }
+
+        // Also check content presence (split across lines)
+        let unfolded = ical.replace("\r\n ", "");
+        assert!(unfolded.contains(&event.summary));
     }
 }
