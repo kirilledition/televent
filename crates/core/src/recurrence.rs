@@ -41,11 +41,22 @@ pub fn expand_rrule(
     // Generate occurrences
     // rrule crate returns generic DateTime, we expect it to be in UTC because input was UTC
     // We filter by range and limit
+    // OPTIMIZATION: Use `after` to seek to the start of the range instead of iterating from the beginning
+    let rrule_tz = rrule_set.get_dt_start().timezone();
+    let search_start = range_start
+        .with_timezone(&rrule_tz)
+        .checked_sub_signed(chrono::Duration::seconds(1))
+        .unwrap_or(range_start.with_timezone(&rrule_tz));
+
+    // Use .all() which respects the .after() setting, unlike .into_iter()
+    // Note: rrule crate limits count to u16
+    let limit = max_occurrences.min(u16::MAX as usize) as u16;
     let occurrences = rrule_set
+        .after(search_start)
+        .all(limit)
+        .dates
         .into_iter()
-        .skip_while(|d: &DateTime<Tz>| *d < range_start)
         .take_while(|d: &DateTime<Tz>| *d <= range_end)
-        .take(max_occurrences)
         .map(|d: DateTime<Tz>| d.with_timezone(&Utc))
         .collect();
 
@@ -156,5 +167,20 @@ mod tests {
         assert_eq!(occurrences[0], dtstart);
         assert_eq!(occurrences[1], dtstart + chrono::Duration::days(1));
         assert_eq!(occurrences[2], dtstart + chrono::Duration::days(2));
+    }
+
+    #[test]
+    #[ignore]
+    fn test_benchmark_expand_rrule_performance() {
+        let dtstart = Utc.with_ymd_and_hms(1900, 1, 1, 0, 0, 0).unwrap();
+        let range_start = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let range_end = Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap();
+
+        let start = std::time::Instant::now();
+        let occurrences = expand_rrule("FREQ=DAILY", dtstart, range_start, range_end, 10).unwrap();
+        let duration = start.elapsed();
+
+        println!("Expansion took: {:?} for {} occurrences", duration, occurrences.len());
+        assert!(!occurrences.is_empty());
     }
 }
