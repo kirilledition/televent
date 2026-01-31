@@ -9,7 +9,7 @@ mod processors;
 
 pub use config::Config;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use db::WorkerDb;
 use sqlx::PgPool;
 use teloxide::Bot;
@@ -39,7 +39,10 @@ pub async fn run_worker(
         config.poll_interval_secs, config.max_retry_count, config.batch_size
     );
 
-    run_worker_loop(db, bot, config, shutdown).await
+    let mailer = mailer::create_mailer(&config).context("Failed to create mailer")?;
+    info!("Mailer initialized (host: {})", config.smtp_host);
+
+    run_worker_loop(db, bot, config, mailer, shutdown).await
 }
 
 /// Main worker processing loop
@@ -47,6 +50,7 @@ async fn run_worker_loop(
     db: WorkerDb,
     bot: Bot,
     config: Config,
+    mailer: mailer::Mailer,
     shutdown: Option<CancellationToken>,
 ) -> Result<()> {
     let poll_interval = tokio::time::Duration::from_secs(config.poll_interval_secs);
@@ -81,8 +85,9 @@ async fn run_worker_loop(
                     let db = db.clone();
                     let bot = bot.clone();
                     let config = config.clone();
+                    let mailer = mailer.clone();
                     tasks.spawn(async move {
-                        process_job(&db, &bot, &config, job).await;
+                        process_job(&db, &bot, &config, &mailer, job).await;
                     });
                 }
 
@@ -112,13 +117,19 @@ async fn run_worker_loop(
 }
 
 /// Process a single job
-async fn process_job(db: &WorkerDb, bot: &Bot, config: &Config, job: db::OutboxMessage) {
+async fn process_job(
+    db: &WorkerDb,
+    bot: &Bot,
+    config: &Config,
+    mailer: &mailer::Mailer,
+    job: db::OutboxMessage,
+) {
     info!(
         "Processing job {} (type: {}, retry: {})",
         job.id, job.message_type, job.retry_count
     );
 
-    match processors::process_message(&job, bot, config).await {
+    match processors::process_message(&job, bot, config, mailer).await {
         Ok(()) => {
             // Job succeeded
             info!("Job {} completed successfully", job.id);
@@ -296,7 +307,8 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        process_job(&db, &bot, &config, job).await;
+        let mailer = mailer::create_mailer(&config).unwrap();
+        process_job(&db, &bot, &config, &mailer, job).await;
 
         let status: OutboxStatus =
             sqlx::query_scalar("SELECT status FROM outbox_messages WHERE id = $1")
@@ -351,7 +363,8 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        process_job(&db, &bot, &config, job).await;
+        let mailer = mailer::create_mailer(&config).unwrap();
+        process_job(&db, &bot, &config, &mailer, job).await;
 
         let (status, retry_count): (OutboxStatus, i32) =
             sqlx::query_as("SELECT status, retry_count FROM outbox_messages WHERE id = $1")
@@ -406,7 +419,8 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        process_job(&db, &bot, &config, job).await;
+        let mailer = mailer::create_mailer(&config).unwrap();
+        process_job(&db, &bot, &config, &mailer, job).await;
 
         let status: OutboxStatus =
             sqlx::query_scalar("SELECT status FROM outbox_messages WHERE id = $1")

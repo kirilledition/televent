@@ -24,19 +24,44 @@ use lettre::{
     transport::smtp::authentication::Credentials,
 };
 
-/// Send an email via SMTP
-///
-/// Uses configuration for SMTP server settings
-pub async fn send_email(config: &Config, to: &str, subject: &str, body: &str) -> Result<()> {
+pub type Mailer = AsyncSmtpTransport<Tokio1Executor>;
+
+/// Create a reusable SMTP transport
+pub fn create_mailer(config: &Config) -> Result<Mailer> {
     let smtp_host = &config.smtp_host;
     let smtp_port = config.smtp_port;
-    let smtp_from = &config.smtp_from;
 
+    if let (Some(username), Some(password)) = (&config.smtp_username, &config.smtp_password) {
+        // Authenticated SMTP
+        Ok(AsyncSmtpTransport::<Tokio1Executor>::relay(smtp_host)
+            .map_err(|e| {
+                MailerError::ConnectionFailed(format!("Failed to create transport: {}", e))
+            })?
+            .port(smtp_port)
+            .credentials(Credentials::new(username.clone(), password.clone()))
+            .build())
+    } else {
+        // Unauthenticated SMTP (for local testing)
+        Ok(AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(smtp_host)
+            .port(smtp_port)
+            .build())
+    }
+}
+
+/// Send an email via SMTP
+///
+/// Uses an existing mailer instance
+pub async fn send_email(
+    mailer: &Mailer,
+    from: &str,
+    to: &str,
+    subject: &str,
+    body: &str,
+) -> Result<()> {
     // Build email message
     let email = Message::builder()
         .from(
-            smtp_from
-                .parse()
+            from.parse()
                 .map_err(|e| MailerError::InvalidAddress(format!("Invalid from address: {}", e)))?,
         )
         .to(to
@@ -46,24 +71,6 @@ pub async fn send_email(config: &Config, to: &str, subject: &str, body: &str) ->
         .header(ContentType::TEXT_PLAIN)
         .body(body.to_string())
         .map_err(|e| MailerError::SendFailed(format!("Failed to build message: {}", e)))?;
-
-    // Configure SMTP transport
-    let mailer: AsyncSmtpTransport<Tokio1Executor> =
-        if let (Some(username), Some(password)) = (&config.smtp_username, &config.smtp_password) {
-            // Authenticated SMTP
-            AsyncSmtpTransport::<Tokio1Executor>::relay(smtp_host)
-                .map_err(|e| {
-                    MailerError::ConnectionFailed(format!("Failed to create transport: {}", e))
-                })?
-                .port(smtp_port)
-                .credentials(Credentials::new(username.clone(), password.clone()))
-                .build()
-        } else {
-            // Unauthenticated SMTP (for local testing)
-            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(smtp_host)
-                .port(smtp_port)
-                .build()
-        };
 
     // Send email
     mailer
@@ -189,8 +196,10 @@ mod tests {
 
         // Send email
         let config = create_test_config(port);
+        let mailer = create_mailer(&config).expect("Failed to create mailer");
         let result = send_email(
-            &config,
+            &mailer,
+            &config.smtp_from,
             "recipient@example.com",
             "Test Subject",
             "Test Body",
@@ -200,5 +209,91 @@ mod tests {
         assert!(result.is_ok(), "Failed to send email: {:?}", result.err());
 
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_benchmark_send_email() {
+        // Find a random free port
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // Spawn a mock SMTP server that handles multiple connections
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = match listener.accept().await {
+                    Ok(conn) => conn,
+                    Err(_) => break,
+                };
+
+                tokio::spawn(async move {
+                    if socket.write_all(b"220 localhost ESMTP\r\n").await.is_err() { return; }
+
+                    let mut buf = [0; 1024];
+
+                    loop {
+                        let n = match socket.read(&mut buf).await {
+                            Ok(n) if n == 0 => return,
+                            Ok(n) => n,
+                            Err(_) => return,
+                        };
+                        let req = String::from_utf8_lossy(&buf[..n]);
+
+                        if req.starts_with("EHLO") || req.starts_with("HELO") {
+                             if socket.write_all(b"250-localhost\r\n250 8BITMIME\r\n").await.is_err() { return; }
+                        } else if req.starts_with("MAIL FROM") {
+                             if socket.write_all(b"250 2.1.0 Ok\r\n").await.is_err() { return; }
+                        } else if req.starts_with("RCPT TO") {
+                             if socket.write_all(b"250 2.1.5 Ok\r\n").await.is_err() { return; }
+                        } else if req.starts_with("DATA") {
+                             if socket.write_all(b"354 End data with <CR><LF>.<CR><LF>\r\n").await.is_err() { return; }
+                             // Consume data
+                             loop {
+                                let n = match socket.read(&mut buf).await {
+                                    Ok(n) if n == 0 => return,
+                                    Ok(n) => n,
+                                    Err(_) => return,
+                                };
+                                let chunk = String::from_utf8_lossy(&buf[..n]);
+                                if chunk.contains("\r\n.\r\n") {
+                                    break;
+                                }
+                             }
+                             if socket.write_all(b"250 2.0.0 Ok: queued\r\n").await.is_err() { return; }
+                        } else if req.starts_with("QUIT") {
+                             let _ = socket.write_all(b"221 2.0.0 Bye\r\n").await;
+                             return;
+                        } else if req.starts_with("RSET") || req.starts_with("NOOP") {
+                             if socket.write_all(b"250 2.0.0 Ok\r\n").await.is_err() { return; }
+                        }
+                    }
+                });
+            }
+        });
+
+        // Give the server a moment to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let config = create_test_config(port);
+        let mailer = create_mailer(&config).expect("Failed to create mailer");
+
+        let start = std::time::Instant::now();
+        let count = 50;
+
+        for i in 0..count {
+            send_email(
+                &mailer,
+                &config.smtp_from,
+                "recipient@example.com",
+                &format!("Subject {}", i),
+                "Body",
+            )
+            .await
+            .expect("Failed to send email");
+        }
+
+        let duration = start.elapsed();
+        println!("Benchmark: Sent {} emails in {:?}", count, duration);
+        println!("Average: {:?} per email", duration / count);
     }
 }

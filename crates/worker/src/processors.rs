@@ -13,10 +13,15 @@ use crate::mailer;
 use televent_core::attendee::is_internal_email;
 
 /// Process a single outbox message
-pub async fn process_message(message: &OutboxMessage, bot: &Bot, config: &Config) -> Result<()> {
+pub async fn process_message(
+    message: &OutboxMessage,
+    bot: &Bot,
+    config: &Config,
+    mailer: &mailer::Mailer,
+) -> Result<()> {
     match message.message_type.as_str() {
         "telegram_notification" => process_telegram_notification(message, bot).await,
-        "email" => process_email(message, config).await,
+        "email" => process_email(message, config, mailer).await,
         "calendar_invite" => process_calendar_invite(message, bot).await,
         other => {
             error!("Unknown message type: {}", other);
@@ -48,7 +53,11 @@ async fn process_telegram_notification(message: &OutboxMessage, bot: &Bot) -> Re
 }
 
 /// Process an email message
-async fn process_email(message: &OutboxMessage, config: &Config) -> Result<()> {
+async fn process_email(
+    message: &OutboxMessage,
+    config: &Config,
+    mailer: &mailer::Mailer,
+) -> Result<()> {
     let to = message.payload["to"]
         .as_str()
         .context("Missing 'to' in email payload")?;
@@ -62,7 +71,7 @@ async fn process_email(message: &OutboxMessage, config: &Config) -> Result<()> {
         .context("Missing 'body' in email payload")?;
 
     // Use mailer crate to send email
-    mailer::send_email(config, to, subject, body)
+    mailer::send_email(mailer, &config.smtp_from, to, subject, body)
         .await
         .context("Failed to send email")?;
 
@@ -279,7 +288,8 @@ mod tests {
         // Give server time to bind
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        process_message(&tx_msg, &bot, &config)
+        let mailer = mailer::create_mailer(&config).expect("Failed to create mailer");
+        process_message(&tx_msg, &bot, &config, &mailer)
             .await
             .expect("Failed to process email");
 
