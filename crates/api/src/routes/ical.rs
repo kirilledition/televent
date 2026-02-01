@@ -14,158 +14,156 @@ pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
     Ok(buf)
 }
 
-struct FoldedWriter<'a> {
-    buf: &'a mut String,
-    current_line_len: usize,
-}
-
-impl<'a> FoldedWriter<'a> {
-    fn new(buf: &'a mut String) -> Self {
-        Self {
-            buf,
-            current_line_len: 0,
-        }
-    }
-
-    fn write_str(&mut self, s: &str) {
-        for c in s.chars() {
-            self.write_char(c);
-        }
-    }
-
-    fn write_char(&mut self, c: char) {
-        let len = c.len_utf8();
-        if self.current_line_len + len > 75 {
-            self.buf.push_str("\r\n ");
-            self.current_line_len = 1 + len;
-        } else {
-            self.current_line_len += len;
-        }
-        self.buf.push(c);
-    }
-
-    fn end_line(&mut self) {
-        self.buf.push_str("\r\n");
-        self.current_line_len = 0;
-    }
-}
-
 /// Convert our Event model to iCalendar format, writing to a buffer
 ///
 /// This avoids allocating a new String for the result if a buffer is reused.
-/// optimized to write directly to buffer without intermediate objects.
 pub fn event_to_ical_into(event: &Event, buf: &mut String) -> Result<(), ApiError> {
     let mut writer = FoldedWriter::new(buf);
 
-    writer.write_str("BEGIN:VCALENDAR");
-    writer.end_line();
-    writer.write_str("VERSION:2.0");
-    writer.end_line();
-    writer.write_str("PRODID:-//Televent//Televent//EN");
-    writer.end_line();
+    writer.write_line("BEGIN:VCALENDAR")?;
+    writer.write_line("VERSION:2.0")?;
+    writer.write_line("PRODID:-//Televent//Televent//EN")?;
+    writer.write_line("CALSCALE:GREGORIAN")?;
 
-    writer.write_str("BEGIN:VEVENT");
-    writer.end_line();
+    writer.write_line("BEGIN:VEVENT")?;
 
     // UID
-    writer.write_str("UID:");
-    write_escaped(&mut writer, &event.uid);
-    writer.end_line();
+    writer.write_property("UID", &event.uid)?;
 
-    // SUMMARY
-    writer.write_str("SUMMARY:");
-    write_escaped(&mut writer, &event.summary);
-    writer.end_line();
+    // DTSTAMP (required by RFC 5545, indicates when the object was created)
+    writer.write_property("DTSTAMP", &Utc::now().format("%Y%m%dT%H%M%SZ").to_string())?;
 
-    // DESCRIPTION
-    if let Some(ref desc) = event.description {
-        writer.write_str("DESCRIPTION:");
-        write_escaped(&mut writer, desc);
-        writer.end_line();
+    // Summary
+    writer.write_property("SUMMARY", &event.summary)?;
+
+    // Description
+    if let Some(ref description) = event.description {
+        writer.write_property("DESCRIPTION", description)?;
     }
 
-    // LOCATION
-    if let Some(ref loc) = event.location {
-        writer.write_str("LOCATION:");
-        write_escaped(&mut writer, loc);
-        writer.end_line();
+    // Location
+    if let Some(ref location) = event.location {
+        writer.write_property("LOCATION", location)?;
     }
 
-    // DTSTART / DTEND
+    // Start and end times
     if event.is_all_day {
-         if let Some(start_date) = event.start_date {
-             writer.write_str("DTSTART;VALUE=DATE:");
-             write_date(&mut writer, &start_date);
-             writer.end_line();
-         }
+        // All-day events use DATE format (no time component)
+        if let Some(start_date) = event.start_date {
+            writer.write_property("DTSTART;VALUE=DATE", &start_date.format("%Y%m%d").to_string())?;
+        }
     } else if let (Some(start), Some(end)) = (event.start, event.end) {
-        writer.write_str("DTSTART:");
-        write_datetime(&mut writer, &start);
-        writer.end_line();
-
-        writer.write_str("DTEND:");
-        write_datetime(&mut writer, &end);
-        writer.end_line();
+        writer.write_property("DTSTART", &start.format("%Y%m%dT%H%M%SZ").to_string())?;
+        writer.write_property("DTEND", &end.format("%Y%m%dT%H%M%SZ").to_string())?;
     }
 
-    // STATUS
-    writer.write_str("STATUS:");
-    writer.write_str(match event.status {
+    // Status
+    let status_str = match event.status {
         EventStatus::Confirmed => "CONFIRMED",
         EventStatus::Tentative => "TENTATIVE",
         EventStatus::Cancelled => "CANCELLED",
-    });
-    writer.end_line();
+    };
+    writer.write_property("STATUS", status_str)?;
 
-    // RRULE
+    // Recurrence rule
     if let Some(ref rrule) = event.rrule {
-        writer.write_str("RRULE:");
-        writer.write_str(rrule);
-        writer.end_line();
+        // RRULE is a structured value, do not escape delimiters
+        writer.write_property_no_escape("RRULE", rrule)?;
     }
 
-    // SEQUENCE
-    writer.write_str("SEQUENCE:");
-    writer.write_str(&event.version.to_string());
-    writer.end_line();
+    // Sequence
+    writer.write_property("SEQUENCE", &event.version.to_string())?;
 
-    // DTSTAMP (Created)
-    writer.write_str("DTSTAMP:");
-    write_datetime(&mut writer, &event.created_at);
-    writer.end_line();
+    // Created
+    writer.write_property(
+        "CREATED",
+        &event.created_at.format("%Y%m%dT%H%M%SZ").to_string(),
+    )?;
 
-    // LAST-MODIFIED
-    writer.write_str("LAST-MODIFIED:");
-    write_datetime(&mut writer, &event.updated_at);
-    writer.end_line();
+    // Last-Modified
+    writer.write_property(
+        "LAST-MODIFIED",
+        &event.updated_at.format("%Y%m%dT%H%M%SZ").to_string(),
+    )?;
 
-    writer.write_str("END:VEVENT");
-    writer.end_line();
-    writer.write_str("END:VCALENDAR");
-    writer.end_line();
+    writer.write_line("END:VEVENT")?;
+    writer.write_line("END:VCALENDAR")?;
 
     Ok(())
 }
 
-fn write_escaped(writer: &mut FoldedWriter, s: &str) {
-    for c in s.chars() {
-        match c {
-            '\\' => writer.write_str("\\\\"),
-            ';' => writer.write_str("\\;"),
-            ',' => writer.write_str("\\,"),
-            '\n' => writer.write_str("\\n"),
-            '\r' => {}, // Ignore carriage returns
-            _ => writer.write_char(c),
-        }
+struct FoldedWriter<'a> {
+    buf: &'a mut String,
+}
+
+impl<'a> FoldedWriter<'a> {
+    fn new(buf: &'a mut String) -> Self {
+        Self { buf }
     }
-}
 
-fn write_datetime(writer: &mut FoldedWriter, dt: &DateTime<Utc>) {
-    writer.write_str(&dt.format("%Y%m%dT%H%M%SZ").to_string());
-}
+    fn write_line(&mut self, line: &str) -> Result<(), ApiError> {
+        self.buf.push_str(line);
+        self.buf.push_str("\r\n");
+        Ok(())
+    }
 
-fn write_date(writer: &mut FoldedWriter, d: &chrono::NaiveDate) {
-    writer.write_str(&d.format("%Y%m%d").to_string());
+    fn write_property(&mut self, name: &str, value: &str) -> Result<(), ApiError> {
+        self.write_property_impl(name, value, true)
+    }
+
+    fn write_property_no_escape(&mut self, name: &str, value: &str) -> Result<(), ApiError> {
+        self.write_property_impl(name, value, false)
+    }
+
+    fn write_property_impl(
+        &mut self,
+        name: &str,
+        value: &str,
+        escape: bool,
+    ) -> Result<(), ApiError> {
+        self.buf.push_str(name);
+        self.buf.push(':');
+
+        // Length of property name + separator
+        let mut current_line_len = name.len() + 1;
+
+        for c in value.chars() {
+            // Escape special characters: \ ; , \n
+            let replacement = if escape {
+                match c {
+                    '\\' => Some("\\\\"),
+                    ';' => Some("\\;"),
+                    ',' => Some("\\,"),
+                    '\n' => Some("\\n"),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            if let Some(s) = replacement {
+                for rc in s.chars() {
+                    let len = rc.len_utf8();
+                    if current_line_len + len > 75 {
+                        self.buf.push_str("\r\n "); // Fold: CRLF + space
+                        current_line_len = 1;
+                    }
+                    self.buf.push(rc);
+                    current_line_len += len;
+                }
+            } else {
+                let len = c.len_utf8();
+                if current_line_len + len > 75 {
+                    self.buf.push_str("\r\n "); // Fold: CRLF + space
+                    current_line_len = 1;
+                }
+                self.buf.push(c);
+                current_line_len += len;
+            }
+        }
+        self.buf.push_str("\r\n");
+        Ok(())
+    }
 }
 
 /// Parse iCalendar format into event data (simple string-based parser)
@@ -190,28 +188,9 @@ pub fn ical_to_event_data(
     ApiError,
 > {
     // Simple line-by-line parser for iCalendar
-    // Handles line unfolding manually
-    let mut unfolded_lines = Vec::new();
-    let mut current_line = String::new();
-
-    for line in ical_str.lines() {
-        if line.starts_with(' ') || line.starts_with('\t') {
-            // Continuation line
-            if !current_line.is_empty() {
-                // Skip the leading space/tab
-                current_line.push_str(&line[1..]);
-            }
-        } else {
-            // New line
-            if !current_line.is_empty() {
-                unfolded_lines.push(current_line);
-            }
-            current_line = line.to_string();
-        }
-    }
-    if !current_line.is_empty() {
-        unfolded_lines.push(current_line);
-    }
+    // Note: Does not support full RFC 5545 unfolding (continuation lines) perfectly,
+    // but handles basic properties.
+    // For robust parsing, we should use a proper parser library if needed, but this suffices for our internal use.
 
     let mut in_vevent = false;
     let mut uid = None;
@@ -225,7 +204,11 @@ pub fn ical_to_event_data(
     let mut status = EventStatus::Confirmed;
     let mut timezone = "UTC".to_string();
 
-    for line in unfolded_lines {
+    // Naive unfolding: Join lines that start with space/tab to previous line
+    // This allocates a new string for unfolded content
+    let unfolded = unfold_ical(ical_str);
+
+    for line in unfolded.lines() {
         let line = line.trim();
 
         if line == "BEGIN:VEVENT" {
@@ -251,9 +234,9 @@ pub fn ical_to_event_data(
 
             match prop_name {
                 "UID" => uid = Some(value.to_string()),
-                "SUMMARY" => summary = Some(value.to_string()),
-                "DESCRIPTION" => description = Some(value.to_string()),
-                "LOCATION" => location = Some(value.to_string()),
+                "SUMMARY" => summary = Some(unescape_text(value)),
+                "DESCRIPTION" => description = Some(unescape_text(value)),
+                "LOCATION" => location = Some(unescape_text(value)),
                 "DTSTART" => {
                     // Check if this is an all-day event
                     is_all_day = params
@@ -314,6 +297,64 @@ pub fn ical_to_event_data(
         status,
         timezone,
     ))
+}
+
+/// Unfold iCalendar lines (handle continuation lines)
+fn unfold_ical(ical: &str) -> String {
+    let mut result = String::with_capacity(ical.len());
+    let mut lines = ical.lines();
+
+    if let Some(first) = lines.next() {
+        result.push_str(first);
+    }
+
+    for line in lines {
+        if line.starts_with(' ') || line.starts_with('\t') {
+            // Continuation line: remove first char and append to previous line
+            // But we already pushed a newline implicitly? No, lines() strips newlines.
+            // We need to manage newlines carefully.
+            // Wait, result is a single string. If we just push chars, we are merging lines.
+            // But we want to keep property separation (newlines).
+
+            // Actually, correct unfolding removes the CRLF and the leading space.
+            // Since we process line by line, we need to know if we should append to the previous property or start a new one.
+            // But `lines()` consumes the CRLF. So we just append `line[1..]` to `result`.
+            // HOWEVER, we need to separate properties with newlines.
+
+            // Let's rewrite this logic.
+            result.push_str(&line[1..]);
+        } else {
+            // New property line
+            result.push('\n'); // Add newline before this new property
+            result.push_str(line);
+        }
+    }
+    result
+}
+
+/// Unescape iCalendar text
+fn unescape_text(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') | Some('N') => result.push('\n'),
+                Some('\\') => result.push('\\'),
+                Some(';') => result.push(';'),
+                Some(',') => result.push(','),
+                Some(other) => {
+                    result.push('\\');
+                    result.push(other);
+                }
+                None => result.push('\\'), // Trailing backslash
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 /// Parse a datetime string, handling both DATE and DATE-TIME formats
@@ -554,32 +595,41 @@ END:VCALENDAR"#;
     }
 
     #[test]
-    fn test_escape_text() {
-        let mut buf = String::new();
-        let mut writer = FoldedWriter::new(&mut buf);
-        write_escaped(&mut writer, "Text with , and ; and \\ and \n newline");
-        assert_eq!(buf, "Text with \\, and \\; and \\\\ and \\n newline");
-    }
-
-    #[test]
-    fn test_line_folding() {
+    fn test_folding_and_unfolding() {
         let mut event = create_test_event();
-        // Create a long description (> 75 chars)
-        let long_desc = "This is a very long description that should be folded because it exceeds the 75 character limit defined by RFC 5545.";
-        event.description = Some(long_desc.to_string());
+        event.summary = "This is a very long summary that should definitely be folded because it exceeds the seventy-five octet limit imposed by the iCalendar specification (RFC 5545).".to_string();
 
         let ical = event_to_ical(&event).unwrap();
 
-        // Verify folding
-        // Note: exact split depends on property name length "DESCRIPTION:" (12 chars)
-        // 75 - 12 = 63 chars allowed on first line.
-        // "This is a very long description that should be folded because i" (63 chars)
-        // Next line starts with space.
-
+        // Check if it contains CRLF + space
         assert!(ical.contains("\r\n "));
 
-        // Ensure data is preserved (ical_to_event_data handles unfolding now)
-        let (_, _, description, _, _, _, _, _, _, _) = ical_to_event_data(&ical).unwrap();
-        assert_eq!(description, Some(long_desc.to_string()));
+        // Parse it back
+        let (_, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(&ical).unwrap();
+
+        assert_eq!(summary, event.summary);
+    }
+
+    #[test]
+    fn test_unescape_text_edge_cases() {
+        // Simple case
+        assert_eq!(unescape_text("test"), "test");
+        // Escaped chars
+        assert_eq!(unescape_text("foo\\;bar"), "foo;bar");
+        assert_eq!(unescape_text("foo\\,bar"), "foo,bar");
+        assert_eq!(unescape_text("foo\\nbar"), "foo\nbar");
+        assert_eq!(unescape_text("foo\\\\bar"), "foo\\bar");
+        // Mixed
+        assert_eq!(unescape_text("a\\;b\\,c\\nd\\\\e"), "a;b,c\nd\\e");
+        // Malformed escape (trailing backslash)
+        assert_eq!(unescape_text("foo\\"), "foo\\");
+        // Unknown escape
+        assert_eq!(unescape_text("foo\\x"), "foo\\x");
+        // Tricky case: escaped backslash followed by n (should be literal \n, not newline)
+        // Input string literal for testing needs careful escaping.
+        // "foo\\\\nbar" in source code is string "foo\\nbar".
+        // unescape_text("foo\\nbar") -> "foo\nbar" (newline)
+        // unescape_text("foo\\\\nbar") -> "foo\\nbar" (literal \ followed by n)
+        assert_eq!(unescape_text("foo\\\\nbar"), "foo\\nbar");
     }
 }
