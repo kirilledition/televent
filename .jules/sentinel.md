@@ -22,3 +22,8 @@
 **Vulnerability:** Rate limiter used connection IP (`ConnectInfo`) instead of client IP, causing shared rate limits for all users behind a proxy (DoS risk).
 **Learning:** `ConnectInfo` reflects the immediate peer (proxy), not the origin.
 **Prevention:** Always check `X-Forwarded-For` or use a trusted proxy middleware when extracting IPs for security controls in cloud environments.
+
+## 2025-05-24 - [Missing Security Headers]
+**Vulnerability:** Documented Content-Security-Policy was missing from the `security_headers` middleware, leaving the application vulnerable to XSS and Clickjacking.
+**Learning:** Documentation or internal memory can drift from implementation. Always verify security controls in code.
+**Prevention:** Implement automated tests that assert the presence of specific security headers (CSP, HSTS) to prevent regression or "ghost" controls.
