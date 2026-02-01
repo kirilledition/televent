@@ -14,16 +14,31 @@ interface EventListProps {
 export function EventList({ events, onDeleteEvent, onEditEvent }: EventListProps) {
     // Sort events by start time
     const sortedEvents = useMemo(() => {
-        return [...events].sort((a, b) => {
-            return new Date(a.start).getTime() - new Date(b.start).getTime();
+        // Optimization: Map to timestamp first to avoid parsing dates N*logN times during sort
+        const eventsWithTime = events.map((e) => {
+            // Handle potentially missing start (e.g. all-day events might have null start but have start_date)
+            // Note: EventResponse type defines start as string, but runtime it might be null for all-day events
+            const timeStr = e.start || e.start_date;
+            return {
+                event: e,
+                time: timeStr ? new Date(timeStr).getTime() : 0,
+            };
         });
+
+        eventsWithTime.sort((a, b) => a.time - b.time);
+
+        return eventsWithTime.map((wrapper) => wrapper.event);
     }, [events]);
 
     // Group events by date (YYYY-MM-DD)
     const groupedEvents = useMemo(() => {
         return sortedEvents.reduce((acc, event) => {
             // Derive date key from start time
-            const date = format(parseISO(event.start), 'yyyy-MM-dd');
+            // Fallback to start_date if start is missing (all-day events)
+            const dateStr = event.start || event.start_date;
+            if (!dateStr) return acc;
+
+            const date = format(parseISO(dateStr), 'yyyy-MM-dd');
             if (!acc[date]) {
                 acc[date] = [];
             }
