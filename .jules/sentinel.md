@@ -25,5 +25,5 @@
 
 ## 2025-05-24 - [CSP for Telegram Mini Apps]
 **Vulnerability:** Missing Content Security Policy allowed potential Clickjacking and XSS. Standard defenses (X-Frame-Options: DENY) are incompatible with Telegram Mini Apps which run in iframes.
-**Learning:** Telegram Mini Apps require explicit iframe permission. CSP `frame-ancestors` is the correct control, allowing specific domains (web.telegram.org) while blocking others.
-**Prevention:** Implement CSP with `frame-ancestors 'self' https://web.telegram.org https://*.telegram.org` instead of blocking all framing.
+**Learning:** Telegram Mini Apps require explicit iframe permission. CSP `frame-ancestors` is the correct control, allowing specific domains (web.telegram.org) while blocking others. Also, documentation can drift from implementation; verify controls in code.
+**Prevention:** Implement CSP with `frame-ancestors 'self' https://web.telegram.org https://*.telegram.org`. Add automated tests to assert the presence of specific security headers.
