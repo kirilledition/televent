@@ -20,6 +20,7 @@ use crate::middleware::caldav_auth::{LoginId, caldav_basic_auth};
 use crate::middleware::rate_limit::{
     API_BURST_SIZE, API_PERIOD_MS, CALDAV_BURST_SIZE, CALDAV_PERIOD_MS, UserOrIpKeyExtractor,
 };
+use crate::middleware::security_headers::security_headers;
 use crate::middleware::telegram_auth::telegram_auth;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -184,6 +185,7 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
         .layer(axum_middleware::from_fn(
             crate::middleware::caldav_headers::add_caldav_headers,
         ))
+        .layer(axum_middleware::from_fn(security_headers))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {

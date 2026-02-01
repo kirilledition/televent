@@ -22,3 +22,13 @@
 **Vulnerability:** `verify_password` used Argon2id synchronously within an async handler/middleware, blocking the Tokio executor and causing potential DoS.
 **Learning:** CPU-intensive operations like password hashing/verification must be offloaded to `tokio::task::spawn_blocking` in async applications.
 **Prevention:** Wrap all Argon2 calls in `spawn_blocking` to prevent starving the async runtime.
+
+## 2025-05-23 - [Rate Limiting Behind Proxy]
+**Vulnerability:** Rate limiter used connection IP (`ConnectInfo`) instead of client IP, causing shared rate limits for all users behind a proxy (DoS risk).
+**Learning:** `ConnectInfo` reflects the immediate peer (proxy), not the origin.
+**Prevention:** Always check `X-Forwarded-For` or use a trusted proxy middleware when extracting IPs for security controls in cloud environments.
+
+## 2025-05-24 - [Missing Security Headers]
+**Vulnerability:** Documented Content-Security-Policy was missing from the `security_headers` middleware, leaving the application vulnerable to XSS and Clickjacking.
+**Learning:** Documentation or internal memory can drift from implementation. Always verify security controls in code.
+**Prevention:** Implement automated tests that assert the presence of specific security headers (CSP, HSTS) to prevent regression or "ghost" controls.

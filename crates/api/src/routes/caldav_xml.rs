@@ -172,7 +172,9 @@ pub fn generate_calendar_query_response(
     user_identifier: &str,
     events: &[CalEvent],
 ) -> Result<String, ApiError> {
-    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+    // Pre-allocate buffer: ~512 bytes per event to minimize reallocations
+    let capacity = events.len() * 512 + 1024;
+    let mut writer = Writer::new_with_indent(Cursor::new(Vec::with_capacity(capacity)), b' ', 2);
 
     // XML declaration
     writer
@@ -188,10 +190,14 @@ pub fn generate_calendar_query_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
+    // Reusable buffer for iCalendar data
+    let mut ical_buf = String::with_capacity(1024);
+
     // Write response for each event with calendar-data
     for event in events {
-        let ical = ical::event_to_ical(event)?;
-        write_event_with_data(&mut writer, user_identifier, event, &ical)?;
+        ical_buf.clear();
+        ical::event_to_ical_into(event, &mut ical_buf)?;
+        write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
     }
 
     // </multistatus>
@@ -209,7 +215,9 @@ pub fn generate_sync_collection_response(
     user: &User,
     events: &[CalEvent],
 ) -> Result<String, ApiError> {
-    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+    // Pre-allocate buffer: ~512 bytes per event to minimize reallocations
+    let capacity = events.len() * 512 + 1024;
+    let mut writer = Writer::new_with_indent(Cursor::new(Vec::with_capacity(capacity)), b' ', 2);
 
     // XML declaration
     writer
@@ -225,10 +233,14 @@ pub fn generate_sync_collection_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
+    // Reusable buffer for iCalendar data
+    let mut ical_buf = String::with_capacity(1024);
+
     // Write response for changed/new events with calendar-data
     for event in events {
-        let ical = ical::event_to_ical(event)?;
-        write_event_with_data(&mut writer, user_identifier, event, &ical)?;
+        ical_buf.clear();
+        ical::event_to_ical_into(event, &mut ical_buf)?;
+        write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
     }
 
     // <sync-token> - use write! to avoid allocation
@@ -262,7 +274,9 @@ pub fn generate_calendar_multiget_response(
     user_identifier: &str,
     events: &[CalEvent],
 ) -> Result<String, ApiError> {
-    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+    // Pre-allocate buffer: ~512 bytes per event to minimize reallocations
+    let capacity = events.len() * 512 + 1024;
+    let mut writer = Writer::new_with_indent(Cursor::new(Vec::with_capacity(capacity)), b' ', 2);
 
     // XML declaration
     writer
@@ -278,11 +292,15 @@ pub fn generate_calendar_multiget_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
+    // Reusable buffer for iCalendar data
+    let mut ical_buf = String::with_capacity(1024);
+
     // Write response for each event with calendar-data
     for event in events {
-        match ical::event_to_ical(event) {
-            Ok(ical) => {
-                write_event_with_data(&mut writer, user_identifier, event, &ical)?;
+        ical_buf.clear();
+        match ical::event_to_ical_into(event, &mut ical_buf) {
+            Ok(()) => {
+                write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
             }
             Err(e) => {
                 tracing::warn!("Failed to generate iCalendar for {}: {:?}", event.uid, e);
@@ -367,7 +385,13 @@ pub fn generate_propfind_multistatus(
     events: &[CalEvent],
     depth: &str,
 ) -> Result<String, ApiError> {
-    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+    // Pre-allocate buffer if we are returning events (Depth: 1)
+    let capacity = if depth == "1" {
+        events.len() * 512 + 2048
+    } else {
+        4096 // Enough for calendar properties
+    };
+    let mut writer = Writer::new_with_indent(Cursor::new(Vec::with_capacity(capacity)), b' ', 2);
 
     // XML declaration
     writer
