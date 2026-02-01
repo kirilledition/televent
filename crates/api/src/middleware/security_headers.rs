@@ -41,6 +41,14 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
         HeaderValue::from_static("strict-origin-when-cross-origin"),
     );
 
+    // Content Security Policy
+    // - script-src/style-src: unsafe-inline required for Next.js static export + Swagger UI
+    // - frame-ancestors: restricted to Telegram domains for Mini App support
+    headers.insert(
+        "Content-Security-Policy",
+        HeaderValue::from_static("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-ancestors https://web.telegram.org https://*.telegram.org; img-src 'self' data: https:; connect-src 'self';"),
+    );
+
     response
 }
 
@@ -78,6 +86,10 @@ mod tests {
         assert_eq!(
             headers.get("Referrer-Policy").unwrap(),
             "strict-origin-when-cross-origin"
+        );
+        assert_eq!(
+            headers.get("Content-Security-Policy").unwrap(),
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-ancestors https://web.telegram.org https://*.telegram.org; img-src 'self' data: https:; connect-src 'self';"
         );
     }
 }

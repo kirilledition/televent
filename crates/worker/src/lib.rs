@@ -6,10 +6,12 @@ mod config;
 mod db;
 mod mailer;
 mod processors;
+mod bench_worker;
 
 pub use config::Config;
 
 use anyhow::{Context, Result};
+use chrono::{Duration as ChronoDuration, Utc};
 use db::WorkerDb;
 use sqlx::PgPool;
 use teloxide::Bot;
@@ -82,17 +84,26 @@ async fn run_worker_loop(
                 let mut tasks = tokio::task::JoinSet::new();
 
                 for job in jobs {
-                    let db = db.clone();
                     let bot = bot.clone();
                     let config = config.clone();
                     let mailer = mailer.clone();
                     tasks.spawn(async move {
-                        process_job(&db, &bot, &config, &mailer, job).await;
+                        process_job(&bot, &config, &mailer, job).await
                     });
                 }
 
-                // Wait for all concurrent jobs to complete
-                while tasks.join_next().await.is_some() {}
+                // Wait for all concurrent jobs to complete and collect results
+                let mut results = Vec::with_capacity(tasks.len());
+                while let Some(res) = tasks.join_next().await {
+                    if let Ok(job_result) = res {
+                        results.push(job_result);
+                    }
+                }
+
+                // Bulk update jobs
+                if let Err(e) = db.bulk_update_jobs(results).await {
+                    error!("Failed to bulk update jobs: {}", e);
+                }
 
                 // Log queue status
                 if last_status_log_time.elapsed()
@@ -118,12 +129,11 @@ async fn run_worker_loop(
 
 /// Process a single job
 async fn process_job(
-    db: &WorkerDb,
     bot: &Bot,
     config: &Config,
     mailer: &mailer::Mailer,
     job: db::OutboxMessage,
-) {
+) -> db::JobResult {
     info!(
         "Processing job {} (type: {}, retry: {})",
         job.id, job.message_type, job.retry_count
@@ -133,10 +143,7 @@ async fn process_job(
         Ok(()) => {
             // Job succeeded
             info!("Job {} completed successfully", job.id);
-
-            if let Err(e) = db.mark_completed(job.id).await {
-                error!("Failed to mark job {} as completed: {}", job.id, e);
-            }
+            db::JobResult::Completed(job.id)
         }
         Err(e) => {
             // Job failed
@@ -146,6 +153,7 @@ async fn process_job(
             if job.retry_count < config.max_retry_count {
                 // Retry with exponential backoff
                 let backoff_minutes = 2_i64.pow((job.retry_count + 1) as u32);
+                let next_scheduled = Utc::now() + ChronoDuration::minutes(backoff_minutes);
                 info!(
                     "Rescheduling job {} for retry {} in {} minutes",
                     job.id,
@@ -153,11 +161,11 @@ async fn process_job(
                     backoff_minutes
                 );
 
-                if let Err(e) = db
-                    .reschedule_message(job.id, job.retry_count, &error_msg)
-                    .await
-                {
-                    error!("Failed to reschedule job {}: {}", job.id, e);
+                db::JobResult::Reschedule {
+                    id: job.id,
+                    retry_count: job.retry_count + 1,
+                    scheduled_at: next_scheduled,
+                    error: error_msg,
                 }
             } else {
                 // Max retries reached, mark as failed
@@ -166,8 +174,9 @@ async fn process_job(
                     job.id, config.max_retry_count
                 );
 
-                if let Err(e) = db.mark_failed(job.id, &error_msg).await {
-                    error!("Failed to mark job {} as failed: {}", job.id, e);
+                db::JobResult::Failed {
+                    id: job.id,
+                    error: error_msg,
                 }
             }
         }
@@ -308,7 +317,8 @@ mod tests {
                 .await?;
 
         let mailer = mailer::create_mailer(&config).unwrap();
-        process_job(&db, &bot, &config, &mailer, job).await;
+        let result = process_job(&bot, &config, &mailer, job).await;
+        db.bulk_update_jobs(vec![result]).await?;
 
         let status: OutboxStatus =
             sqlx::query_scalar("SELECT status FROM outbox_messages WHERE id = $1")
@@ -364,7 +374,8 @@ mod tests {
                 .await?;
 
         let mailer = mailer::create_mailer(&config).unwrap();
-        process_job(&db, &bot, &config, &mailer, job).await;
+        let result = process_job(&bot, &config, &mailer, job).await;
+        db.bulk_update_jobs(vec![result]).await?;
 
         let (status, retry_count): (OutboxStatus, i32) =
             sqlx::query_as("SELECT status, retry_count FROM outbox_messages WHERE id = $1")
@@ -420,7 +431,8 @@ mod tests {
                 .await?;
 
         let mailer = mailer::create_mailer(&config).unwrap();
-        process_job(&db, &bot, &config, &mailer, job).await;
+        let result = process_job(&bot, &config, &mailer, job).await;
+        db.bulk_update_jobs(vec![result]).await?;
 
         let status: OutboxStatus =
             sqlx::query_scalar("SELECT status FROM outbox_messages WHERE id = $1")
