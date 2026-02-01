@@ -113,13 +113,18 @@ async fn create_device_password(
     // Generate random password
     let password = generate_password(24);
 
-    // Hash with Argon2id
-    use argon2::password_hash::rand_core::OsRng;
-    let salt = argon2::password_hash::SaltString::generate(&mut OsRng);
-    let argon2 = argon2::Argon2::default();
-    let hashed = argon2::PasswordHasher::hash_password(&argon2, password.as_bytes(), &salt)
-        .map_err(|e| ApiError::Internal(format!("Password hashing failed: {}", e)))?
-        .to_string();
+    // Hash with Argon2id (blocking task)
+    let password_clone = password.clone();
+    let hashed = tokio::task::spawn_blocking(move || {
+        use argon2::password_hash::rand_core::OsRng;
+        let salt = argon2::password_hash::SaltString::generate(&mut OsRng);
+        let argon2 = argon2::Argon2::default();
+        argon2::PasswordHasher::hash_password(&argon2, password_clone.as_bytes(), &salt)
+            .map(|h| h.to_string())
+    })
+    .await
+    .map_err(|e| ApiError::Internal(format!("Task join error: {}", e)))?
+    .map_err(|e| ApiError::Internal(format!("Password hashing failed: {}", e)))?;
 
     // Insert into database
     let device = sqlx::query_as::<_, DevicePassword>(
