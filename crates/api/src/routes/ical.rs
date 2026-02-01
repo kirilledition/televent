@@ -3,55 +3,58 @@
 //! Converts between our Event model and iCalendar (RFC 5545) format
 
 use chrono::{DateTime, Utc};
-use icalendar::{Calendar, Component, Event as IcalEvent, EventLike};
 use televent_core::models::{Event, EventStatus};
 
 use crate::error::ApiError;
 
 /// Convert our Event model to iCalendar format
 pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
-    let calendar = build_ical_calendar(event);
-    Ok(calendar.to_string())
+    let mut buf = String::with_capacity(512);
+    event_to_ical_into(event, &mut buf)?;
+    Ok(buf)
 }
 
 /// Convert our Event model to iCalendar format, writing to a buffer
 ///
 /// This avoids allocating a new String for the result if a buffer is reused.
 pub fn event_to_ical_into(event: &Event, buf: &mut String) -> Result<(), ApiError> {
-    let calendar = build_ical_calendar(event);
-    use std::fmt::Write;
-    write!(buf, "{}", calendar).map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
-    Ok(())
-}
+    let mut writer = FoldedWriter::new(buf);
 
-fn build_ical_calendar(event: &Event) -> Calendar {
-    let mut ical_event = IcalEvent::new();
+    writer.write_line("BEGIN:VCALENDAR")?;
+    writer.write_line("VERSION:2.0")?;
+    writer.write_line("PRODID:-//Televent//Televent//EN")?;
+    writer.write_line("CALSCALE:GREGORIAN")?;
 
-    // UID is required and must be stable
-    ical_event.uid(&event.uid);
+    writer.write_line("BEGIN:VEVENT")?;
 
-    // Summary (title)
-    ical_event.summary(&event.summary);
+    // UID
+    writer.write_property("UID", &event.uid)?;
+
+    // DTSTAMP (required by RFC 5545, indicates when the object was created)
+    writer.write_property("DTSTAMP", &Utc::now().format("%Y%m%dT%H%M%SZ").to_string())?;
+
+    // Summary
+    writer.write_property("SUMMARY", &event.summary)?;
 
     // Description
     if let Some(ref description) = event.description {
-        ical_event.description(description);
+        writer.write_property("DESCRIPTION", description)?;
     }
 
     // Location
     if let Some(ref location) = event.location {
-        ical_event.location(location);
+        writer.write_property("LOCATION", location)?;
     }
 
     // Start and end times
     if event.is_all_day {
         // All-day events use DATE format (no time component)
         if let Some(start_date) = event.start_date {
-            ical_event.all_day(start_date);
+            writer.write_property("DTSTART;VALUE=DATE", &start_date.format("%Y%m%d").to_string())?;
         }
     } else if let (Some(start), Some(end)) = (event.start, event.end) {
-        ical_event.starts(start);
-        ical_event.ends(end);
+        writer.write_property("DTSTART", &start.format("%Y%m%dT%H%M%SZ").to_string())?;
+        writer.write_property("DTEND", &end.format("%Y%m%dT%H%M%SZ").to_string())?;
     }
 
     // Status
@@ -60,29 +63,107 @@ fn build_ical_calendar(event: &Event) -> Calendar {
         EventStatus::Tentative => "TENTATIVE",
         EventStatus::Cancelled => "CANCELLED",
     };
-    ical_event.add_property("STATUS", status_str);
+    writer.write_property("STATUS", status_str)?;
 
     // Recurrence rule
     if let Some(ref rrule) = event.rrule {
-        ical_event.add_property("RRULE", rrule);
+        // RRULE is a structured value, do not escape delimiters
+        writer.write_property_no_escape("RRULE", rrule)?;
     }
 
-    // Sequence number for versioning
-    ical_event.sequence(event.version as u32);
+    // Sequence
+    writer.write_property("SEQUENCE", &event.version.to_string())?;
 
-    // Created and last modified timestamps
-    ical_event.timestamp(event.created_at);
-    // RFC 5545 requires basic ISO 8601 format for timestamps (e.g. 20240101T120000Z)
-    // chrono's to_rfc3339() produces extended format which causes sync issues in Thunderbird
-    let last_modified_str = event.updated_at.format("%Y%m%dT%H%M%SZ").to_string();
-    ical_event.add_property("LAST-MODIFIED", &last_modified_str);
+    // Created
+    writer.write_property(
+        "CREATED",
+        &event.created_at.format("%Y%m%dT%H%M%SZ").to_string(),
+    )?;
 
-    // Build calendar container
-    let mut calendar = Calendar::new();
-    // icalendar crate adds PRODID by default, do not add another one
-    calendar.push(ical_event);
+    // Last-Modified
+    writer.write_property(
+        "LAST-MODIFIED",
+        &event.updated_at.format("%Y%m%dT%H%M%SZ").to_string(),
+    )?;
 
-    calendar
+    writer.write_line("END:VEVENT")?;
+    writer.write_line("END:VCALENDAR")?;
+
+    Ok(())
+}
+
+struct FoldedWriter<'a> {
+    buf: &'a mut String,
+}
+
+impl<'a> FoldedWriter<'a> {
+    fn new(buf: &'a mut String) -> Self {
+        Self { buf }
+    }
+
+    fn write_line(&mut self, line: &str) -> Result<(), ApiError> {
+        self.buf.push_str(line);
+        self.buf.push_str("\r\n");
+        Ok(())
+    }
+
+    fn write_property(&mut self, name: &str, value: &str) -> Result<(), ApiError> {
+        self.write_property_impl(name, value, true)
+    }
+
+    fn write_property_no_escape(&mut self, name: &str, value: &str) -> Result<(), ApiError> {
+        self.write_property_impl(name, value, false)
+    }
+
+    fn write_property_impl(
+        &mut self,
+        name: &str,
+        value: &str,
+        escape: bool,
+    ) -> Result<(), ApiError> {
+        self.buf.push_str(name);
+        self.buf.push(':');
+
+        // Length of property name + separator
+        let mut current_line_len = name.len() + 1;
+
+        for c in value.chars() {
+            // Escape special characters: \ ; , \n
+            let replacement = if escape {
+                match c {
+                    '\\' => Some("\\\\"),
+                    ';' => Some("\\;"),
+                    ',' => Some("\\,"),
+                    '\n' => Some("\\n"),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            if let Some(s) = replacement {
+                for rc in s.chars() {
+                    let len = rc.len_utf8();
+                    if current_line_len + len > 75 {
+                        self.buf.push_str("\r\n "); // Fold: CRLF + space
+                        current_line_len = 1;
+                    }
+                    self.buf.push(rc);
+                    current_line_len += len;
+                }
+            } else {
+                let len = c.len_utf8();
+                if current_line_len + len > 75 {
+                    self.buf.push_str("\r\n "); // Fold: CRLF + space
+                    current_line_len = 1;
+                }
+                self.buf.push(c);
+                current_line_len += len;
+            }
+        }
+        self.buf.push_str("\r\n");
+        Ok(())
+    }
 }
 
 /// Parse iCalendar format into event data (simple string-based parser)
@@ -107,6 +188,10 @@ pub fn ical_to_event_data(
     ApiError,
 > {
     // Simple line-by-line parser for iCalendar
+    // Note: Does not support full RFC 5545 unfolding (continuation lines) perfectly,
+    // but handles basic properties.
+    // For robust parsing, we should use a proper parser library if needed, but this suffices for our internal use.
+
     let mut in_vevent = false;
     let mut uid = None;
     let mut summary = None;
@@ -119,7 +204,11 @@ pub fn ical_to_event_data(
     let mut status = EventStatus::Confirmed;
     let mut timezone = "UTC".to_string();
 
-    for line in ical_str.lines() {
+    // Naive unfolding: Join lines that start with space/tab to previous line
+    // This allocates a new string for unfolded content
+    let unfolded = unfold_ical(ical_str);
+
+    for line in unfolded.lines() {
         let line = line.trim();
 
         if line == "BEGIN:VEVENT" {
@@ -145,9 +234,9 @@ pub fn ical_to_event_data(
 
             match prop_name {
                 "UID" => uid = Some(value.to_string()),
-                "SUMMARY" => summary = Some(value.to_string()),
-                "DESCRIPTION" => description = Some(value.to_string()),
-                "LOCATION" => location = Some(value.to_string()),
+                "SUMMARY" => summary = Some(unescape_text(value)),
+                "DESCRIPTION" => description = Some(unescape_text(value)),
+                "LOCATION" => location = Some(unescape_text(value)),
                 "DTSTART" => {
                     // Check if this is an all-day event
                     is_all_day = params
@@ -208,6 +297,64 @@ pub fn ical_to_event_data(
         status,
         timezone,
     ))
+}
+
+/// Unfold iCalendar lines (handle continuation lines)
+fn unfold_ical(ical: &str) -> String {
+    let mut result = String::with_capacity(ical.len());
+    let mut lines = ical.lines();
+
+    if let Some(first) = lines.next() {
+        result.push_str(first);
+    }
+
+    for line in lines {
+        if line.starts_with(' ') || line.starts_with('\t') {
+            // Continuation line: remove first char and append to previous line
+            // But we already pushed a newline implicitly? No, lines() strips newlines.
+            // We need to manage newlines carefully.
+            // Wait, result is a single string. If we just push chars, we are merging lines.
+            // But we want to keep property separation (newlines).
+
+            // Actually, correct unfolding removes the CRLF and the leading space.
+            // Since we process line by line, we need to know if we should append to the previous property or start a new one.
+            // But `lines()` consumes the CRLF. So we just append `line[1..]` to `result`.
+            // HOWEVER, we need to separate properties with newlines.
+
+            // Let's rewrite this logic.
+            result.push_str(&line[1..]);
+        } else {
+            // New property line
+            result.push('\n'); // Add newline before this new property
+            result.push_str(line);
+        }
+    }
+    result
+}
+
+/// Unescape iCalendar text
+fn unescape_text(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') | Some('N') => result.push('\n'),
+                Some('\\') => result.push('\\'),
+                Some(';') => result.push(';'),
+                Some(',') => result.push(','),
+                Some(other) => {
+                    result.push('\\');
+                    result.push(other);
+                }
+                None => result.push('\\'), // Trailing backslash
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 /// Parse a datetime string, handling both DATE and DATE-TIME formats
@@ -445,5 +592,44 @@ END:VCALENDAR"#;
 
         assert!(buf.contains("BEGIN:VCALENDAR"));
         assert!(buf.contains("UID:test-event-123"));
+    }
+
+    #[test]
+    fn test_folding_and_unfolding() {
+        let mut event = create_test_event();
+        event.summary = "This is a very long summary that should definitely be folded because it exceeds the seventy-five octet limit imposed by the iCalendar specification (RFC 5545).".to_string();
+
+        let ical = event_to_ical(&event).unwrap();
+
+        // Check if it contains CRLF + space
+        assert!(ical.contains("\r\n "));
+
+        // Parse it back
+        let (_, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(&ical).unwrap();
+
+        assert_eq!(summary, event.summary);
+    }
+
+    #[test]
+    fn test_unescape_text_edge_cases() {
+        // Simple case
+        assert_eq!(unescape_text("test"), "test");
+        // Escaped chars
+        assert_eq!(unescape_text("foo\\;bar"), "foo;bar");
+        assert_eq!(unescape_text("foo\\,bar"), "foo,bar");
+        assert_eq!(unescape_text("foo\\nbar"), "foo\nbar");
+        assert_eq!(unescape_text("foo\\\\bar"), "foo\\bar");
+        // Mixed
+        assert_eq!(unescape_text("a\\;b\\,c\\nd\\\\e"), "a;b,c\nd\\e");
+        // Malformed escape (trailing backslash)
+        assert_eq!(unescape_text("foo\\"), "foo\\");
+        // Unknown escape
+        assert_eq!(unescape_text("foo\\x"), "foo\\x");
+        // Tricky case: escaped backslash followed by n (should be literal \n, not newline)
+        // Input string literal for testing needs careful escaping.
+        // "foo\\\\nbar" in source code is string "foo\\nbar".
+        // unescape_text("foo\\nbar") -> "foo\nbar" (newline)
+        // unescape_text("foo\\\\nbar") -> "foo\\nbar" (literal \ followed by n)
+        assert_eq!(unescape_text("foo\\\\nbar"), "foo\\nbar");
     }
 }
