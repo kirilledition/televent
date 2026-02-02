@@ -13,8 +13,9 @@ interface EventItemProps {
 
 export function EventItem({ event, onDelete, onEdit }: EventItemProps) {
     const [isConfirming, setIsConfirming] = useState(false);
-    const start = parseISO(event.start);
-    const end = parseISO(event.end);
+    // Handle all-day events where start/end might be null but start_date/end_date exist
+    const start = parseISO(event.start || event.start_date);
+    const end = parseISO(event.end || event.end_date);
     const duration = differenceInMinutes(end, start);
 
     const formatDuration = (minutes: number) => {
