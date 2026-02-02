@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { EventResponse } from '@/types/schema';
 import { Trash2, MapPin, Clock, Check, X } from 'lucide-react';
 import { format, differenceInMinutes, parseISO } from 'date-fns';
@@ -11,7 +11,8 @@ interface EventItemProps {
     onEdit: (event: EventResponse) => void;
 }
 
-export function EventItem({ event, onDelete, onEdit }: EventItemProps) {
+// Memoized to prevent re-renders when other items change or parent re-renders
+export const EventItem = memo(function EventItem({ event, onDelete, onEdit }: EventItemProps) {
     const [isConfirming, setIsConfirming] = useState(false);
     // Handle all-day events where start/end might be null but start_date/end_date exist
     const start = parseISO(event.start || event.start_date);
@@ -113,4 +114,4 @@ export function EventItem({ event, onDelete, onEdit }: EventItemProps) {
             </div>
         </div>
     );
-}
+});
