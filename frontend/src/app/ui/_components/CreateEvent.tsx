@@ -118,6 +118,17 @@ export function CreateEvent({ onClose, onCreate, initialEvent }: CreateEventProp
         }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // Add Escape key listener
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose]);
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -227,7 +238,13 @@ export function CreateEvent({ onClose, onCreate, initialEvent }: CreateEventProp
     };
 
     return (
-        <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+        <div
+            className="fixed inset-0 flex items-end sm:items-center justify-center z-50"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-title"
+        >
             <div className="rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[90vh] overflow-y-auto" style={{ backgroundColor: 'var(--ctp-base)' }}>
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 sticky top-0 z-20" style={{ backgroundColor: 'var(--ctp-base)', borderBottom: '1px solid var(--ctp-surface0)' }}>
@@ -239,7 +256,7 @@ export function CreateEvent({ onClose, onCreate, initialEvent }: CreateEventProp
                     >
                         Cancel
                     </button>
-                    <h2 className="text-lg font-semibold" style={{ color: 'var(--ctp-text)' }}>
+                    <h2 id="modal-title" className="text-lg font-semibold" style={{ color: 'var(--ctp-text)' }}>
                         {initialEvent ? 'Edit Event' : 'New Event'}
                     </h2>
                     <button
@@ -257,6 +274,9 @@ export function CreateEvent({ onClose, onCreate, initialEvent }: CreateEventProp
                 <form onSubmit={handleSubmit} className="p-5 space-y-4">
                     {/* Title */}
                     <div>
+                        <label htmlFor="title" className="sr-only">
+                            Event Title
+                        </label>
                         <input
                             type="text"
                             id="title"
