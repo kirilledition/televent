@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { EventResponse, CreateEventRequest, UpdateEventRequest } from '@/types/schema';
 import { api } from '@/lib/api';
 // Updated imports to point to where they are actually located (in ui/_components for now)
@@ -44,14 +44,15 @@ export default function CalendarPage() {
     }
   };
 
-  const handleDeleteEvent = async (id: string) => {
+  // Memoized to keep prop stable for EventList -> EventItem
+  const handleDeleteEvent = useCallback(async (id: string) => {
     try {
       await api.deleteEvent(id);
       setEvents(prev => prev.filter(e => e.id !== id));
     } catch (error) {
       console.error('Error deleting event:', error);
     }
-  };
+  }, []);
 
   const handleUpdateEvent = async (request: CreateEventRequest) => {
     if (!editingEvent) return;
