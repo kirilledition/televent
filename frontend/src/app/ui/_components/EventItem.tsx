@@ -39,8 +39,16 @@ export const EventItem = memo(function EventItem({ event, onDelete, onEdit }: Ev
 
             {/* Event content */}
             <div
-                className="flex-1 min-w-0 pl-2 cursor-pointer"
+                className="flex-1 min-w-0 pl-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-sapphire)] rounded-sm"
                 onClick={() => onEdit(event)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onEdit(event);
+                    }
+                }}
             >
                 <div className="flex items-start justify-between gap-3 mb-2">
                     <h3 className="text-lg font-medium" style={{ color: 'var(--ctp-text)' }}>{event.summary}</h3>
