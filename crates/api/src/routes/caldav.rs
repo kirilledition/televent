@@ -5,7 +5,7 @@
 use axum::{
     Router,
     body::Body,
-    extract::{FromRef, Path, State},
+    extract::{Extension, FromRef, Path, State},
     http::{HeaderMap, HeaderName, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::any,
@@ -47,10 +47,15 @@ async fn caldav_options() -> Response {
 async fn caldav_propfind(
     State(pool): State<PgPool>,
     Path(user_identifier): Path<String>,
+    auth_user_id: UserId,
     headers: HeaderMap,
     _body: Body,
 ) -> Result<Response, ApiError> {
     let user = resolve_user(&pool, &user_identifier).await?;
+
+    if user.id != auth_user_id {
+        return Err(ApiError::Forbidden);
+    }
 
     // Get Depth header (default to 0)
     let depth = headers
@@ -90,8 +95,13 @@ async fn caldav_propfind(
 async fn caldav_get_event(
     State(pool): State<PgPool>,
     Path((user_identifier, event_uid)): Path<(String, String)>,
+    auth_user_id: UserId,
 ) -> Result<Response, ApiError> {
     let user = resolve_user(&pool, &user_identifier).await?;
+
+    if user.id != auth_user_id {
+        return Err(ApiError::Forbidden);
+    }
 
     tracing::debug!("GET event {} for user {}", event_uid, user.id);
 
@@ -127,10 +137,15 @@ const MAX_MULTIGET_HREFS: usize = 200;
 async fn caldav_put_event(
     State(pool): State<PgPool>,
     Path((user_identifier, event_uid)): Path<(String, String)>,
+    auth_user_id: UserId,
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, ApiError> {
     let user = resolve_user(&pool, &user_identifier).await?;
+
+    if user.id != auth_user_id {
+        return Err(ApiError::Forbidden);
+    }
 
     tracing::debug!("PUT event {} for user {}", event_uid, user.id);
 
@@ -241,9 +256,14 @@ async fn caldav_put_event(
 async fn caldav_report(
     State(pool): State<PgPool>,
     Path(user_identifier): Path<String>,
+    auth_user_id: UserId,
     body: Body,
 ) -> Result<Response, ApiError> {
     let user = resolve_user(&pool, &user_identifier).await?;
+
+    if user.id != auth_user_id {
+        return Err(ApiError::Forbidden);
+    }
 
     tracing::debug!("REPORT request for user {}", user.id);
 
@@ -395,9 +415,14 @@ async fn caldav_report(
 async fn caldav_delete_event(
     State(pool): State<PgPool>,
     Path((user_identifier, event_uid)): Path<(String, String)>,
+    auth_user_id: UserId,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let user = resolve_user(&pool, &user_identifier).await?;
+
+    if user.id != auth_user_id {
+        return Err(ApiError::Forbidden);
+    }
 
     tracing::debug!("DELETE event {} for user {}", event_uid, user.id);
 
@@ -479,6 +504,7 @@ where
 /// Main CalDAV collection handler
 async fn caldav_handler(
     State(pool): State<PgPool>,
+    Extension(auth_user_id): Extension<UserId>,
     Path(user_identifier): Path<String>,
     headers: HeaderMap,
     method: Method,
@@ -487,8 +513,25 @@ async fn caldav_handler(
     // Handle WebDAV methods
     match method.as_str() {
         "OPTIONS" => Ok(caldav_options().await),
-        "PROPFIND" => caldav_propfind(State(pool), Path(user_identifier), headers, body).await,
-        "REPORT" => caldav_report(State(pool), Path(user_identifier), body).await,
+        "PROPFIND" => {
+            caldav_propfind(
+                State(pool),
+                Path(user_identifier),
+                auth_user_id,
+                headers,
+                body,
+            )
+            .await
+        }
+        "REPORT" => {
+            caldav_report(
+                State(pool),
+                Path(user_identifier),
+                auth_user_id,
+                body,
+            )
+            .await
+        }
         _ => Err(ApiError::BadRequest(format!(
             "Method {} not supported for calendar collection",
             method
@@ -499,6 +542,7 @@ async fn caldav_handler(
 /// Event resource handler
 async fn event_handler(
     State(pool): State<PgPool>,
+    Extension(auth_user_id): Extension<UserId>,
     Path((user_identifier, event_uid_raw)): Path<(String, String)>,
     headers: HeaderMap,
     method: Method,
@@ -511,18 +555,32 @@ async fn event_handler(
         .to_string();
 
     match method {
-        Method::GET => caldav_get_event(State(pool), Path((user_identifier, event_uid))).await,
+        Method::GET => {
+            caldav_get_event(
+                State(pool),
+                Path((user_identifier, event_uid)),
+                auth_user_id,
+            )
+            .await
+        }
         Method::PUT => {
             caldav_put_event(
                 State(pool),
                 Path((user_identifier, event_uid)),
+                auth_user_id,
                 headers,
                 body,
             )
             .await
         }
         Method::DELETE => {
-            caldav_delete_event(State(pool), Path((user_identifier, event_uid)), headers).await
+            caldav_delete_event(
+                State(pool),
+                Path((user_identifier, event_uid)),
+                auth_user_id,
+                headers,
+            )
+            .await
         }
         _ => Err(ApiError::BadRequest(format!(
             "Method {} not supported for event resource",
