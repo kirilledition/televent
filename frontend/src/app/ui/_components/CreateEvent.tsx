@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { EventResponse, CreateEventRequest } from '@/types/schema';
-import { MapPin } from 'lucide-react';
+import { MapPin, Loader2 } from 'lucide-react';
 import { parseISO, format, differenceInMinutes, addMinutes } from 'date-fns';
 
 interface CreateEventProps {
     onClose: () => void;
-    onCreate: (request: CreateEventRequest) => void;
+    onCreate: (request: CreateEventRequest) => Promise<void> | void;
     initialEvent?: EventResponse;
 }
 
@@ -88,6 +88,7 @@ export function CreateEvent({ onClose, onCreate, initialEvent }: CreateEventProp
 
     const [location, setLocation] = useState(initialEvent?.location || '');
     const [showDatePicker, setShowDatePicker] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const timePickerRef = useRef<HTMLDivElement>(null);
     const durationPickerRef = useRef<HTMLDivElement>(null);
@@ -129,32 +130,37 @@ export function CreateEvent({ onClose, onCreate, initialEvent }: CreateEventProp
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose]);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!title || !date) {
+        if (!title || !date || isSubmitting) {
             return;
         }
 
-        // Construct start and end dates
-        const startDateTime = new Date(`${date}T${time}:00`);
-        const endDateTime = addMinutes(startDateTime, duration);
+        try {
+            setIsSubmitting(true);
+            // Construct start and end dates
+            const startDateTime = new Date(`${date}T${time}:00`);
+            const endDateTime = addMinutes(startDateTime, duration);
 
-        // Construct request object
-        const request: CreateEventRequest = {
-            uid: initialEvent?.uid || crypto.randomUUID(), // Preserve UID on edit, new on create
-            summary: title,
-            start: startDateTime.toISOString(),
-            end: endDateTime.toISOString(),
-            is_all_day: false,
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            location: location || undefined,
-            // Handle optional fields
-            description: initialEvent?.description,
-            rrule: initialEvent?.rrule,
-        };
+            // Construct request object
+            const request: CreateEventRequest = {
+                uid: initialEvent?.uid || crypto.randomUUID(), // Preserve UID on edit, new on create
+                summary: title,
+                start: startDateTime.toISOString(),
+                end: endDateTime.toISOString(),
+                is_all_day: false,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                location: location || undefined,
+                // Handle optional fields
+                description: initialEvent?.description,
+                rrule: initialEvent?.rrule,
+            };
 
-        onCreate(request);
+            await onCreate(request);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     // Generate calendar days for current month
@@ -251,8 +257,9 @@ export function CreateEvent({ onClose, onCreate, initialEvent }: CreateEventProp
                     <button
                         type="button"
                         onClick={onClose}
-                        className="font-medium"
+                        className="font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{ color: 'var(--ctp-sapphire)' }}
+                        disabled={isSubmitting}
                     >
                         Cancel
                     </button>
@@ -262,10 +269,11 @@ export function CreateEvent({ onClose, onCreate, initialEvent }: CreateEventProp
                     <button
                         type="button"
                         onClick={handleSubmit}
-                        className="font-semibold"
-                        style={{ color: !title || !date ? 'var(--ctp-overlay0)' : 'var(--ctp-sapphire)' }}
-                        disabled={!title || !date}
+                        className="font-semibold flex items-center gap-2 disabled:cursor-not-allowed"
+                        style={{ color: !title || !date || isSubmitting ? 'var(--ctp-overlay0)' : 'var(--ctp-sapphire)' }}
+                        disabled={!title || !date || isSubmitting}
                     >
+                        {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                         {initialEvent ? 'Save' : 'Add'}
                     </button>
                 </div>
