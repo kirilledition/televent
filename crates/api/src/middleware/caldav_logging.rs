@@ -7,6 +7,9 @@ use axum::{
 };
 use std::time::Instant;
 
+// 1MB Limit for debug logging to prevent memory exhaustion
+const MAX_DEBUG_BODY_SIZE: usize = 1024 * 1024;
+
 /// Middleware to log deep details about CalDAV requests
 pub async fn caldav_logger(req: Request, next: Next) -> Response {
     let start = Instant::now();
@@ -28,21 +31,15 @@ pub async fn caldav_logger(req: Request, next: Next) -> Response {
         log_headers(&headers, "Request");
     }
 
-    // Capture request body if debug is enabled
-    let (parts, body) = req.into_parts();
-    let bytes = if debug_enabled {
-        buffer_and_log_body(body, "Request Body").await
+    // Capture request body ONLY if debug is enabled
+    // This prevents unbounded memory consumption in production
+    let req = if debug_enabled {
+        let (parts, body) = req.into_parts();
+        let bytes = buffer_and_log_body(body, "Request Body").await;
+        Request::from_parts(parts, Body::from(bytes))
     } else {
-        match axum::body::to_bytes(body, usize::MAX).await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::error!("Failed to read request body: {}", e);
-                Bytes::new()
-            }
-        }
+        req
     };
-
-    let req = Request::from_parts(parts, Body::from(bytes));
 
     // Execute handler
     let response = next.run(req).await;
@@ -71,7 +68,8 @@ pub async fn caldav_logger(req: Request, next: Next) -> Response {
 }
 
 async fn buffer_and_log_body(body: Body, label: &str) -> Bytes {
-    match axum::body::to_bytes(body, usize::MAX).await {
+    // Enforce size limit to prevent DoS
+    match axum::body::to_bytes(body, MAX_DEBUG_BODY_SIZE).await {
         Ok(bytes) => {
             if !bytes.is_empty() {
                 if let Ok(body_str) = std::str::from_utf8(&bytes) {
@@ -85,7 +83,7 @@ async fn buffer_and_log_body(body: Body, label: &str) -> Bytes {
             bytes
         }
         Err(e) => {
-            tracing::error!("Failed to read {}: {}", label, e);
+            tracing::error!("Failed to read {} (limit exceeded?): {}", label, e);
             Bytes::new()
         }
     }

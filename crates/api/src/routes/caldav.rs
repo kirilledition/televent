@@ -278,10 +278,12 @@ async fn caldav_report(
 
     // Parse report type
     let report_type = caldav_xml::parse_report_request(&xml_body).map_err(|e| {
+        // Truncate XML body to prevent log flooding and sensitive data leakage
+        let preview: String = xml_body.chars().take(256).collect();
         tracing::error!(
-            "Failed to parse REPORT XML: {:?}\nXML body:\n{}",
+            "Failed to parse REPORT XML: {:?}\nXML body (truncated):\n{}",
             e,
-            xml_body
+            preview
         );
         e
     })?;
