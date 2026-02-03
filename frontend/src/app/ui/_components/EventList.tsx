@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, memo } from 'react';
 import { EventResponse } from '@/types/schema';
 import { EventItem } from './EventItem';
 import { parseISO, format, isSameDay, addDays } from 'date-fns';
@@ -11,7 +11,7 @@ interface EventListProps {
     onEditEvent: (event: EventResponse) => void;
 }
 
-export function EventList({ events, onDeleteEvent, onEditEvent }: EventListProps) {
+export const EventList = memo(function EventList({ events, onDeleteEvent, onEditEvent }: EventListProps) {
     // Sort events by start time
     const sortedEvents = useMemo(() => {
         // Optimization: Map to timestamp first to avoid parsing dates N*logN times during sort
@@ -38,7 +38,12 @@ export function EventList({ events, onDeleteEvent, onEditEvent }: EventListProps
             const dateStr = event.start || event.start_date;
             if (!dateStr) return acc;
 
-            const date = format(parseISO(dateStr), 'yyyy-MM-dd');
+            // Optimization: For all-day events, start_date is already YYYY-MM-DD
+            // This avoids expensive parseISO + format calls
+            const date = (event.is_all_day && event.start_date)
+                ? event.start_date
+                : format(parseISO(dateStr), 'yyyy-MM-dd');
+
             if (!acc[date]) {
                 acc[date] = [];
             }
@@ -98,4 +103,4 @@ export function EventList({ events, onDeleteEvent, onEditEvent }: EventListProps
             ))}
         </div>
     );
-}
+});
