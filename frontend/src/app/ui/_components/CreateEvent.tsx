@@ -336,30 +336,43 @@ export function CreateEvent({ onClose, onCreate, initialEvent }: CreateEventProp
                                             {day}
                                         </div>
                                     ))}
-                                    {days.map((day, index) => (
-                                        <div key={index}>
-                                            {day ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleDateSelect(day)}
-                                                    className="w-full aspect-square rounded-lg flex items-center justify-center"
-                                                    style={{
-                                                        backgroundColor: new Date(year, month, day).toISOString().split('T')[0] === date
-                                                            ? 'var(--ctp-sapphire)'
-                                                            : 'transparent',
-                                                        color: new Date(year, month, day).toISOString().split('T')[0] === date
-                                                            ? 'var(--ctp-crust)'
-                                                            : 'var(--ctp-text)',
-                                                        fontWeight: new Date(year, month, day).toISOString().split('T')[0] === date ? 600 : 400,
-                                                    }}
-                                                >
-                                                    {day}
-                                                </button>
-                                            ) : (
-                                                <div />
-                                            )}
-                                        </div>
-                                    ))}
+                                    {days.map((day, index) => {
+                                        // Fix timezone issue by manually constructing YYYY-MM-DD
+                                        const currentDayStr = day ? day.toString().padStart(2, '0') : '';
+                                        const currentMonthStr = (month + 1).toString().padStart(2, '0');
+                                        const dateStr = `${year}-${currentMonthStr}-${currentDayStr}`;
+                                        const isSelected = day ? dateStr === date : false;
+
+                                        const label = day
+                                            ? `${monthNames[month]} ${day}, ${year}${isSelected ? ', selected' : ''}`
+                                            : undefined;
+
+                                        return (
+                                            <div key={index}>
+                                                {day ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDateSelect(day)}
+                                                        aria-label={label}
+                                                        className="w-full aspect-square rounded-lg flex items-center justify-center"
+                                                        style={{
+                                                            backgroundColor: isSelected
+                                                                ? 'var(--ctp-sapphire)'
+                                                                : 'transparent',
+                                                            color: isSelected
+                                                                ? 'var(--ctp-crust)'
+                                                                : 'var(--ctp-text)',
+                                                            fontWeight: isSelected ? 600 : 400,
+                                                        }}
+                                                    >
+                                                        {day}
+                                                    </button>
+                                                ) : (
+                                                    <div />
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}
