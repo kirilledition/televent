@@ -1,9 +1,9 @@
 use axum::{
     body::{Body, Bytes},
     extract::Request,
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use std::time::Instant;
 
@@ -35,8 +35,10 @@ pub async fn caldav_logger(req: Request, next: Next) -> Response {
     // This prevents unbounded memory consumption in production
     let req = if debug_enabled {
         let (parts, body) = req.into_parts();
-        let bytes = buffer_and_log_body(body, "Request Body").await;
-        Request::from_parts(parts, Body::from(bytes))
+        match buffer_and_log_body(body, "Request Body").await {
+            Ok(bytes) => Request::from_parts(parts, Body::from(bytes)),
+            Err(response) => return response,
+        }
     } else {
         req
     };
@@ -59,7 +61,13 @@ pub async fn caldav_logger(req: Request, next: Next) -> Response {
     if debug_enabled {
         // We need to double-buffer response body to log it
         let (parts, body) = response.into_parts();
-        let bytes = buffer_and_log_body(body, "Response Body").await;
+        // For response body, we swallow errors and return empty body to avoid crashing the client response
+        // though strictly we should probably log the error and return the partial/empty body.
+        // Returning a 413 for a *response* doesn't make sense here.
+        let bytes = match buffer_and_log_body(body, "Response Body").await {
+            Ok(b) => b,
+            Err(_) => Bytes::new(),
+        };
 
         return Response::from_parts(parts, Body::from(bytes));
     }
@@ -67,7 +75,7 @@ pub async fn caldav_logger(req: Request, next: Next) -> Response {
     response
 }
 
-async fn buffer_and_log_body(body: Body, label: &str) -> Bytes {
+async fn buffer_and_log_body(body: Body, label: &str) -> Result<Bytes, Response> {
     // Enforce size limit to prevent DoS
     match axum::body::to_bytes(body, MAX_DEBUG_BODY_SIZE).await {
         Ok(bytes) => {
@@ -80,11 +88,18 @@ async fn buffer_and_log_body(body: Body, label: &str) -> Bytes {
             } else {
                 tracing::debug!("{}: <empty>", label);
             }
-            bytes
+            Ok(bytes)
         }
         Err(e) => {
             tracing::error!("Failed to read {} (limit exceeded?): {}", label, e);
-            Bytes::new()
+            // If this is a request body (implied by context where we propagate error), return 413
+            // Note: axum::body::to_bytes returns Error if limit exceeded.
+            // We assume mostly limit errors here or IO errors.
+            Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!("Debug log body limit exceeded (max {} bytes)", MAX_DEBUG_BODY_SIZE),
+            )
+                .into_response())
         }
     }
 }
