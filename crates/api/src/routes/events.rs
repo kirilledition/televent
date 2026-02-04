@@ -97,6 +97,15 @@ impl CreateEventRequest {
                 MAX_RRULE_LENGTH
             )));
         }
+        if self
+            .rrule
+            .as_ref()
+            .is_some_and(|r| r.chars().any(|c| c == '\r' || c == '\n'))
+        {
+            return Err(ApiError::BadRequest(
+                "RRule cannot contain control characters".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -158,6 +167,15 @@ impl UpdateEventRequest {
                 "RRule too long (max {})",
                 MAX_RRULE_LENGTH
             )));
+        }
+        if self
+            .rrule
+            .as_ref()
+            .is_some_and(|r| r.chars().any(|c| c == '\r' || c == '\n'))
+        {
+            return Err(ApiError::BadRequest(
+                "RRule cannot contain control characters".to_string(),
+            ));
         }
         Ok(())
     }
@@ -534,5 +552,21 @@ mod tests {
             rrule: None,
         };
         assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn test_create_event_validation_rrule_injection() {
+        let req = CreateEventRequest {
+            uid: "valid-uid".to_string(),
+            summary: "Valid Summary".to_string(),
+            description: None,
+            location: None,
+            start: Utc::now(),
+            end: Utc::now(),
+            is_all_day: false,
+            timezone: televent_core::models::Timezone::default(),
+            rrule: Some("FREQ=DAILY\r\nATTENDEE:EVIL".to_string()),
+        };
+        assert!(req.validate().is_err());
     }
 }
