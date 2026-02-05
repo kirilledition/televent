@@ -205,10 +205,8 @@ pub fn ical_to_event_data(
     let mut timezone = "UTC".to_string();
 
     // Naive unfolding: Join lines that start with space/tab to previous line
-    // This allocates a new string for unfolded content
-    let unfolded = unfold_ical(ical_str);
-
-    for line in unfolded.lines() {
+    // Uses an iterator to avoid allocating a large buffer for the entire unfolded content
+    for line in UnfoldingIter::new(ical_str) {
         let line = line.trim();
 
         if line == "BEGIN:VEVENT" {
@@ -299,37 +297,50 @@ pub fn ical_to_event_data(
     ))
 }
 
-/// Unfold iCalendar lines (handle continuation lines)
-fn unfold_ical(ical: &str) -> String {
-    let mut result = String::with_capacity(ical.len());
-    let mut lines = ical.lines();
+/// Iterator that unfolds iCalendar lines (handles continuation lines)
+///
+/// Yields `Cow<str>` to avoid allocation for non-folded lines.
+struct UnfoldingIter<'a> {
+    lines: std::iter::Peekable<std::str::Lines<'a>>,
+}
 
-    if let Some(first) = lines.next() {
-        result.push_str(first);
-    }
-
-    for line in lines {
-        if line.starts_with(' ') || line.starts_with('\t') {
-            // Continuation line: remove first char and append to previous line
-            // But we already pushed a newline implicitly? No, lines() strips newlines.
-            // We need to manage newlines carefully.
-            // Wait, result is a single string. If we just push chars, we are merging lines.
-            // But we want to keep property separation (newlines).
-
-            // Actually, correct unfolding removes the CRLF and the leading space.
-            // Since we process line by line, we need to know if we should append to the previous property or start a new one.
-            // But `lines()` consumes the CRLF. So we just append `line[1..]` to `result`.
-            // HOWEVER, we need to separate properties with newlines.
-
-            // Let's rewrite this logic.
-            result.push_str(&line[1..]);
-        } else {
-            // New property line
-            result.push('\n'); // Add newline before this new property
-            result.push_str(line);
+impl<'a> UnfoldingIter<'a> {
+    fn new(input: &'a str) -> Self {
+        Self {
+            lines: input.lines().peekable(),
         }
     }
-    result
+}
+
+impl<'a> Iterator for UnfoldingIter<'a> {
+    type Item = std::borrow::Cow<'a, str>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let first = self.lines.next()?;
+
+        // Check if next line is a continuation (starts with space or tab)
+        let is_folded = self
+            .lines
+            .peek()
+            .is_some_and(|l| l.starts_with(' ') || l.starts_with('\t'));
+
+        if !is_folded {
+            return Some(std::borrow::Cow::Borrowed(first));
+        }
+
+        // If folded, we must allocate to join lines
+        let mut folded = String::from(first);
+        while let Some(next_line) = self.lines.peek() {
+            if next_line.starts_with(' ') || next_line.starts_with('\t') {
+                let line = self.lines.next().unwrap();
+                // RFC 5545: remove the CRLF (already gone via lines()) and the first whitespace char
+                folded.push_str(&line[1..]);
+            } else {
+                break;
+            }
+        }
+        Some(std::borrow::Cow::Owned(folded))
+    }
 }
 
 /// Unescape iCalendar text
