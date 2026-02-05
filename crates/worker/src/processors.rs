@@ -7,16 +7,15 @@ use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 use tracing::{error, info};
 
-use crate::Config;
 use crate::db::OutboxMessage;
-use crate::mailer;
+use crate::mailer::Mailer;
 use televent_core::attendee::is_internal_email;
 
 /// Process a single outbox message
-pub async fn process_message(message: &OutboxMessage, bot: &Bot, config: &Config) -> Result<()> {
+pub async fn process_message(message: &OutboxMessage, bot: &Bot, mailer: &Mailer) -> Result<()> {
     match message.message_type.as_str() {
         "telegram_notification" => process_telegram_notification(message, bot).await,
-        "email" => process_email(message, config).await,
+        "email" => process_email(message, mailer).await,
         "calendar_invite" => process_calendar_invite(message, bot).await,
         other => {
             error!("Unknown message type: {}", other);
@@ -48,7 +47,7 @@ async fn process_telegram_notification(message: &OutboxMessage, bot: &Bot) -> Re
 }
 
 /// Process an email message
-async fn process_email(message: &OutboxMessage, config: &Config) -> Result<()> {
+async fn process_email(message: &OutboxMessage, mailer: &Mailer) -> Result<()> {
     let to = message.payload["to"]
         .as_str()
         .context("Missing 'to' in email payload")?;
@@ -62,7 +61,7 @@ async fn process_email(message: &OutboxMessage, config: &Config) -> Result<()> {
         .context("Missing 'body' in email payload")?;
 
     // Use mailer crate to send email
-    mailer::send_email(config, to, subject, body)
+    mailer.send(to, subject, body)
         .await
         .context("Failed to send email")?;
 
@@ -142,6 +141,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use uuid::Uuid;
+    use crate::Config;
 
     fn create_test_config(port: u16) -> Config {
         Config {
@@ -275,11 +275,12 @@ mod tests {
 
         // Config with unique port
         let config = create_test_config(port);
+        let mailer = Mailer::new(&config).expect("Failed to create mailer");
 
         // Give server time to bind
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        process_message(&tx_msg, &bot, &config)
+        process_message(&tx_msg, &bot, &mailer)
             .await
             .expect("Failed to process email");
 

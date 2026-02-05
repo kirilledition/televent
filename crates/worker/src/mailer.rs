@@ -24,32 +24,20 @@ use lettre::{
     transport::smtp::authentication::Credentials,
 };
 
-/// Send an email via SMTP
-///
-/// Uses configuration for SMTP server settings
-pub async fn send_email(config: &Config, to: &str, subject: &str, body: &str) -> Result<()> {
-    let smtp_host = &config.smtp_host;
-    let smtp_port = config.smtp_port;
-    let smtp_from = &config.smtp_from;
+/// Mailer service with connection pooling
+#[derive(Clone, Debug)]
+pub struct Mailer {
+    transport: AsyncSmtpTransport<Tokio1Executor>,
+    from: String,
+}
 
-    // Build email message
-    let email = Message::builder()
-        .from(
-            smtp_from
-                .parse()
-                .map_err(|e| MailerError::InvalidAddress(format!("Invalid from address: {}", e)))?,
-        )
-        .to(to
-            .parse()
-            .map_err(|e| MailerError::InvalidAddress(format!("Invalid to address: {}", e)))?)
-        .subject(subject)
-        .header(ContentType::TEXT_PLAIN)
-        .body(body.to_string())
-        .map_err(|e| MailerError::SendFailed(format!("Failed to build message: {}", e)))?;
+impl Mailer {
+    /// Initialize a new Mailer with connection pooling
+    pub fn new(config: &Config) -> Result<Self> {
+        let smtp_host = &config.smtp_host;
+        let smtp_port = config.smtp_port;
 
-    // Configure SMTP transport
-    let mailer: AsyncSmtpTransport<Tokio1Executor> =
-        if let (Some(username), Some(password)) = (&config.smtp_username, &config.smtp_password) {
+        let transport = if let (Some(username), Some(password)) = (&config.smtp_username, &config.smtp_password) {
             // Authenticated SMTP
             AsyncSmtpTransport::<Tokio1Executor>::relay(smtp_host)
                 .map_err(|e| {
@@ -57,23 +45,49 @@ pub async fn send_email(config: &Config, to: &str, subject: &str, body: &str) ->
                 })?
                 .port(smtp_port)
                 .credentials(Credentials::new(username.clone(), password.clone()))
+                .pool_config(lettre::transport::smtp::PoolConfig::new().max_size(10)) // Default pool size
                 .build()
         } else {
             // Unauthenticated SMTP (for local testing)
             AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(smtp_host)
                 .port(smtp_port)
+                .pool_config(lettre::transport::smtp::PoolConfig::new().max_size(10))
                 .build()
         };
 
-    // Send email
-    mailer
-        .send(email)
-        .await
-        .map_err(|e| MailerError::SendFailed(format!("Failed to send email: {}", e)))?;
+        Ok(Self {
+            transport,
+            from: config.smtp_from.clone(),
+        })
+    }
 
-    tracing::info!("Email sent successfully to {}", to);
+    /// Send an email via SMTP using the pooled transport
+    pub async fn send(&self, to: &str, subject: &str, body: &str) -> Result<()> {
+        // Build email message
+        let email = Message::builder()
+            .from(
+                self.from
+                    .parse()
+                    .map_err(|e| MailerError::InvalidAddress(format!("Invalid from address: {}", e)))?,
+            )
+            .to(to
+                .parse()
+                .map_err(|e| MailerError::InvalidAddress(format!("Invalid to address: {}", e)))?)
+            .subject(subject)
+            .header(ContentType::TEXT_PLAIN)
+            .body(body.to_string())
+            .map_err(|e| MailerError::SendFailed(format!("Failed to build message: {}", e)))?;
 
-    Ok(())
+        // Send email
+        self.transport
+            .send(email)
+            .await
+            .map_err(|e| MailerError::SendFailed(format!("Failed to send email: {}", e)))?;
+
+        tracing::info!("Email sent successfully to {}", to);
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -189,8 +203,9 @@ mod tests {
 
         // Send email
         let config = create_test_config(port);
-        let result = send_email(
-            &config,
+        let mailer = Mailer::new(&config).expect("Failed to create mailer");
+
+        let result = mailer.send(
             "recipient@example.com",
             "Test Subject",
             "Test Body",

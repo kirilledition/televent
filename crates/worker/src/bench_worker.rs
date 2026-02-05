@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{process_job, Config, WorkerDb};
+    use crate::{process_job, Config, WorkerDb, Mailer};
     use sqlx::PgPool;
     use std::time::Instant;
     use televent_core::config::CoreConfig;
@@ -44,6 +44,7 @@ mod tests {
         // Let's use 'unknown_type' and set retry_count to max so it calls `mark_failed`.
 
         let bot = Bot::new("token");
+        let mailer = Mailer::new(&config).expect("Failed to create mailer");
 
         // Insert 500 jobs
         let job_count = 500;
@@ -88,8 +89,9 @@ mod tests {
             for job in jobs {
                 let bot = bot.clone();
                 let config = config.clone();
+                let mailer = mailer.clone();
                 tasks.spawn(async move {
-                    process_job(&bot, &config, job).await
+                    process_job(&bot, &config, &mailer, job).await
                 });
             }
 
