@@ -632,4 +632,18 @@ END:VCALENDAR"#;
         // unescape_text("foo\\\\nbar") -> "foo\\nbar" (literal \ followed by n)
         assert_eq!(unescape_text("foo\\\\nbar"), "foo\\nbar");
     }
+
+    #[test]
+    fn test_event_to_ical_rrule_injection() {
+        let mut event = create_test_event();
+        // Inject a malicious property via RRULE
+        // Note: RRULE validation happens at API boundary, so this tests that the serializer itself is vulnerable
+        event.rrule = Some("FREQ=DAILY\r\nATTENDEE:MAILTO:evil@example.com".to_string());
+
+        let ical = event_to_ical(&event).unwrap();
+
+        // Check if the injected property appears on its own line
+        // The serializer does not escape RRULE, so CRLF is passed through
+        assert!(ical.contains("RRULE:FREQ=DAILY\r\nATTENDEE:MAILTO:evil@example.com"));
+    }
 }
