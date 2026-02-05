@@ -30,7 +30,6 @@ impl Config {
                 .context("Failed to parse API_PORT as u16")?,
             cors_allowed_origin: env::var("CORS_ALLOWED_ORIGIN")
                 .unwrap_or_else(|_| "*".to_string()), // Defaults to "*" (allow all, no credentials)
-                                                      // Set to "mirror" to allow any origin WITH credentials
         })
     }
 }
