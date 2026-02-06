@@ -12,7 +12,7 @@ use moka::future::Cache;
 use sqlx::PgPool;
 use televent_core::models::UserId;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
-use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
@@ -109,12 +109,6 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
             .allow_origin(Any)
             .allow_methods(Any)
             .allow_headers(Any)
-    } else if cors_origin == "mirror" {
-        CorsLayer::new()
-            .allow_origin(AllowOrigin::predicate(|_: &_, _: &_| true))
-            .allow_methods(Any)
-            .allow_headers(Any)
-            .allow_credentials(true)
     } else {
         match cors_origin.parse::<axum::http::HeaderValue>() {
             Ok(origin) => CorsLayer::new()
@@ -272,5 +266,86 @@ mod tests {
             .expect("Failed to write openapi.json");
 
         println!("OpenAPI JSON exported to {}", path);
+    }
+
+    #[tokio::test]
+    async fn test_cors_configuration() {
+        use axum::{
+            body::Body,
+            http::{Method, Request, header},
+        };
+        use tower::ServiceExt;
+
+        // Create dummy state
+        let pool = sqlx::PgPool::connect_lazy("postgres://localhost/dummy").unwrap();
+        let auth_cache = moka::future::Cache::builder().build();
+        let state = AppState {
+            pool,
+            auth_cache,
+            telegram_bot_token: "dummy".to_string(),
+        };
+
+        // Test 1: Wildcard "*"
+        let app = create_router(state.clone(), "*");
+
+        let req = Request::builder()
+            .method(Method::OPTIONS)
+            .uri("/api/events")
+            .header(header::ORIGIN, "http://evil.com")
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+
+        // With "*", Allow-Origin should be "*"
+        let allow_origin = response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
+        assert_eq!(allow_origin.map(|h| h.to_str().unwrap()), Some("*"));
+
+        // Crucially, Allow-Credentials must NOT be true if Allow-Origin is *
+        let allow_creds = response.headers().get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS);
+        assert!(allow_creds.is_none());
+
+        // Test 2: Specific Origin
+        let app = create_router(state.clone(), "http://example.com");
+
+        let req = Request::builder()
+            .method(Method::OPTIONS)
+            .uri("/api/events")
+            .header(header::ORIGIN, "http://example.com")
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+
+        let allow_origin = response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
+        assert_eq!(
+            allow_origin.map(|h| h.to_str().unwrap()),
+            Some("http://example.com")
+        );
+
+        // Test 3: "mirror" should NO LONGER work as a magic value
+        // It will be treated as a literal origin "mirror", which won't match "http://evil.com"
+        let app = create_router(state.clone(), "mirror");
+
+        let req = Request::builder()
+            .method(Method::OPTIONS)
+            .uri("/api/events")
+            .header(header::ORIGIN, "http://evil.com")
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+
+        // Should NOT allow evil.com
+        let allow_origin = response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
+        assert_ne!(
+            allow_origin.map(|h| h.to_str().unwrap()),
+            Some("http://evil.com")
+        );
+        // And definitely not *
+        assert_ne!(allow_origin.map(|h| h.to_str().unwrap()), Some("*"));
     }
 }
