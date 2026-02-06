@@ -98,7 +98,12 @@ export default function CalendarPage() {
                         <p>Loading events...</p>
                     </div>
                 ) : (
-                    <EventList events={events} onDeleteEvent={handleDeleteEvent} onEditEvent={setEditingEvent} />
+                    <EventList
+                        events={events}
+                        onDeleteEvent={handleDeleteEvent}
+                        onEditEvent={setEditingEvent}
+                        onCreateEvent={() => setIsCreateOpen(true)}
+                    />
                 )}
 
                 {/* Create Event Modal */}

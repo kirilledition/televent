@@ -4,14 +4,16 @@ import { useMemo, memo } from 'react';
 import { EventResponse } from '@/types/schema';
 import { EventItem } from './EventItem';
 import { parseISO, format, isSameDay, addDays } from 'date-fns';
+import { Plus, Calendar } from 'lucide-react';
 
 interface EventListProps {
     events: EventResponse[];
     onDeleteEvent: (id: string) => void;
     onEditEvent: (event: EventResponse) => void;
+    onCreateEvent: () => void;
 }
 
-export const EventList = memo(function EventList({ events, onDeleteEvent, onEditEvent }: EventListProps) {
+export const EventList = memo(function EventList({ events, onDeleteEvent, onEditEvent, onCreateEvent }: EventListProps) {
     // Sort events by start time
     const sortedEvents = useMemo(() => {
         // Optimization: Map to timestamp first to avoid parsing dates N*logN times during sort
@@ -76,8 +78,20 @@ export const EventList = memo(function EventList({ events, onDeleteEvent, onEdit
 
     if (sortedEvents.length === 0) {
         return (
-            <div className="text-center py-16" style={{ color: 'var(--ctp-overlay0)' }}>
-                <p className="text-sm">No events yet. Create your first event to get started.</p>
+            <div className="text-center py-16 flex flex-col items-center justify-center space-y-4" style={{ color: 'var(--ctp-overlay0)' }}>
+                <Calendar className="w-12 h-12 opacity-50 mb-2" />
+                <div className="space-y-1">
+                    <p className="font-medium text-lg" style={{ color: 'var(--ctp-text)' }}>No events yet</p>
+                    <p className="text-sm">Create your first event to get started.</p>
+                </div>
+                <button
+                    onClick={onCreateEvent}
+                    className="flex items-center gap-2 px-4 py-2 mt-2 text-sm font-medium rounded-lg transition-colors hover:opacity-90"
+                    style={{ backgroundColor: 'var(--ctp-surface0)', color: 'var(--ctp-text)' }}
+                >
+                    <Plus className="w-4 h-4" />
+                    Create Event
+                </button>
             </div>
         );
     }
