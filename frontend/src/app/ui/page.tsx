@@ -30,7 +30,7 @@ export default function CalendarPage() {
         }
     };
 
-    const handleCreateEvent = async (request: CreateEventRequest) => {
+    const handleCreateEvent = useCallback(async (request: CreateEventRequest) => {
         try {
             const newEvent = await api.createEvent(request);
             setEvents(prev => [...prev, newEvent]);
@@ -38,7 +38,7 @@ export default function CalendarPage() {
         } catch (error) {
             console.error('Error creating event:', error);
         }
-    };
+    }, []);
 
     // Memoized to keep prop stable for EventList -> EventItem
     const handleDeleteEvent = useCallback(async (id: string) => {
@@ -50,7 +50,7 @@ export default function CalendarPage() {
         }
     }, []);
 
-    const handleUpdateEvent = async (request: CreateEventRequest) => {
+    const handleUpdateEvent = useCallback(async (request: CreateEventRequest) => {
         if (!editingEvent) return;
 
         try {
@@ -71,7 +71,11 @@ export default function CalendarPage() {
         } catch (error) {
             console.error('Error updating event:', error);
         }
-    };
+    }, [editingEvent]);
+
+    const handleCreateEventClick = useCallback(() => {
+        setIsCreateOpen(true);
+    }, []);
 
     return (
         <div className="min-h-screen" style={{ backgroundColor: 'var(--ctp-base)' }}>
@@ -84,7 +88,7 @@ export default function CalendarPage() {
 
                 {/* New Event Button */}
                 <button
-                    onClick={() => setIsCreateOpen(true)}
+                    onClick={handleCreateEventClick}
                     className="flex items-center gap-2 px-5 py-3 mb-6 font-medium rounded-lg shadow-sm hover:opacity-90 transition-opacity w-full justify-center"
                     style={{ backgroundColor: 'var(--ctp-mauve)', color: 'var(--ctp-crust)' }}
                 >
@@ -102,7 +106,7 @@ export default function CalendarPage() {
                         events={events}
                         onDeleteEvent={handleDeleteEvent}
                         onEditEvent={setEditingEvent}
-                        onCreateEvent={() => setIsCreateOpen(true)}
+                        onCreateEvent={handleCreateEventClick}
                     />
                 )}
 
