@@ -9,6 +9,7 @@ mod processors;
 mod bench_worker;
 
 pub use config::Config;
+pub use mailer::Mailer;
 
 use anyhow::Result;
 use chrono::{Duration as ChronoDuration, Utc};
@@ -35,13 +36,14 @@ pub async fn run_worker(
     shutdown: Option<CancellationToken>,
 ) -> Result<()> {
     let db = WorkerDb::new(pool);
+    let mailer = Mailer::new(&config)?;
 
     info!(
         "Starting worker: poll_interval={}s, max_retries={}, batch_size={}",
         config.poll_interval_secs, config.max_retry_count, config.batch_size
     );
 
-    run_worker_loop(db, bot, config, shutdown).await
+    run_worker_loop(db, bot, config, mailer, shutdown).await
 }
 
 /// Main worker processing loop
@@ -49,6 +51,7 @@ async fn run_worker_loop(
     db: WorkerDb,
     bot: Bot,
     config: Config,
+    mailer: Mailer,
     shutdown: Option<CancellationToken>,
 ) -> Result<()> {
     let poll_interval = tokio::time::Duration::from_secs(config.poll_interval_secs);
@@ -82,8 +85,9 @@ async fn run_worker_loop(
                 for job in jobs {
                     let bot = bot.clone();
                     let config = config.clone();
+                    let mailer = mailer.clone();
                     tasks.spawn(async move {
-                        process_job(&bot, &config, job).await
+                        process_job(&bot, &config, &mailer, job).await
                     });
                 }
 
@@ -123,13 +127,18 @@ async fn run_worker_loop(
 }
 
 /// Process a single job
-async fn process_job(bot: &Bot, config: &Config, job: db::OutboxMessage) -> db::JobResult {
+async fn process_job(
+    bot: &Bot,
+    config: &Config,
+    mailer: &Mailer,
+    job: db::OutboxMessage
+) -> db::JobResult {
     info!(
         "Processing job {} (type: {}, retry: {})",
         job.id, job.message_type, job.retry_count
     );
 
-    match processors::process_message(&job, bot, config).await {
+    match processors::process_message(&job, bot, mailer).await {
         Ok(()) => {
             // Job succeeded
             info!("Job {} completed successfully", job.id);
@@ -244,6 +253,7 @@ mod tests {
         };
 
         let bot = Bot::new("token");
+        let mailer = Mailer::new(&config).expect("Failed to create mailer");
 
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
@@ -306,7 +316,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        let result = process_job(&bot, &config, job).await;
+        let result = process_job(&bot, &config, &mailer, job).await;
         db.bulk_update_jobs(vec![result]).await?;
 
         let status: OutboxStatus =
@@ -343,6 +353,7 @@ mod tests {
             smtp_from: "test@televent.app".to_string(),
         };
         let bot = Bot::new("token");
+        let mailer = Mailer::new(&config).expect("Failed to create mailer");
 
         let id = uuid::Uuid::new_v4();
         sqlx::query(
@@ -362,7 +373,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        let result = process_job(&bot, &config, job).await;
+        let result = process_job(&bot, &config, &mailer, job).await;
         db.bulk_update_jobs(vec![result]).await?;
 
         let (status, retry_count): (OutboxStatus, i32) =
@@ -399,6 +410,7 @@ mod tests {
             smtp_from: "test@televent.app".to_string(),
         };
         let bot = Bot::new("token");
+        let mailer = Mailer::new(&config).expect("Failed to create mailer");
 
         let id = uuid::Uuid::new_v4();
         sqlx::query(
@@ -418,7 +430,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        let result = process_job(&bot, &config, job).await;
+        let result = process_job(&bot, &config, &mailer, job).await;
         db.bulk_update_jobs(vec![result]).await?;
 
         let status: OutboxStatus =
