@@ -76,6 +76,11 @@ export const EventList = memo(function EventList({ events, onDeleteEvent, onEdit
         });
     };
 
+    // Memoize sorted entries to prevent sorting on every render
+    const sortedGroupedEvents = useMemo(() => {
+        return Object.entries(groupedEvents).sort();
+    }, [groupedEvents]);
+
     if (sortedEvents.length === 0) {
         return (
             <div className="text-center py-16 flex flex-col items-center justify-center space-y-4" style={{ color: 'var(--ctp-overlay0)' }}>
@@ -98,7 +103,7 @@ export const EventList = memo(function EventList({ events, onDeleteEvent, onEdit
 
     return (
         <div className="space-y-6">
-            {Object.entries(groupedEvents).sort().map(([date, dateEvents]) => (
+            {sortedGroupedEvents.map(([date, dateEvents]) => (
                 <div key={date}>
                     <div className="text-sm font-medium mb-3 px-2" style={{ color: 'var(--ctp-subtext0)' }}>
                         {formatDateHeader(date)}
