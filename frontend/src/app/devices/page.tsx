@@ -53,9 +53,9 @@ export default function DevicesPage() {
         !(hapticFeedback as any).isMounted()
       ) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ; (hapticFeedback as any).mount()
+        ;(hapticFeedback as any).mount()
       }
-    } catch { }
+    } catch {}
 
     if (backButton.isMounted()) {
       backButton.show()
@@ -78,14 +78,14 @@ export default function DevicesPage() {
       setIsCreating(false)
       try {
         hapticFeedback?.notificationOccurred('success')
-      } catch { }
+      } catch {}
       // Refresh list
       mutate('devices')
     } catch (err) {
       console.error(err)
       try {
         hapticFeedback?.notificationOccurred('error')
-      } catch { }
+      } catch {}
     }
   }
 
@@ -93,7 +93,7 @@ export default function DevicesPage() {
     setIsPasswordVisible(!isPasswordVisible)
     try {
       hapticFeedback?.impactOccurred('light')
-    } catch { }
+    } catch {}
   }
 
   const handleDelete = async (deviceId: string) => {
@@ -105,12 +105,12 @@ export default function DevicesPage() {
       mutate('devices')
       try {
         hapticFeedback?.notificationOccurred('success')
-      } catch { }
+      } catch {}
     } catch (err) {
       console.error(err)
       try {
         hapticFeedback?.notificationOccurred('error')
-      } catch { }
+      } catch {}
     }
   }
 
