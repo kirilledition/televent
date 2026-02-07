@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, memo } from 'react';
+import { useState, memo, useRef, useEffect } from 'react';
 import { EventResponse } from '@/types/schema';
 import { Trash2, MapPin, Clock, Check, X } from 'lucide-react';
 import { format, differenceInMinutes, parseISO } from 'date-fns';
@@ -14,6 +14,24 @@ interface EventItemProps {
 // Memoized to prevent re-renders when other items change or parent re-renders
 export const EventItem = memo(function EventItem({ event, onDelete, onEdit }: EventItemProps) {
     const [isConfirming, setIsConfirming] = useState(false);
+    const deleteBtnRef = useRef<HTMLButtonElement>(null);
+    const cancelBtnRef = useRef<HTMLButtonElement>(null);
+    const prevIsConfirming = useRef(isConfirming);
+
+    // Focus management for destructive actions
+    useEffect(() => {
+        if (prevIsConfirming.current !== isConfirming) {
+            if (isConfirming) {
+                // When entering confirmation mode, focus cancel button for safety
+                cancelBtnRef.current?.focus();
+            } else {
+                // When cancelling, focus back to delete button
+                deleteBtnRef.current?.focus();
+            }
+            prevIsConfirming.current = isConfirming;
+        }
+    }, [isConfirming]);
+
     // Handle all-day events where start/end might be null but start_date/end_date exist
     const start = parseISO(event.start || event.start_date);
     const end = parseISO(event.end || event.end_date);
@@ -68,6 +86,7 @@ export const EventItem = memo(function EventItem({ event, onDelete, onEdit }: Ev
                                 <Check className="w-4 h-4" style={{ color: 'var(--ctp-red)' }} />
                             </button>
                             <button
+                                ref={cancelBtnRef}
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     setIsConfirming(false);
@@ -81,6 +100,7 @@ export const EventItem = memo(function EventItem({ event, onDelete, onEdit }: Ev
                         </div>
                     ) : (
                         <button
+                            ref={deleteBtnRef}
                             onClick={(e) => {
                                 e.stopPropagation();
                                 setIsConfirming(true);

@@ -304,10 +304,11 @@ export function CreateEvent({ onClose, onCreate, initialEvent }: CreateEventProp
 
                     {/* Date */}
                     <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: 'var(--ctp-subtext0)' }}>
+                        <label htmlFor="date-trigger" className="block text-sm font-medium mb-2" style={{ color: 'var(--ctp-subtext0)' }}>
                             Date
                         </label>
                         <button
+                            id="date-trigger"
                             type="button"
                             onClick={() => setShowDatePicker(!showDatePicker)}
                             className="w-full px-4 py-3 rounded-lg text-left text-base focus:outline-none focus:ring-2"
@@ -452,12 +453,13 @@ export function CreateEvent({ onClose, onCreate, initialEvent }: CreateEventProp
 
                     {/* Location */}
                     <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: 'var(--ctp-subtext0)' }}>
+                        <label htmlFor="location" className="block text-sm font-medium mb-2" style={{ color: 'var(--ctp-subtext0)' }}>
                             Location (optional)
                         </label>
                         <div className="relative">
                             <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: 'var(--ctp-overlay1)' }} />
                             <input
+                                id="location"
                                 type="text"
                                 value={location}
                                 onChange={(e) => setLocation(e.target.value)}
