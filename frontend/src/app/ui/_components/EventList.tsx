@@ -15,36 +15,36 @@ interface EventListProps {
 
 export const EventList = memo(function EventList({ events, onDeleteEvent, onEditEvent, onCreateEvent }: EventListProps) {
     // Sort events by start time
-    const sortedEvents = useMemo(() => {
-        // Optimization: Map to timestamp first to avoid parsing dates N*logN times during sort
-        const eventsWithTime = events.map((e) => {
+    const sortedEventsWithMeta = useMemo(() => {
+        // Optimization: Map to date object first to avoid parsing dates repeatedly (N*logN for sort + N for grouping)
+        const eventsWithMeta = events.map((e) => {
             // Handle potentially missing start (e.g. all-day events might have null start but have start_date)
             // Note: EventResponse type defines start as string, but runtime it might be null for all-day events
             const timeStr = e.start || e.start_date;
+            // Parse date once and store it. Use parseISO for consistency with date-fns usage.
+            // If timeStr is missing/invalid, fallback to epoch 0.
+            const dateObj = timeStr ? parseISO(timeStr) : new Date(0);
             return {
                 event: e,
-                time: timeStr ? new Date(timeStr).getTime() : 0,
+                dateObj: dateObj,
+                time: dateObj.getTime(),
             };
         });
 
-        eventsWithTime.sort((a, b) => a.time - b.time);
+        eventsWithMeta.sort((a, b) => a.time - b.time);
 
-        return eventsWithTime.map((wrapper) => wrapper.event);
+        return eventsWithMeta;
     }, [events]);
 
     // Group events by date (YYYY-MM-DD)
     const groupedEvents = useMemo(() => {
-        return sortedEvents.reduce((acc, event) => {
-            // Derive date key from start time
-            // Fallback to start_date if start is missing (all-day events)
-            const dateStr = event.start || event.start_date;
-            if (!dateStr) return acc;
-
+        return sortedEventsWithMeta.reduce((acc, { event, dateObj }) => {
             // Optimization: For all-day events, start_date is already YYYY-MM-DD
-            // This avoids expensive parseISO + format calls
+            // This avoids formatting call if we have start_date string
+            // For timed events, use the PRE-PARSED dateObj for formatting
             const date = (event.is_all_day && event.start_date)
                 ? event.start_date
-                : format(parseISO(dateStr), 'yyyy-MM-dd');
+                : format(dateObj, 'yyyy-MM-dd');
 
             if (!acc[date]) {
                 acc[date] = [];
@@ -52,7 +52,7 @@ export const EventList = memo(function EventList({ events, onDeleteEvent, onEdit
             acc[date].push(event);
             return acc;
         }, {} as Record<string, EventResponse[]>);
-    }, [sortedEvents]);
+    }, [sortedEventsWithMeta]);
 
     const formatDateHeader = (dateStr: string) => {
         const date = new Date(dateStr + 'T00:00:00');
@@ -81,7 +81,7 @@ export const EventList = memo(function EventList({ events, onDeleteEvent, onEdit
         return Object.entries(groupedEvents).sort();
     }, [groupedEvents]);
 
-    if (sortedEvents.length === 0) {
+    if (sortedEventsWithMeta.length === 0) {
         return (
             <div className="text-center py-16 flex flex-col items-center justify-center space-y-4" style={{ color: 'var(--ctp-overlay0)' }}>
                 <Calendar className="w-12 h-12 opacity-50 mb-2" />
