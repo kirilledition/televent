@@ -61,56 +61,43 @@ pub fn validate_init_data(init_data: &str, bot_token: &str) -> Result<TelegramUs
         data_check_string.push_str(&parsed[*key]);
     }
 
-    // HMAC-SHA256 signature
-    type HmacSha256 = Hmac<Sha256>;
-
-    let secret_key = HmacSha256::new_from_slice(b"WebAppData")
-        .expect("HMAC can take any key length")
-        .chain_update(bot_token.as_bytes())
-        .finalize()
-        .into_bytes();
-
-    let mut mac = HmacSha256::new_from_slice(&secret_key).expect("HMAC can take any key length");
-    mac.update(data_check_string.as_bytes());
-
-    let result = mac.finalize();
-    let calculated_hash = hex::encode(result.into_bytes());
-
-    // Bypass signature check in development for testing
+    // Determine if we should skip verification (dev bypass)
+    let mut skip_verification = false;
     #[cfg(debug_assertions)]
-    if *hash == "dev_bypass" {
-        // Skip validation
-    } else if calculated_hash != *hash {
-        return Err(ApiError::Unauthorized("Invalid signature".into()));
+    if hash == "dev_bypass" {
+        skip_verification = true;
     }
-    
-    #[cfg(not(debug_assertions))]
-    if calculated_hash != *hash {
-        return Err(ApiError::Unauthorized("Invalid signature".into()));
+
+    if !skip_verification {
+        // HMAC-SHA256 signature
+        type HmacSha256 = Hmac<Sha256>;
+
+        let secret_key = HmacSha256::new_from_slice(b"WebAppData")
+            .expect("HMAC can take any key length")
+            .chain_update(bot_token.as_bytes())
+            .finalize()
+            .into_bytes();
+
+        let mut mac =
+            HmacSha256::new_from_slice(&secret_key).expect("HMAC can take any key length");
+        mac.update(data_check_string.as_bytes());
+
+        let hash_bytes = hex::decode(hash)
+            .map_err(|_| ApiError::Unauthorized("Invalid signature".into()))?;
+
+        mac.verify_slice(&hash_bytes)
+            .map_err(|_| ApiError::Unauthorized("Invalid signature".into()))?;
     }
 
     // Validate auth_date freshness
     if let Some(auth_date_str) = parsed.get("auth_date") {
+        let mut check_date = true;
         #[cfg(debug_assertions)]
-        if *hash == "dev_bypass" {
-            // Skip date check
-        } else {
-            let auth_date = auth_date_str
-                .parse::<i64>()
-                .map_err(|_| ApiError::BadRequest("Invalid auth_date format".into()))?;
-            let now = Utc::now().timestamp();
-            // Check if auth_date is older than 24 hours (86400 seconds)
-            if now - auth_date > 86400 {
-                return Err(ApiError::Unauthorized("Auth date expired".into()));
-            }
-            // Check if auth_date is too far in the future (allow 5 minutes clock skew)
-            if auth_date - now > 300 {
-                return Err(ApiError::Unauthorized("Auth date in the future".into()));
-            }
+        if hash == "dev_bypass" {
+            check_date = false;
         }
-        
-        #[cfg(not(debug_assertions))]
-        {
+
+        if check_date {
             let auth_date = auth_date_str
                 .parse::<i64>()
                 .map_err(|_| ApiError::BadRequest("Invalid auth_date format".into()))?;
