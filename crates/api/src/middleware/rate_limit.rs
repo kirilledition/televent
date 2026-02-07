@@ -36,7 +36,16 @@ impl KeyExtractor for UserOrIpKeyExtractor {
 
         let headers = req.headers();
 
-        // 1. Try X-Forwarded-For (standard for proxies like Nginx/Railway)
+        // 1. Try X-Real-IP (trusted proxy set header)
+        if let Some(header) = headers.get("x-real-ip") {
+            if let Ok(val) = header.to_str() {
+                if let Ok(ip) = val.trim().parse::<IpAddr>() {
+                    return Ok(RateLimitKey::Ip(ip));
+                }
+            }
+        }
+
+        // 2. Try X-Forwarded-For (standard for proxies like Nginx/Railway)
         if let Some(header) = headers.get("x-forwarded-for") {
             if let Ok(val) = header.to_str() {
                 // Takes the first IP in the list (Client, Proxy1, Proxy2)
@@ -44,15 +53,6 @@ impl KeyExtractor for UserOrIpKeyExtractor {
                     if let Ok(ip) = client_ip.trim().parse::<IpAddr>() {
                         return Ok(RateLimitKey::Ip(ip));
                     }
-                }
-            }
-        }
-
-        // 2. Try X-Real-IP
-        if let Some(header) = headers.get("x-real-ip") {
-            if let Ok(val) = header.to_str() {
-                if let Ok(ip) = val.trim().parse::<IpAddr>() {
-                    return Ok(RateLimitKey::Ip(ip));
                 }
             }
         }
@@ -156,5 +156,23 @@ mod tests {
                 panic!("Expected 429 response, got error: {:?}", e);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_rate_limit_key_extraction_priority() {
+        let extractor = UserOrIpKeyExtractor;
+
+        // Test priority: X-Real-IP > X-Forwarded-For
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut().insert(ConnectInfo(addr));
+
+        req.headers_mut().insert("x-forwarded-for", "1.2.3.4".parse().unwrap());
+        req.headers_mut().insert("x-real-ip", "5.6.7.8".parse().unwrap());
+
+        let key = extractor.extract(&req).unwrap();
+
+        // Should return X-Real-IP
+        assert_eq!(key, RateLimitKey::Ip("5.6.7.8".parse().unwrap()));
     }
 }

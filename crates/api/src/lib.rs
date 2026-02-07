@@ -151,6 +151,11 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
         .nest(
             "/caldav",
             routes::caldav::routes()
+                .layer(axum_middleware::from_fn_with_state(
+                    state.clone(),
+                    caldav_basic_auth,
+                ))
+                // Rate limit BEFORE auth to prevent Argon2 CPU exhaustion attacks (DoS)
                 .layer(GovernorLayer::new(
                     GovernorConfigBuilder::default()
                         .period(std::time::Duration::from_millis(CALDAV_PERIOD_MS))
@@ -158,10 +163,6 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
                         .key_extractor(UserOrIpKeyExtractor)
                         .finish()
                         .expect("Failed to create CalDAV governor config"),
-                ))
-                .layer(axum_middleware::from_fn_with_state(
-                    state.clone(),
-                    caldav_basic_auth,
                 ))
                 .layer(axum_middleware::from_fn(
                     crate::middleware::caldav_logging::caldav_logger,
