@@ -119,7 +119,6 @@ function SDKBinder({ children }: { children: ReactNode }) {
 
 function AppInitializer({ children }: PropsWithChildren) {
   try {
-
     useLaunchParams()
   } catch {
     // Fallback for non-Telegram environment

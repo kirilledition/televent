@@ -1,61 +1,65 @@
-'use client';
+'use client'
 
-import { useState, useEffect, useCallback } from 'react';
-import { EventResponse, CreateEventRequest, UpdateEventRequest } from '@/types/schema';
-import { api } from '@/lib/api';
+import { useState, useEffect, useCallback } from 'react'
+import {
+  EventResponse,
+  CreateEventRequest,
+  UpdateEventRequest,
+} from '@/types/schema'
+import { api } from '@/lib/api'
 // Updated imports to point to where they are actually located (in ui/_components for now)
-import { EventList } from './ui/_components/EventList';
-import { CreateEvent } from './ui/_components/CreateEvent';
-import { Plus } from 'lucide-react';
+import { EventList } from './ui/_components/EventList'
+import { CreateEvent } from './ui/_components/CreateEvent'
+import { Plus } from 'lucide-react'
 
 export default function CalendarPage() {
-  const [events, setEvents] = useState<EventResponse[]>([]);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [editingEvent, setEditingEvent] = useState<EventResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [events, setEvents] = useState<EventResponse[]>([])
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [editingEvent, setEditingEvent] = useState<EventResponse | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   // Load events
   useEffect(() => {
-    loadEvents();
-  }, []);
+    loadEvents()
+  }, [])
 
   const loadEvents = async () => {
     try {
-      setIsLoading(true);
-      const data = await api.getEvents();
+      setIsLoading(true)
+      const data = await api.getEvents()
       // Ensure we have an array (handle 204/empty)
-      setEvents(Array.isArray(data) ? data : []);
+      setEvents(Array.isArray(data) ? data : [])
     } catch (error) {
-      console.error('Error loading events:', error);
+      console.error('Error loading events:', error)
       // Fallback empty array on error
-      setEvents([]);
+      setEvents([])
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
   const handleCreateEvent = async (request: CreateEventRequest) => {
     try {
-      const newEvent = await api.createEvent(request);
-      setEvents(prev => [...prev, newEvent]);
-      setIsCreateOpen(false);
+      const newEvent = await api.createEvent(request)
+      setEvents((prev) => [...prev, newEvent])
+      setIsCreateOpen(false)
     } catch (error) {
-      console.error('Error creating event:', error);
+      console.error('Error creating event:', error)
     }
-  };
+  }
 
   // Memoized to keep prop stable for EventList -> EventItem
   const handleDeleteEvent = useCallback(async (id: string) => {
     try {
-      await api.deleteEvent(id);
-      setEvents(prev => prev.filter(e => e.id !== id));
+      await api.deleteEvent(id)
+      setEvents((prev) => prev.filter((e) => e.id !== id))
     } catch (error) {
-      console.error('Error deleting event:', error);
+      console.error('Error deleting event:', error)
     }
-  }, []);
+  }, [])
 
   const handleUpdateEvent = async (request: CreateEventRequest) => {
-    if (!editingEvent) return;
+    if (!editingEvent) return
 
     try {
       // Map CreateEventRequest to UpdateEventRequest (filtering out non-updateable fields like uid/timezone if not supported)
@@ -67,38 +71,56 @@ export default function CalendarPage() {
         end: request.end,
         is_all_day: request.is_all_day,
         rrule: request.rrule,
-      };
+      }
 
-      const updated = await api.updateEvent(editingEvent.id, updateData);
-      setEvents(prev => prev.map(e => e.id === editingEvent.id ? updated : e));
-      setEditingEvent(null);
+      const updated = await api.updateEvent(editingEvent.id, updateData)
+      setEvents((prev) =>
+        prev.map((e) => (e.id === editingEvent.id ? updated : e))
+      )
+      setEditingEvent(null)
     } catch (error) {
-      console.error('Error updating event:', error);
+      console.error('Error updating event:', error)
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--ctp-base)' }}>
-      <div className="max-w-2xl mx-auto px-4 py-8">
+    <div
+      className="min-h-screen"
+      style={{ backgroundColor: 'var(--ctp-base)' }}
+    >
+      <div className="mx-auto max-w-2xl px-4 py-8">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-3xl font-semibold mb-1" style={{ color: 'var(--ctp-text)' }}>Calendar</h1>
-          <p className="text-sm" style={{ color: 'var(--ctp-subtext0)' }}>Keep track of your events</p>
+          <h1
+            className="mb-1 text-3xl font-semibold"
+            style={{ color: 'var(--ctp-text)' }}
+          >
+            Calendar
+          </h1>
+          <p className="text-sm" style={{ color: 'var(--ctp-subtext0)' }}>
+            Keep track of your events
+          </p>
         </div>
 
         {/* New Event Button */}
         <button
           onClick={() => setIsCreateOpen(true)}
-          className="flex items-center gap-2 px-5 py-3 mb-6 font-medium rounded-lg shadow-sm hover:opacity-90 transition-opacity w-full justify-center"
-          style={{ backgroundColor: 'var(--ctp-mauve)', color: 'var(--ctp-crust)' }}
+          className="mb-6 flex w-full items-center justify-center gap-2 rounded-lg px-5 py-3 font-medium shadow-sm transition-opacity hover:opacity-90"
+          style={{
+            backgroundColor: 'var(--ctp-mauve)',
+            color: 'var(--ctp-crust)',
+          }}
         >
-          <Plus className="w-5 h-5" />
+          <Plus className="h-5 w-5" />
           <span>New event</span>
         </button>
 
         {/* Event List */}
         {isLoading ? (
-          <div className="text-center py-16" style={{ color: 'var(--ctp-overlay0)' }}>
+          <div
+            className="py-16 text-center"
+            style={{ color: 'var(--ctp-overlay0)' }}
+          >
             <p>Loading events...</p>
           </div>
         ) : (
@@ -128,5 +150,5 @@ export default function CalendarPage() {
         )}
       </div>
     </div>
-  );
+  )
 }
