@@ -250,8 +250,12 @@ pub fn generate_sync_collection_response(
     {
         use std::fmt::Write;
         let mut sync_token_buf = String::with_capacity(48);
-        write!(sync_token_buf, "http://televent.app/sync/{}", user.sync_token)
-            .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+        write!(
+            sync_token_buf,
+            "http://televent.app/sync/{}",
+            user.sync_token
+        )
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
         writer
             .write_event(Event::Start(BytesStart::new("d:sync-token")))
             .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
@@ -361,8 +365,12 @@ fn write_event_with_data(
 
     // <getlastmodified> (RFC 2616 HTTP-date format) - reuse buffer
     buf.clear();
-    write!(buf, "{}", event.updated_at.format("%a, %d %b %Y %H:%M:%S GMT"))
-        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write!(
+        buf,
+        "{}",
+        event.updated_at.format("%a, %d %b %Y %H:%M:%S GMT")
+    )
+    .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
     write_string_tag(writer, "d:getlastmodified", &buf)?;
 
     // <calendar-data>
@@ -575,8 +583,12 @@ fn write_event_response(
 
     // <getlastmodified> (RFC 2616 HTTP-date format) - reuse buffer
     buf.clear();
-    write!(buf, "{}", event.updated_at.format("%a, %d %b %Y %H:%M:%S GMT"))
-        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write!(
+        buf,
+        "{}",
+        event.updated_at.format("%a, %d %b %Y %H:%M:%S GMT")
+    )
+    .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
     write_string_tag(writer, "d:getlastmodified", &buf)?;
 
     // </prop>

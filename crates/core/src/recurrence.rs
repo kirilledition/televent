@@ -180,7 +180,11 @@ mod tests {
         let occurrences = expand_rrule("FREQ=DAILY", dtstart, range_start, range_end, 10).unwrap();
         let duration = start.elapsed();
 
-        println!("Expansion took: {:?} for {} occurrences", duration, occurrences.len());
+        println!(
+            "Expansion took: {:?} for {} occurrences",
+            duration,
+            occurrences.len()
+        );
         assert!(!occurrences.is_empty());
     }
 }
