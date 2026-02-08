@@ -75,6 +75,7 @@ fn spawn_api(
     tokio::spawn(async move {
         let auth_cache = moka::future::Cache::builder()
             .time_to_live(std::time::Duration::from_secs(300))
+            .max_capacity(10000)
             .build();
 
         let state = api::AppState {
