@@ -257,7 +257,14 @@ pub fn ical_to_event_data(
                 "DTEND" => {
                     dtend = Some(value.to_string());
                 }
-                "RRULE" => rrule = Some(value.to_string()),
+                "RRULE" => {
+                    if value.contains('\r') || value.contains('\n') {
+                        return Err(ApiError::BadRequest(
+                            "RRULE cannot contain control characters".to_string(),
+                        ));
+                    }
+                    rrule = Some(value.to_string());
+                }
                 "STATUS" => {
                     status = match value.to_uppercase().as_str() {
                         "CONFIRMED" => EventStatus::Confirmed,
@@ -352,6 +359,11 @@ fn unescape_text(s: &str) -> String {
     let mut chars = s.chars();
 
     while let Some(c) = chars.next() {
+        // Strip CR to prevent injection (lines() handles CRLF, but not CR alone)
+        if c == '\r' {
+            continue;
+        }
+
         if c == '\\' {
             match chars.next() {
                 Some('n') | Some('N') => result.push('\n'),
@@ -660,4 +672,28 @@ END:VCALENDAR"#;
         // The serializer does not escape RRULE, so CRLF is passed through
         assert!(ical.contains("RRULE:FREQ=DAILY\r\nATTENDEE:MAILTO:evil@example.com"));
     }
+}
+
+#[test]
+fn test_ical_to_event_data_rrule_injection_prevention() {
+    let ical = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:repro\r\nDTSTART:20240101T100000Z\r\nRRULE:FREQ=DAILY\rATTENDEE:EVIL\r\nEND:VEVENT\r\nEND:VCALENDAR";
+
+    let result = ical_to_event_data(ical);
+    assert!(result.is_err());
+    match result {
+        Err(ApiError::BadRequest(msg)) => {
+            assert_eq!(msg, "RRULE cannot contain control characters")
+        }
+        _ => panic!("Expected BadRequest error"),
+    }
+}
+
+#[test]
+fn test_ical_to_event_data_summary_sanitization() {
+    let ical = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:repro\r\nDTSTART:20240101T100000Z\r\nSUMMARY:Bad\rSummary\r\nEND:VEVENT\r\nEND:VCALENDAR";
+
+    let (_, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(ical).unwrap();
+
+    // Should be sanitized (stripped CR)
+    assert_eq!(summary, "BadSummary");
 }
