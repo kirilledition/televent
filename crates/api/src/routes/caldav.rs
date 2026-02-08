@@ -2,6 +2,8 @@
 //!
 //! Implements RFC 4791 (CalDAV), RFC 5545 (iCalendar), and RFC 6578 (sync-collection)
 
+use std::borrow::Cow;
+
 use axum::{
     Router,
     body::Body,
@@ -374,23 +376,11 @@ async fn caldav_report(
 
             // Extract UIDs from hrefs
             // Format: /caldav/{user_id}/{uid}.ics or URL-encoded variants
-            let mut requested_uids = Vec::new();
-            for href in &hrefs {
-                // Decode URL encoding
-                let decoded_href =
-                    urlencoding::decode(href).unwrap_or(std::borrow::Cow::Borrowed(href));
-
-                // Extract UID from path: /caldav/{user_id}/{uid}.ics
-                if let Some(uid_with_ics) = decoded_href.rsplit('/').next() {
-                    let uid: &str = uid_with_ics.trim_end_matches(".ics");
-                    if !uid.is_empty() {
-                        requested_uids.push(uid.to_string());
-                    }
-                }
-            }
+            // Optimized to minimize allocations
+            let requested_uids = extract_uids_from_hrefs(&hrefs);
 
             // Fetch events by UIDs in batch
-            let uid_strs: Vec<&str> = requested_uids.iter().map(|s: &String| s.as_str()).collect();
+            let uid_strs: Vec<&str> = requested_uids.iter().map(|s| s.as_ref()).collect();
             let fetched_events = db::events::get_events_by_uids(&pool, user.id, &uid_strs).await?;
 
             let response_xml =
@@ -488,6 +478,43 @@ async fn resolve_user(pool: &PgPool, identifier: &str) -> Result<User, ApiError>
         .ok_or_else(|| ApiError::NotFound(format!("User not found: {identifier}")))?;
 
     Ok(user)
+}
+
+/// Helper to extract UIDs from hrefs optimally
+///
+/// Handles both raw and URL-encoded hrefs.
+/// - For raw hrefs (no encoding), returns Cow::Borrowed slice (zero allocation).
+/// - For encoded hrefs, reuses the allocation from decoding to store the UID (zero extra allocation).
+fn extract_uids_from_hrefs(hrefs: &[String]) -> Vec<Cow<'_, str>> {
+    let mut uids = Vec::with_capacity(hrefs.len());
+    for href in hrefs {
+        // 1. Extract the last path segment (raw) first to avoid decoding slashes that are part of the path structure
+        let last_segment = href.rsplit('/').next().unwrap_or(href);
+
+        // 2. Decode the segment
+        let decoded = urlencoding::decode(last_segment).unwrap_or(Cow::Borrowed(last_segment));
+
+        // 3. Trim .ics extension and push
+        match decoded {
+            Cow::Borrowed(s) => {
+                let uid = s.trim_end_matches(".ics");
+                if !uid.is_empty() {
+                    uids.push(Cow::Borrowed(uid));
+                }
+            }
+            Cow::Owned(mut s) => {
+                // Optimization: reuse allocation from decoding
+                if s.ends_with(".ics") {
+                    let new_len = s.len() - 4;
+                    s.truncate(new_len);
+                }
+                if !s.is_empty() {
+                    uids.push(Cow::Owned(s));
+                }
+            }
+        }
+    }
+    uids
 }
 
 /// CalDAV routes
@@ -607,5 +634,40 @@ mod tests {
         assert!(allow_str.contains("GET"));
         assert!(allow_str.contains("PUT"));
         assert!(allow_str.contains("DELETE"));
+    }
+
+    #[test]
+    fn test_extract_uids_from_hrefs() {
+        let hrefs = vec![
+            "/caldav/user/uid1.ics".to_string(),
+            "/caldav/user/uid2".to_string(),
+            "uid3.ics".to_string(),
+            "uid4".to_string(),
+            "/caldav/user/uid%205.ics".to_string(), // encoded space
+            "/caldav/user/uid%2F6.ics".to_string(), // encoded slash
+        ];
+
+        let uids = extract_uids_from_hrefs(&hrefs);
+
+        assert_eq!(uids.len(), 6);
+        assert_eq!(uids[0], "uid1");
+        assert_eq!(uids[1], "uid2");
+        assert_eq!(uids[2], "uid3");
+        assert_eq!(uids[3], "uid4");
+        assert_eq!(uids[4], "uid 5");
+        assert_eq!(uids[5], "uid/6");
+
+        // Verify borrowing behavior (optimization check)
+        // uid1 should be borrowed from hrefs
+        match uids[0] {
+            Cow::Borrowed(_) => {} // OK
+            Cow::Owned(_) => panic!("uid1 should be borrowed"),
+        }
+
+        // uid 5 should be owned (because of decoding)
+        match uids[4] {
+            Cow::Borrowed(_) => panic!("uid 5 should be owned"),
+            Cow::Owned(_) => {} // OK
+        }
     }
 }
