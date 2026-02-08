@@ -304,7 +304,9 @@ mod tests {
         assert_eq!(allow_origin.map(|h| h.to_str().unwrap()), Some("*"));
 
         // Crucially, Allow-Credentials must NOT be true if Allow-Origin is *
-        let allow_creds = response.headers().get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS);
+        let allow_creds = response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS);
         assert!(allow_creds.is_none());
 
         // Test 2: Specific Origin

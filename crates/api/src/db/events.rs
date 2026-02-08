@@ -1,7 +1,7 @@
 //! Event repository for database operations
 
 use crate::error::ApiError;
-use chrono::{Datelike, DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use televent_core::models::{Event, EventStatus, Timezone, UserId};
@@ -221,7 +221,7 @@ pub async fn list_events_since_sync(
         SELECT * FROM events
         WHERE user_id = $1
         AND version > $2
-        ORDER BY updated_at ASC
+        ORDER BY version ASC
         "#,
     )
     .bind(user_id)
@@ -605,5 +605,4 @@ mod tests {
 
         assert_ne!(etag1, etag2);
     }
-
 }

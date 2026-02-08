@@ -50,7 +50,10 @@ pub fn event_to_ical_into(event: &Event, buf: &mut String) -> Result<(), ApiErro
     if event.is_all_day {
         // All-day events use DATE format (no time component)
         if let Some(start_date) = event.start_date {
-            writer.write_property("DTSTART;VALUE=DATE", &start_date.format("%Y%m%d").to_string())?;
+            writer.write_property(
+                "DTSTART;VALUE=DATE",
+                &start_date.format("%Y%m%d").to_string(),
+            )?;
         }
     } else if let (Some(start), Some(end)) = (event.start, event.end) {
         writer.write_property("DTSTART", &start.format("%Y%m%dT%H%M%SZ").to_string())?;

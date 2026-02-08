@@ -97,7 +97,10 @@ async fn buffer_and_log_body(body: Body, label: &str) -> Result<Bytes, Response>
             // We assume mostly limit errors here or IO errors.
             Err((
                 StatusCode::PAYLOAD_TOO_LARGE,
-                format!("Debug log body limit exceeded (max {} bytes)", MAX_DEBUG_BODY_SIZE),
+                format!(
+                    "Debug log body limit exceeded (max {} bytes)",
+                    MAX_DEBUG_BODY_SIZE
+                ),
             )
                 .into_response())
         }

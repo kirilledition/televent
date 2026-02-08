@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{process_job, Config, WorkerDb, Mailer};
+    use crate::{Config, Mailer, WorkerDb, process_job};
     use sqlx::PgPool;
     use std::time::Instant;
     use televent_core::config::CoreConfig;
@@ -90,9 +90,7 @@ mod tests {
                 let bot = bot.clone();
                 let config = config.clone();
                 let mailer = mailer.clone();
-                tasks.spawn(async move {
-                    process_job(&bot, &config, &mailer, job).await
-                });
+                tasks.spawn(async move { process_job(&bot, &config, &mailer, job).await });
             }
 
             let mut results = Vec::new();

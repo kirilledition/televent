@@ -61,7 +61,8 @@ async fn process_email(message: &OutboxMessage, mailer: &Mailer) -> Result<()> {
         .context("Missing 'body' in email payload")?;
 
     // Use mailer crate to send email
-    mailer.send(to, subject, body)
+    mailer
+        .send(to, subject, body)
         .await
         .context("Failed to send email")?;
 
@@ -134,6 +135,7 @@ async fn process_calendar_invite(message: &OutboxMessage, bot: &Bot) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Config;
     use serde_json::json;
     use std::time::Duration;
     use televent_core::config::CoreConfig;
@@ -141,7 +143,6 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use uuid::Uuid;
-    use crate::Config;
 
     fn create_test_config(port: u16) -> Config {
         Config {

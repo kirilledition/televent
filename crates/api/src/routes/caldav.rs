@@ -525,15 +525,7 @@ async fn caldav_handler(
             )
             .await
         }
-        "REPORT" => {
-            caldav_report(
-                State(pool),
-                Path(user_identifier),
-                auth_user_id,
-                body,
-            )
-            .await
-        }
+        "REPORT" => caldav_report(State(pool), Path(user_identifier), auth_user_id, body).await,
         _ => Err(ApiError::BadRequest(format!(
             "Method {} not supported for calendar collection",
             method

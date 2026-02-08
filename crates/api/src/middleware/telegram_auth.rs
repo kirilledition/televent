@@ -82,8 +82,8 @@ pub fn validate_init_data(init_data: &str, bot_token: &str) -> Result<TelegramUs
             HmacSha256::new_from_slice(&secret_key).expect("HMAC can take any key length");
         mac.update(data_check_string.as_bytes());
 
-        let hash_bytes = hex::decode(hash)
-            .map_err(|_| ApiError::Unauthorized("Invalid signature".into()))?;
+        let hash_bytes =
+            hex::decode(hash).map_err(|_| ApiError::Unauthorized("Invalid signature".into()))?;
 
         mac.verify_slice(&hash_bytes)
             .map_err(|_| ApiError::Unauthorized("Invalid signature".into()))?;

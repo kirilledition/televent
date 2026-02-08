@@ -2,11 +2,11 @@
 //!
 //! Processes outbox messages (emails, Telegram notifications) with retry logic
 
+mod bench_worker;
 mod config;
 mod db;
 mod mailer;
 mod processors;
-mod bench_worker;
 
 pub use config::Config;
 pub use mailer::Mailer;
@@ -86,9 +86,7 @@ async fn run_worker_loop(
                     let bot = bot.clone();
                     let config = config.clone();
                     let mailer = mailer.clone();
-                    tasks.spawn(async move {
-                        process_job(&bot, &config, &mailer, job).await
-                    });
+                    tasks.spawn(async move { process_job(&bot, &config, &mailer, job).await });
                 }
 
                 // Wait for all concurrent jobs to complete and collect results
@@ -131,7 +129,7 @@ async fn process_job(
     bot: &Bot,
     config: &Config,
     mailer: &Mailer,
-    job: db::OutboxMessage
+    job: db::OutboxMessage,
 ) -> db::JobResult {
     info!(
         "Processing job {} (type: {}, retry: {})",
