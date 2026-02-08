@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::{process_job, Config, WorkerDb, Mailer};
+    use crate::{process_job, Config, Mailer};
+    use crate::db::WorkerDb;
     use sqlx::PgPool;
     use std::time::Instant;
     use televent_core::config::CoreConfig;

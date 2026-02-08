@@ -59,67 +59,189 @@ async fn run_worker_loop(
         .checked_sub(Duration::from_secs(config.status_log_interval_secs))
         .unwrap_or_else(Instant::now);
 
+    // Channel for fetching jobs concurrently
+    // Buffer size 1 to prevent unbounded fetching, but allow one fetch to happen while processing
+    let (fetch_tx, mut fetch_rx) = tokio::sync::mpsc::channel(1);
+
+    // Initial fetch trigger
+    {
+        let db = db.clone();
+        let fetch_tx = fetch_tx.clone();
+        let batch_size = config.batch_size;
+        tokio::spawn(async move {
+            match db.fetch_pending_jobs(batch_size).await {
+                Ok(jobs) => { let _ = fetch_tx.send(Ok(jobs)).await; }
+                Err(e) => { let _ = fetch_tx.send(Err(e)).await; }
+            }
+        });
+    }
+    let mut is_fetching = true;
+
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut update_tasks = tokio::task::JoinSet::new();
+    let mut pending_results = Vec::new();
+    // Flush results when we have enough to justify a batch update or periodically
+    let max_pending_results = config.batch_size as usize;
+    let mut flush_interval = tokio::time::interval(Duration::from_secs(1));
+
+    let mut is_shutdown = false;
+
     loop {
-        // Check for shutdown signal
-        if let Some(ref token) = shutdown
-            && token.is_cancelled()
-        {
-            info!("Worker received shutdown signal");
-            break;
+        // Exit condition: shutdown and no work left
+        if is_shutdown && tasks.is_empty() && pending_results.is_empty() && update_tasks.is_empty() {
+             info!("Worker shutdown complete");
+             break;
         }
 
-        // Fetch pending jobs
-        match db.fetch_pending_jobs(config.batch_size).await {
-            Ok(jobs) if jobs.is_empty() => {
-                // No jobs to process, sleep
-                tokio::time::sleep(poll_interval).await;
-                continue;
+        tokio::select! {
+            // Handle shutdown signal
+            _ = async {
+                 if !is_shutdown {
+                     if let Some(ref token) = shutdown {
+                         token.cancelled().await;
+                     } else {
+                         std::future::pending::<()>().await;
+                     }
+                 } else {
+                     std::future::pending::<()>().await;
+                 }
+            } => {
+                info!("Worker received shutdown signal, draining tasks...");
+                is_shutdown = true;
             }
-            Ok(jobs) => {
-                info!("Processing {} jobs concurrently", jobs.len());
 
-                // Process jobs concurrently using JoinSet
-                // This provides ~Nx throughput improvement where N = batch_size
-                let mut tasks = tokio::task::JoinSet::new();
+            // Handle fetch result (only if not shutdown)
+            Some(res) = fetch_rx.recv(), if !is_shutdown => {
+                match res {
+                    Ok(jobs) => {
+                        if jobs.is_empty() {
+                            // No jobs, spawn a task to retry fetch after delay
+                            // is_fetching remains true (conceptually still trying to fetch)
+                            let db = db.clone();
+                            let fetch_tx = fetch_tx.clone();
+                            let batch_size = config.batch_size;
+                            tokio::spawn(async move {
+                                tokio::time::sleep(poll_interval).await;
+                                match db.fetch_pending_jobs(batch_size).await {
+                                    Ok(jobs) => { let _ = fetch_tx.send(Ok(jobs)).await; }
+                                    Err(e) => { let _ = fetch_tx.send(Err(e)).await; }
+                                }
+                            });
+                        } else {
+                            // We got jobs, fetching cycle complete
+                            is_fetching = false;
+                            info!("Fetched {} jobs", jobs.len());
+                            for job in jobs {
+                                let bot = bot.clone();
+                                let config = config.clone();
+                                let mailer = mailer.clone();
+                                tasks.spawn(async move {
+                                    process_job(&bot, &config, &mailer, job).await
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to fetch pending jobs: {}", e);
+                        // Retry after delay
+                        // is_fetching remains true
+                        let db = db.clone();
+                        let fetch_tx = fetch_tx.clone();
+                        let batch_size = config.batch_size;
+                        tokio::spawn(async move {
+                            tokio::time::sleep(poll_interval).await;
+                            match db.fetch_pending_jobs(batch_size).await {
+                                Ok(jobs) => { let _ = fetch_tx.send(Ok(jobs)).await; }
+                                Err(e) => { let _ = fetch_tx.send(Err(e)).await; }
+                            }
+                        });
+                    }
+                }
+            }
 
-                for job in jobs {
-                    let bot = bot.clone();
-                    let config = config.clone();
-                    let mailer = mailer.clone();
-                    tasks.spawn(async move {
-                        process_job(&bot, &config, &mailer, job).await
+            // Handle task completion (guard against empty to prevent busy loop)
+            Some(res) = tasks.join_next(), if !tasks.is_empty() => {
+                match res {
+                    Ok(job_result) => {
+                        pending_results.push(job_result);
+
+                        // If buffer full, flush immediately
+                        if pending_results.len() >= max_pending_results {
+                            let batch: Vec<_> = pending_results.drain(..).collect();
+                            let db = db.clone();
+                            update_tasks.spawn(async move {
+                                if let Err(e) = db.bulk_update_jobs(batch).await {
+                                    error!("Failed to bulk update jobs: {}", e);
+                                }
+                            });
+                        }
+                    }
+                    Err(e) => {
+                         error!("Task join error: {}", e);
+                    }
+                }
+            }
+
+            // Handle update task completion
+            Some(res) = update_tasks.join_next(), if !update_tasks.is_empty() => {
+                 if let Err(e) = res {
+                     error!("Update task join error: {}", e);
+                 }
+            }
+
+            // Flush pending results periodically
+            _ = flush_interval.tick() => {
+                if !pending_results.is_empty() {
+                     let batch: Vec<_> = pending_results.drain(..).collect();
+                     let db = db.clone();
+                     update_tasks.spawn(async move {
+                         if let Err(e) = db.bulk_update_jobs(batch).await {
+                             error!("Failed to bulk update jobs: {}", e);
+                         }
+                     });
+                }
+
+                // Also log status here periodically
+                if last_status_log_time.elapsed() >= Duration::from_secs(config.status_log_interval_secs) {
+                    let db = db.clone();
+                    tokio::spawn(async move {
+                        if let Ok(pending_count) = db.count_pending().await
+                            && pending_count > 0
+                        {
+                            info!("Queue status: {} pending jobs remaining", pending_count);
+                        }
                     });
-                }
-
-                // Wait for all concurrent jobs to complete and collect results
-                let mut results = Vec::with_capacity(tasks.len());
-                while let Some(res) = tasks.join_next().await {
-                    if let Ok(job_result) = res {
-                        results.push(job_result);
-                    }
-                }
-
-                // Bulk update jobs
-                if let Err(e) = db.bulk_update_jobs(results).await {
-                    error!("Failed to bulk update jobs: {}", e);
-                }
-
-                // Log queue status
-                if last_status_log_time.elapsed()
-                    >= Duration::from_secs(config.status_log_interval_secs)
-                {
-                    if let Ok(pending_count) = db.count_pending().await
-                        && pending_count > 0
-                    {
-                        info!("Queue status: {} pending jobs remaining", pending_count);
-                    }
                     last_status_log_time = Instant::now();
                 }
             }
-            Err(e) => {
-                error!("Failed to fetch pending jobs: {}", e);
-                tokio::time::sleep(poll_interval).await;
-            }
+        }
+
+        // Trigger fetch if we have capacity and aren't already fetching (and not shutting down)
+        if !is_shutdown && !is_fetching && tasks.len() < config.batch_size as usize {
+             let batch_size = (config.batch_size as usize).saturating_sub(tasks.len());
+
+             if batch_size > 0 {
+                 let db = db.clone();
+                 let fetch_tx = fetch_tx.clone();
+                 tokio::spawn(async move {
+                     match db.fetch_pending_jobs(batch_size as i64).await {
+                         Ok(jobs) => { let _ = fetch_tx.send(Ok(jobs)).await; }
+                         Err(e) => { let _ = fetch_tx.send(Err(e)).await; }
+                     }
+                 });
+                 is_fetching = true;
+             }
+        }
+
+        // If shutdown and tasks drained, ensure we flush any remaining results
+        if is_shutdown && tasks.is_empty() && !pending_results.is_empty() {
+             let batch: Vec<_> = pending_results.drain(..).collect();
+             let db = db.clone();
+             update_tasks.spawn(async move {
+                 if let Err(e) = db.bulk_update_jobs(batch).await {
+                     error!("Failed to bulk update jobs: {}", e);
+                 }
+             });
         }
     }
 
@@ -127,7 +249,7 @@ async fn run_worker_loop(
 }
 
 /// Process a single job
-async fn process_job(
+pub(crate) async fn process_job(
     bot: &Bot,
     config: &Config,
     mailer: &Mailer,
