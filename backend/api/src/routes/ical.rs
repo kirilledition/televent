@@ -35,7 +35,7 @@ pub fn event_to_ical_into(
     writer.write_property("UID", &event.uid)?;
 
     // DTSTAMP (required by RFC 5545, indicates when the object was created)
-    writer.write_property("DTSTAMP", &Utc::now().format("%Y%m%dT%H%M%SZ").to_string())?;
+    writer.write_datetime_property("DTSTAMP", &Utc::now())?;
 
     // Summary
     writer.write_property("SUMMARY", &event.summary)?;
@@ -54,14 +54,11 @@ pub fn event_to_ical_into(
     if event.is_all_day {
         // All-day events use DATE format (no time component)
         if let Some(start_date) = event.start_date {
-            writer.write_property(
-                "DTSTART;VALUE=DATE",
-                &start_date.format("%Y%m%d").to_string(),
-            )?;
+            writer.write_date_property("DTSTART;VALUE=DATE", &start_date)?;
         }
     } else if let (Some(start), Some(end)) = (event.start, event.end) {
-        writer.write_property("DTSTART", &start.format("%Y%m%dT%H%M%SZ").to_string())?;
-        writer.write_property("DTEND", &end.format("%Y%m%dT%H%M%SZ").to_string())?;
+        writer.write_datetime_property("DTSTART", &start)?;
+        writer.write_datetime_property("DTEND", &end)?;
     }
 
     // Status
@@ -96,16 +93,10 @@ pub fn event_to_ical_into(
     writer.write_property("SEQUENCE", &event.version.to_string())?;
 
     // Created
-    writer.write_property(
-        "CREATED",
-        &event.created_at.format("%Y%m%dT%H%M%SZ").to_string(),
-    )?;
+    writer.write_datetime_property("CREATED", &event.created_at)?;
 
     // Last-Modified
-    writer.write_property(
-        "LAST-MODIFIED",
-        &event.updated_at.format("%Y%m%dT%H%M%SZ").to_string(),
-    )?;
+    writer.write_datetime_property("LAST-MODIFIED", &event.updated_at)?;
 
     writer.write_line("END:VEVENT")?;
     writer.write_line("END:VCALENDAR")?;
@@ -134,6 +125,44 @@ impl<'a> FoldedWriter<'a> {
 
     fn write_property_no_escape(&mut self, name: &str, value: &str) -> Result<(), ApiError> {
         self.write_property_impl(name, value, false)
+    }
+
+    fn write_datetime_property(
+        &mut self,
+        name: &str,
+        datetime: &DateTime<Utc>,
+    ) -> Result<(), ApiError> {
+        // Optimization: Write directly to buffer without folding checks for value
+        // as we know the value is safe (YYYYMMDDTHHmmssZ = 16 chars)
+        // and doesn't contain characters needing escaping.
+        // We assume name + 1 + 16 <= 75 chars, which is true for standard props.
+        self.buf.push_str(name);
+        self.buf.push(':');
+
+        use std::fmt::Write;
+        // DelayedFormat implements Display
+        write!(self.buf, "{}", datetime.format("%Y%m%dT%H%M%SZ"))
+            .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+
+        self.buf.push_str("\r\n");
+        Ok(())
+    }
+
+    fn write_date_property(
+        &mut self,
+        name: &str,
+        date: &chrono::NaiveDate,
+    ) -> Result<(), ApiError> {
+        // Optimization: Write directly to buffer
+        self.buf.push_str(name);
+        self.buf.push(':');
+
+        use std::fmt::Write;
+        write!(self.buf, "{}", date.format("%Y%m%d"))
+            .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+
+        self.buf.push_str("\r\n");
+        Ok(())
     }
 
     fn write_property_impl(
@@ -746,6 +775,7 @@ END:VCALENDAR"#;
         // The serializer does not escape RRULE, so CRLF is passed through
         assert!(ical.contains("RRULE:FREQ=DAILY\r\nATTENDEE:MAILTO:evil@example.com"));
     }
+
 }
 
 #[test]
