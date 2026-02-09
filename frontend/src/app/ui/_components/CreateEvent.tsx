@@ -356,6 +356,9 @@ export function CreateEvent({
               id="date-trigger"
               type="button"
               onClick={() => setShowDatePicker(!showDatePicker)}
+              aria-haspopup="dialog"
+              aria-expanded={showDatePicker}
+              aria-controls="date-picker-content"
               className="w-full rounded-lg px-4 py-3 text-left text-base focus:ring-2 focus:outline-none"
               style={{
                 backgroundColor: 'var(--ctp-mantle)',
@@ -373,6 +376,9 @@ export function CreateEvent({
 
             {showDatePicker && (
               <div
+                id="date-picker-content"
+                role="dialog"
+                aria-label="Choose a date"
                 className="mt-2 rounded-lg p-4"
                 style={{
                   backgroundColor: 'var(--ctp-mantle)',

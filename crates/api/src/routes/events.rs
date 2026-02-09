@@ -424,7 +424,6 @@ where
 mod tests {
     use super::*;
 
-
     #[test]
     fn test_create_event_request_deserialization() {
         let json = r#"{

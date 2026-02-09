@@ -102,7 +102,8 @@ mod tests {
         let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
         let mut req = Request::new(Body::empty());
         req.extensions_mut().insert(ConnectInfo(addr));
-        req.headers_mut().insert("x-forwarded-for", "203.0.113.195".parse().unwrap());
+        req.headers_mut()
+            .insert("x-forwarded-for", "203.0.113.195".parse().unwrap());
 
         let key = extractor.extract(&req).unwrap();
 
@@ -167,8 +168,10 @@ mod tests {
         let mut req = Request::new(Body::empty());
         req.extensions_mut().insert(ConnectInfo(addr));
 
-        req.headers_mut().insert("x-forwarded-for", "1.2.3.4".parse().unwrap());
-        req.headers_mut().insert("x-real-ip", "5.6.7.8".parse().unwrap());
+        req.headers_mut()
+            .insert("x-forwarded-for", "1.2.3.4".parse().unwrap());
+        req.headers_mut()
+            .insert("x-real-ip", "5.6.7.8".parse().unwrap());
 
         let key = extractor.extract(&req).unwrap();
 

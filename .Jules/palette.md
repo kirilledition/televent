@@ -9,3 +9,7 @@
 ## 2026-05-25 - Focus Management in Destructive Actions
 **Learning:** When an element (like a delete button) is removed from the DOM and replaced with confirmation buttons, keyboard focus is lost to the body, disorienting users.
 **Action:** Always use `useEffect` and `useRef` to manually transfer focus to the primary confirmation action (or the cancel action for safety) when the DOM state changes destructively.
+
+## 2026-10-18 - Expanding Disclosure Accessibility
+**Learning:** Disclosure widgets (like date pickers) must explicitly signal their state (`aria-expanded`) and relationship (`aria-controls`) to assistive technologies. Without this, users may not realize a popup has appeared.
+**Action:** Always pair toggle buttons with `aria-expanded` and the target container with a matching `id`.

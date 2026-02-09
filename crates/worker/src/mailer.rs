@@ -37,7 +37,9 @@ impl Mailer {
         let smtp_host = &config.smtp_host;
         let smtp_port = config.smtp_port;
 
-        let transport = if let (Some(username), Some(password)) = (&config.smtp_username, &config.smtp_password) {
+        let transport = if let (Some(username), Some(password)) =
+            (&config.smtp_username, &config.smtp_password)
+        {
             // Authenticated SMTP
             AsyncSmtpTransport::<Tokio1Executor>::relay(smtp_host)
                 .map_err(|e| {
@@ -64,19 +66,18 @@ impl Mailer {
     /// Send an email via SMTP using the pooled transport
     pub async fn send(&self, to: &str, subject: &str, body: &str) -> Result<()> {
         // Build email message
-        let email = Message::builder()
-            .from(
-                self.from
-                    .parse()
-                    .map_err(|e| MailerError::InvalidAddress(format!("Invalid from address: {}", e)))?,
-            )
-            .to(to
-                .parse()
-                .map_err(|e| MailerError::InvalidAddress(format!("Invalid to address: {}", e)))?)
-            .subject(subject)
-            .header(ContentType::TEXT_PLAIN)
-            .body(body.to_string())
-            .map_err(|e| MailerError::SendFailed(format!("Failed to build message: {}", e)))?;
+        let email =
+            Message::builder()
+                .from(self.from.parse().map_err(|e| {
+                    MailerError::InvalidAddress(format!("Invalid from address: {}", e))
+                })?)
+                .to(to.parse().map_err(|e| {
+                    MailerError::InvalidAddress(format!("Invalid to address: {}", e))
+                })?)
+                .subject(subject)
+                .header(ContentType::TEXT_PLAIN)
+                .body(body.to_string())
+                .map_err(|e| MailerError::SendFailed(format!("Failed to build message: {}", e)))?;
 
         // Send email
         self.transport
@@ -205,12 +206,9 @@ mod tests {
         let config = create_test_config(port);
         let mailer = Mailer::new(&config).expect("Failed to create mailer");
 
-        let result = mailer.send(
-            "recipient@example.com",
-            "Test Subject",
-            "Test Body",
-        )
-        .await;
+        let result = mailer
+            .send("recipient@example.com", "Test Subject", "Test Body")
+            .await;
 
         assert!(result.is_ok(), "Failed to send email: {:?}", result.err());
 

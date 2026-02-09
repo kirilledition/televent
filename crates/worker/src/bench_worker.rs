@@ -91,9 +91,7 @@ mod tests {
                 let bot = bot.clone();
                 let config = config.clone();
                 let mailer = mailer.clone();
-                tasks.spawn(async move {
-                    process_job(&bot, &config, &mailer, job).await
-                });
+                tasks.spawn(async move { process_job(&bot, &config, &mailer, job).await });
             }
 
             let mut results = Vec::new();

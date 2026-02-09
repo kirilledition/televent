@@ -2,11 +2,11 @@
 //!
 //! Processes outbox messages (emails, Telegram notifications) with retry logic
 
+mod bench_worker;
 mod config;
 mod db;
 mod mailer;
 mod processors;
-mod bench_worker;
 
 pub use config::Config;
 pub use mailer::Mailer;
@@ -253,7 +253,7 @@ pub(crate) async fn process_job(
     bot: &Bot,
     config: &Config,
     mailer: &Mailer,
-    job: db::OutboxMessage
+    job: db::OutboxMessage,
 ) -> db::JobResult {
     info!(
         "Processing job {} (type: {}, retry: {})",
@@ -328,7 +328,7 @@ mod tests {
         let cfg = Config {
             core: CoreConfig {
                 database_url: "test".to_string(),
-                telegram_bot_token: "test".to_string(),
+                telegram_bot_token: "test_token".to_string(),
             },
             poll_interval_secs: 10,
             max_retry_count: 5,

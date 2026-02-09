@@ -71,14 +71,8 @@ mod tests {
 
         let headers = response.headers();
 
-        assert_eq!(
-            headers.get("X-Content-Type-Options").unwrap(),
-            "nosniff"
-        );
-        assert_eq!(
-            headers.get("X-XSS-Protection").unwrap(),
-            "1; mode=block"
-        );
+        assert_eq!(headers.get("X-Content-Type-Options").unwrap(), "nosniff");
+        assert_eq!(headers.get("X-XSS-Protection").unwrap(), "1; mode=block");
         assert_eq!(
             headers.get("Strict-Transport-Security").unwrap(),
             "max-age=31536000; includeSubDomains"
