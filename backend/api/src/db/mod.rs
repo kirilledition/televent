@@ -9,7 +9,7 @@ mod tests {
     use sqlx::PgPool;
     use televent_core::models::UserId;
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_user_creation_and_lookup(pool: PgPool) {
         let telegram_id = 987654321i64;
         let username = "testuser123";

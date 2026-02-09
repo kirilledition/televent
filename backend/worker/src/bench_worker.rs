@@ -8,7 +8,7 @@ mod tests {
     use tokio::task::JoinSet;
     use uuid::Uuid;
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     #[ignore]
     async fn bench_worker_processing(pool: PgPool) -> sqlx::Result<()> {
         let db = WorkerDb::new(pool.clone());

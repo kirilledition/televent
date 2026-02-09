@@ -403,7 +403,7 @@ mod tests {
         server.await.unwrap();
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_process_invite_notification(pool: PgPool) -> sqlx::Result<()> {
         use televent_core::models::{EventStatus, UserId};
 

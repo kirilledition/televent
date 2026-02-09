@@ -171,8 +171,8 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
         // Serve frontend static files with SPA fallback
         .nest_service(
             "/app",
-            ServeDir::new("frontend/out")
-                .not_found_service(ServeFile::new("frontend/out/index.html")),
+            ServeDir::new("../frontend/out")
+                .not_found_service(ServeFile::new("../frontend/out/index.html")),
         )
         .layer(cors)
         .layer(axum_middleware::from_fn(
@@ -261,7 +261,7 @@ mod tests {
             .to_pretty_json()
             .expect("Failed to serialize OpenAPI to JSON");
 
-        let path = "../../docs/openapi.json";
+        let path = "../docs/openapi.json";
         let mut file = File::create(path).expect("Failed to create openapi.json");
         file.write_all(json.as_bytes())
             .expect("Failed to write openapi.json");

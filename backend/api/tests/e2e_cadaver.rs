@@ -123,7 +123,7 @@ fn init_tracing() {
         .try_init();
 }
 
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_cadaver_full_flow(pool: PgPool) {
     init_tracing();
     let (telegram_id, _username, password) = setup_user_and_auth(&pool).await;

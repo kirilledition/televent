@@ -98,7 +98,7 @@ fn create_request(
     req
 }
 
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_api_full_flow(pool: PgPool) {
     let telegram_id = setup_user(&pool).await;
     let bot_token = "dummy_token";

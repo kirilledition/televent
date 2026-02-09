@@ -1013,7 +1013,7 @@ mod tests {
         assert!(ics.contains("END:VCALENDAR"));
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_start(pool: PgPool) {
         let db = BotDb::new(pool);
         let bot = Bot::new("123:fake_token");
@@ -1047,7 +1047,7 @@ mod tests {
         assert_eq!(user.unwrap().telegram_id, 123456789);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_text_message_create_event(pool: PgPool) {
         let db = BotDb::new(pool);
         let bot = Bot::new("123:fake_token");
@@ -1086,7 +1086,7 @@ mod tests {
         assert_eq!(events[0].summary, "Team Meeting");
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_list(pool: PgPool) {
         let db = BotDb::new(pool);
         let bot = Bot::new("123:fake_token");
@@ -1122,7 +1122,7 @@ mod tests {
         // No checks other than it ran without panic (and presumably queried DB)
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_help(_pool: PgPool) {
         let bot = Bot::new("123:fake_token");
 
@@ -1151,7 +1151,7 @@ mod tests {
         assert!(result.is_ok() || result.is_err()); // Will fail to send but that's OK
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_export(pool: PgPool) {
         let db = BotDb::new(pool);
         let bot = Bot::new("123:fake_token");
@@ -1202,7 +1202,7 @@ mod tests {
         // Handler will query DB and try to send file; we just verify it runs
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_device_add(pool: PgPool) {
         let db = BotDb::new(pool);
         let bot = Bot::new("123:fake_token");
@@ -1240,7 +1240,7 @@ mod tests {
         assert_eq!(devices[0].name, "MyPhone");
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_device_list(pool: PgPool) {
         let db = BotDb::new(pool);
         let bot = Bot::new("123:fake_token");
@@ -1276,7 +1276,7 @@ mod tests {
         let _ = super::handle_device(bot, msg, db).await;
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_cancel(_pool: PgPool) {
         let bot = Bot::new("123:fake_token");
 
@@ -1304,7 +1304,7 @@ mod tests {
         assert!(result.is_ok() || result.is_err());
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_delete_account(_pool: PgPool) {
         let bot = Bot::new("123:fake_token");
 
@@ -1332,7 +1332,7 @@ mod tests {
         assert!(result.is_ok() || result.is_err());
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_invite(pool: PgPool) {
         let db = BotDb::new(pool);
         let bot = Bot::new("123:fake_token");
@@ -1395,7 +1395,7 @@ mod tests {
         assert_eq!(invites.len(), 1);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_rsvp(pool: PgPool) {
         let db = BotDb::new(pool);
         let bot = Bot::new("123:fake_token");
@@ -1484,7 +1484,7 @@ mod tests {
         assert_eq!(invites_after.len(), 0); // Should be empty as status changed from NEEDS-ACTION
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_text_message_invalid(pool: PgPool) {
         let db = BotDb::new(pool);
         let bot = Bot::new("123:fake_token");
@@ -1518,7 +1518,7 @@ mod tests {
         // Should handle gracefully and not create event
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_text_message_with_location(pool: PgPool) {
         let db = BotDb::new(pool);
         let bot = Bot::new("123:fake_token");

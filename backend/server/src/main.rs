@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
     );
 
     // Run migrations ONCE
-    sqlx::migrate!("../../migrations").run(&pool).await?;
+    sqlx::migrate!("../migrations").run(&pool).await?;
     tracing::info!("✓ Migrations completed");
 
     // Create shutdown coordination

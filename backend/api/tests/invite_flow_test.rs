@@ -22,7 +22,7 @@ use tower::ServiceExt;
 /// 7. Assert event_attendees status is 'ACCEPTED'
 /// 8. Mock API call: GET /calendar/event as User A
 /// 9. Assert ICS contains PARTSTAT=ACCEPTED for User B
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_invite_flow_end_to_end(pool: PgPool) {
     // Initialize tracing for debugging
     let _ = tracing_subscriber::fmt()

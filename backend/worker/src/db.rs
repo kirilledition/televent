@@ -298,7 +298,7 @@ mod tests {
         assert_from_row::<OutboxMessage>();
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_fetch_pending_jobs(pool: PgPool) -> sqlx::Result<()> {
         use serde_json::json;
         let db = WorkerDb::new(pool.clone());
@@ -323,7 +323,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_mark_completed(pool: PgPool) -> sqlx::Result<()> {
         use serde_json::json;
         let db = WorkerDb::new(pool.clone());
@@ -352,7 +352,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_mark_failed(pool: PgPool) -> sqlx::Result<()> {
         use serde_json::json;
         let db = WorkerDb::new(pool.clone());
@@ -382,7 +382,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_reschedule_message(pool: PgPool) -> sqlx::Result<()> {
         use serde_json::json;
         let db = WorkerDb::new(pool.clone());
@@ -412,7 +412,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_count_pending(pool: PgPool) -> sqlx::Result<()> {
         use serde_json::json;
         let db = WorkerDb::new(pool.clone());
