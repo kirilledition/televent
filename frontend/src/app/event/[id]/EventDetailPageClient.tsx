@@ -17,10 +17,6 @@ export default function EventDetailPageClient({ event }: { event: Event }) {
   }
 
   return (
-    <EventDetail
-      event={event}
-      onDelete={handleDelete}
-      onEdit={handleEdit}
-    />
+    <EventDetail event={event} onDelete={handleDelete} onEdit={handleEdit} />
   )
 }

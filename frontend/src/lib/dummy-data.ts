@@ -1,4 +1,4 @@
-import { Event } from '@/types/event';
+import { Event } from '@/types/event'
 
 export const DUMMY_EVENTS: Event[] = [
   {
@@ -27,4 +27,4 @@ export const DUMMY_EVENTS: Event[] = [
     duration: 45,
     description: 'Reviewing the latest PRs for the frontend migration.',
   },
-];
+]

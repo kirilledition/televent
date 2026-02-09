@@ -11,7 +11,7 @@ export default function CalendarPage() {
   const [events, setEvents] = useState(DUMMY_EVENTS)
 
   const handleDeleteEvent = (id: string) => {
-    setEvents(events.filter(e => e.id !== id))
+    setEvents(events.filter((e) => e.id !== id))
   }
 
   return (
