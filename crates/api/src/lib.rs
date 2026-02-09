@@ -3,7 +3,7 @@
 pub mod config;
 mod db;
 pub mod error;
-mod middleware;
+pub mod middleware;
 mod routes;
 
 use axum::extract::FromRef;

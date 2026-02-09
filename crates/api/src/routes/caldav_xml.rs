@@ -199,7 +199,7 @@ pub fn generate_calendar_query_response(
     // Write response for each event with calendar-data
     for event in events {
         ical_buf.clear();
-        ical::event_to_ical_into(event, &mut ical_buf)?;
+        ical::event_to_ical_into(event, &[], &mut ical_buf)?;
         write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
     }
 
@@ -242,7 +242,7 @@ pub fn generate_sync_collection_response(
     // Write response for changed/new events with calendar-data
     for event in events {
         ical_buf.clear();
-        ical::event_to_ical_into(event, &mut ical_buf)?;
+        ical::event_to_ical_into(event, &[], &mut ical_buf)?;
         write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
     }
 
@@ -305,7 +305,7 @@ pub fn generate_calendar_multiget_response(
     // Write response for each event with calendar-data
     for event in events {
         ical_buf.clear();
-        match ical::event_to_ical_into(event, &mut ical_buf) {
+        match ical::event_to_ical_into(event, &[], &mut ical_buf) {
             Ok(()) => {
                 write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
             }

@@ -39,6 +39,9 @@ pub struct Config {
 
     /// SMTP From Address
     pub smtp_from: String,
+
+    /// SMTP Connection Pool Size
+    pub smtp_pool_size: u32,
 }
 
 impl Config {
@@ -80,6 +83,11 @@ impl Config {
             smtp_password: env::var("SMTP_PASSWORD").ok(),
 
             smtp_from: env::var("SMTP_FROM").unwrap_or_else(|_| "noreply@televent.app".to_string()),
+
+            smtp_pool_size: env::var("SMTP_POOL_SIZE")
+                .unwrap_or_else(|_| "10".to_string())
+                .parse()
+                .context("SMTP_POOL_SIZE must be a valid integer")?,
         })
     }
 }
@@ -114,6 +122,7 @@ mod tests {
             smtp_username: None,
             smtp_password: None,
             smtp_from: "noreply@televent.app".to_string(),
+            smtp_pool_size: 10,
         };
 
         assert_eq!(config.poll_interval_secs, 10);
@@ -138,6 +147,7 @@ mod tests {
             smtp_username: None,
             smtp_password: None,
             smtp_from: "noreply@televent.app".to_string(),
+            smtp_pool_size: 10,
         };
 
         // Test Deref trait
@@ -161,6 +171,7 @@ mod tests {
             smtp_username: Some("user".to_string()),
             smtp_password: Some("pass".to_string()),
             smtp_from: "noreply@televent.app".to_string(),
+            smtp_pool_size: 10,
         };
 
         let cloned = config.clone();
@@ -185,6 +196,7 @@ mod tests {
             smtp_username: None,
             smtp_password: None,
             smtp_from: "noreply@televent.app".to_string(),
+            smtp_pool_size: 10,
         };
 
         let debug_str = format!("{:?}", config);

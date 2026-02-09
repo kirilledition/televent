@@ -3,8 +3,10 @@
 use crate::error::ApiError;
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
-use televent_core::models::{Event, EventStatus, Timezone, UserId};
+use sqlx::{PgConnection, PgPool, Row};
+use televent_core::models::{
+    Event, EventAttendee, EventStatus, ParticipationStatus, Timezone, UserId,
+};
 use uuid::Uuid;
 
 /// Helper Enum to enforce valid input states
@@ -21,8 +23,8 @@ pub enum EventTiming {
 
 /// Create a new event
 #[allow(clippy::too_many_arguments)]
-pub async fn create_event(
-    pool: &PgPool,
+pub async fn create_event<'e, E>(
+    executor: E,
     user_id: UserId,
     uid: String,
     summary: String,
@@ -31,7 +33,10 @@ pub async fn create_event(
     timing: EventTiming,
     timezone: Timezone,
     rrule: Option<String>,
-) -> Result<Event, ApiError> {
+) -> Result<Event, ApiError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let (start, end, start_date, end_date, is_all_day) = match timing {
         EventTiming::Timed { start, end } => {
             if end <= start {
@@ -91,18 +96,25 @@ pub async fn create_event(
     .bind(timezone)
     .bind(&rrule)
     .bind(&etag)
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
 
     Ok(event)
 }
 
 /// Get event by ID and User ID (checks ownership)
-pub async fn get_event(pool: &PgPool, user_id: UserId, event_id: Uuid) -> Result<Event, ApiError> {
+pub async fn get_event<'e, E>(
+    executor: E,
+    user_id: UserId,
+    event_id: Uuid,
+) -> Result<Event, ApiError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let event = sqlx::query_as::<_, Event>("SELECT * FROM events WHERE id = $1 AND user_id = $2")
         .bind(event_id)
         .bind(user_id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Event not found: {}", event_id)))?;
 
@@ -110,15 +122,18 @@ pub async fn get_event(pool: &PgPool, user_id: UserId, event_id: Uuid) -> Result
 }
 
 /// Get event by UID and user ID
-pub async fn get_event_by_uid(
-    pool: &PgPool,
+pub async fn get_event_by_uid<'e, E>(
+    executor: E,
     user_id: UserId,
     uid: &str,
-) -> Result<Option<Event>, ApiError> {
+) -> Result<Option<Event>, ApiError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let event = sqlx::query_as::<_, Event>("SELECT * FROM events WHERE user_id = $1 AND uid = $2")
         .bind(user_id)
         .bind(uid)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await?;
 
     Ok(event)
@@ -138,6 +153,20 @@ pub async fn get_events_by_uids(
             .await?;
 
     Ok(events)
+}
+
+/// Get event attendees
+pub async fn get_event_attendees(
+    pool: &PgPool,
+    event_id: Uuid,
+) -> Result<Vec<EventAttendee>, ApiError> {
+    let attendees =
+        sqlx::query_as::<_, EventAttendee>("SELECT * FROM event_attendees WHERE event_id = $1")
+            .bind(event_id)
+            .fetch_all(pool)
+            .await?;
+
+    Ok(attendees)
 }
 
 /// Delete event by UID (within transaction)
@@ -235,7 +264,7 @@ pub async fn list_events_since_sync(
 /// Update an existing event
 #[allow(clippy::too_many_arguments)]
 pub async fn update_event(
-    pool: &PgPool,
+    executor: &mut PgConnection,
     user_id: UserId,
     event_id: Uuid,
     summary: Option<String>,
@@ -250,7 +279,7 @@ pub async fn update_event(
     rrule: Option<String>,
 ) -> Result<Event, ApiError> {
     // Get current event to compute new ETag with merged fields
-    let current = get_event(pool, user_id, event_id).await?;
+    let current = get_event(&mut *executor, user_id, event_id).await?;
 
     let new_summary = summary.clone().unwrap_or_else(|| current.summary.clone());
     let new_description = description.clone().or_else(|| current.description.clone());
@@ -345,7 +374,7 @@ pub async fn update_event(
     .bind(new_status)
     .bind(new_rrule)
     .bind(new_etag)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *executor)
     .await?
     .ok_or_else(|| ApiError::NotFound(format!("Event not found: {}", event_id)))?;
 
@@ -363,6 +392,68 @@ pub async fn delete_event(pool: &PgPool, user_id: UserId, event_id: Uuid) -> Res
     if result.rows_affected() == 0 {
         return Err(ApiError::NotFound(format!("Event not found: {}", event_id)));
     }
+
+    Ok(())
+}
+
+/// Upsert event attendee
+pub async fn upsert_event_attendee<'e, E>(
+    executor: E,
+    event_id: Uuid,
+    user_id: UserId,
+    email: &str,
+    status: ParticipationStatus,
+) -> Result<bool, ApiError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    // Convert enum to string for explicit cast
+    let status_str = match status {
+        ParticipationStatus::NeedsAction => "NEEDS-ACTION",
+        ParticipationStatus::Accepted => "ACCEPTED",
+        ParticipationStatus::Declined => "DECLINED",
+        ParticipationStatus::Tentative => "TENTATIVE",
+    };
+
+    // Returns true if new row was inserted, false if updated
+    let result = sqlx::query(
+        r#"
+        INSERT INTO event_attendees (event_id, user_id, email, status)
+        VALUES ($1, $2, $3, $4::text::attendee_status)
+        ON CONFLICT (event_id, email) DO UPDATE
+        SET status = $4::text::attendee_status, updated_at = NOW()
+        RETURNING (xmax = 0) AS is_new
+        "#,
+    )
+    .bind(event_id)
+    .bind(user_id)
+    .bind(email)
+    .bind(status_str)
+    .fetch_one(executor)
+    .await?;
+
+    Ok(result.try_get::<bool, _>("is_new").unwrap_or(false))
+}
+
+/// Create outbox message
+pub async fn create_outbox_message<'e, E>(
+    executor: E,
+    message_type: &str,
+    payload: serde_json::Value,
+) -> Result<(), ApiError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query(
+        r#"
+        INSERT INTO outbox_messages (message_type, payload)
+        VALUES ($1, $2)
+        "#,
+    )
+    .bind(message_type)
+    .bind(payload)
+    .execute(executor)
+    .await?;
 
     Ok(())
 }

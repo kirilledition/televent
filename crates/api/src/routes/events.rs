@@ -4,7 +4,7 @@ use crate::{db, error::ApiError, middleware::telegram_auth::AuthenticatedTelegra
 use axum::{
     Extension, Json, Router,
     extract::{FromRef, Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
 };
@@ -277,9 +277,30 @@ async fn get_event(
     State(pool): State<PgPool>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Path(event_id): Path<Uuid>,
-) -> Result<Json<EventResponse>, ApiError> {
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
     let event = db::events::get_event(&pool, auth_user.id, event_id).await?;
-    Ok(Json(event))
+
+    // Check content negotiation
+    if let Some(accept) = headers.get(header::ACCEPT)
+        && let Ok(accept_str) = accept.to_str()
+        && accept_str.contains("text/calendar")
+    {
+        let attendees = db::events::get_event_attendees(&pool, event_id).await?;
+        let ical = super::ical::event_to_ical(&event, &attendees)?;
+
+        return Ok((
+            StatusCode::OK,
+            [(
+                header::CONTENT_TYPE,
+                "text/calendar; charset=utf-8".to_string(),
+            )],
+            ical,
+        )
+            .into_response());
+    }
+
+    Ok(Json(event).into_response())
 }
 
 /// List events
@@ -361,8 +382,13 @@ async fn update_event(
         (s, e, None, None)
     };
 
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?;
+
     let event = db::events::update_event(
-        &pool,
+        &mut conn,
         auth_user.id,
         event_id,
         req.summary,

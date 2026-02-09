@@ -35,7 +35,7 @@ pub async fn run_worker(
     config: Config,
     shutdown: Option<CancellationToken>,
 ) -> Result<()> {
-    let db = WorkerDb::new(pool);
+    let db = WorkerDb::new(pool.clone());
     let mailer = Mailer::new(&config)?;
 
     info!(
@@ -43,11 +43,13 @@ pub async fn run_worker(
         config.poll_interval_secs, config.max_retry_count, config.batch_size
     );
 
-    run_worker_loop(db, bot, config, mailer, shutdown).await
+    let pool_clone = pool.clone();
+    run_worker_loop(pool_clone, db, bot, config, mailer, shutdown).await
 }
 
 /// Main worker processing loop
 async fn run_worker_loop(
+    pool: PgPool,
     db: WorkerDb,
     bot: Bot,
     config: Config,
@@ -83,10 +85,13 @@ async fn run_worker_loop(
                 let mut tasks = tokio::task::JoinSet::new();
 
                 for job in jobs {
+                    let pool = pool.clone();
                     let bot = bot.clone();
                     let config = config.clone();
                     let mailer = mailer.clone();
-                    tasks.spawn(async move { process_job(&bot, &config, &mailer, job).await });
+                    tasks.spawn(
+                        async move { process_job(&pool, &bot, &config, &mailer, job).await },
+                    );
                 }
 
                 // Wait for all concurrent jobs to complete and collect results
@@ -126,6 +131,7 @@ async fn run_worker_loop(
 
 /// Process a single job
 async fn process_job(
+    pool: &PgPool,
     bot: &Bot,
     config: &Config,
     mailer: &Mailer,
@@ -136,7 +142,7 @@ async fn process_job(
         job.id, job.message_type, job.retry_count
     );
 
-    match processors::process_message(&job, bot, mailer).await {
+    match processors::process_message(pool, &job, bot, mailer).await {
         Ok(()) => {
             // Job succeeded
             info!("Job {} completed successfully", job.id);
@@ -215,6 +221,7 @@ mod tests {
             smtp_username: None,
             smtp_password: None,
             smtp_from: "test@example.com".to_string(),
+            smtp_pool_size: 0,
         };
 
         assert_eq!(cfg.poll_interval_secs, 10);
@@ -226,7 +233,7 @@ mod tests {
         use serde_json::json;
         use televent_core::config::CoreConfig;
         use televent_core::models::OutboxStatus;
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         use tokio::net::TcpListener;
 
         let db = WorkerDb::new(pool.clone());
@@ -248,46 +255,90 @@ mod tests {
             smtp_username: None,
             smtp_password: None,
             smtp_from: "test@televent.app".to_string(),
+            smtp_pool_size: 0,
         };
 
         let bot = Bot::new("token");
         let mailer = Mailer::new(&config).expect("Failed to create mailer");
 
         let server = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            socket.write_all(b"220 localhost ESMTP\r\n").await.unwrap();
-            let mut buf = [0; 1024];
-            socket.read(&mut buf).await.unwrap();
-            socket
-                .write_all(b"250-localhost\r\n250 8BITMIME\r\n")
-                .await
-                .unwrap();
-            socket.read(&mut buf).await.unwrap();
-            socket.write_all(b"250 2.1.0 Ok\r\n").await.unwrap();
-            socket.read(&mut buf).await.unwrap();
-            socket.write_all(b"250 2.1.5 Ok\r\n").await.unwrap();
-            socket.read(&mut buf).await.unwrap();
-            socket
-                .write_all(b"354 End data with <CR><LF>.<CR><LF>\r\n")
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut reader = BufReader::new(socket);
+            let mut line = String::new();
+
+            // Handshake
+            reader
+                .get_mut()
+                .write_all(b"220 localhost ESMTP\r\n")
                 .await
                 .unwrap();
 
-            let mut email_data = String::new();
             loop {
-                let n = socket.read(&mut buf).await.unwrap();
+                line.clear();
+                let n = reader.read_line(&mut line).await.unwrap();
                 if n == 0 {
                     break;
                 }
-                let chunk = String::from_utf8_lossy(&buf[..n]);
-                email_data.push_str(&chunk);
-                if email_data.contains("\r\n.\r\n") {
-                    break;
+
+                let cmd = line.split_whitespace().next().unwrap_or("").to_uppercase();
+                match cmd.as_str() {
+                    "EHLO" | "HELO" => {
+                        reader
+                            .get_mut()
+                            .write_all(b"250-localhost\r\n250 8BITMIME\r\n")
+                            .await
+                            .unwrap();
+                    }
+                    "MAIL" => {
+                        reader
+                            .get_mut()
+                            .write_all(b"250 2.1.0 Ok\r\n")
+                            .await
+                            .unwrap();
+                    }
+                    "RCPT" => {
+                        reader
+                            .get_mut()
+                            .write_all(b"250 2.1.5 Ok\r\n")
+                            .await
+                            .unwrap();
+                    }
+                    "DATA" => {
+                        reader
+                            .get_mut()
+                            .write_all(b"354 End data with <CR><LF>.<CR><LF>\r\n")
+                            .await
+                            .unwrap();
+                        loop {
+                            line.clear();
+                            let n = reader.read_line(&mut line).await.unwrap();
+                            if n == 0 || line == ".\r\n" || line == ".\n" {
+                                break;
+                            }
+                        }
+                        reader
+                            .get_mut()
+                            .write_all(b"250 2.0.0 Ok: queued\r\n")
+                            .await
+                            .unwrap();
+                    }
+                    "QUIT" => {
+                        reader
+                            .get_mut()
+                            .write_all(b"221 2.0.0 Bye\r\n")
+                            .await
+                            .unwrap();
+                        break;
+                    }
+                    _ => {
+                        reader
+                            .get_mut()
+                            .write_all(b"500 Command not recognized\r\n")
+                            .await
+                            .unwrap();
+                    }
                 }
             }
-
-            socket.write_all(b"250 2.0.0 Ok: queued\r\n").await.unwrap();
-            socket.read(&mut buf).await.unwrap();
-            socket.write_all(b"221 2.0.0 Bye\r\n").await.unwrap();
         });
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -314,7 +365,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        let result = process_job(&bot, &config, &mailer, job).await;
+        let result = process_job(&pool, &bot, &config, &mailer, job).await;
         db.bulk_update_jobs(vec![result]).await?;
 
         let status: OutboxStatus =
@@ -349,6 +400,7 @@ mod tests {
             smtp_username: None,
             smtp_password: None,
             smtp_from: "test@televent.app".to_string(),
+            smtp_pool_size: 0,
         };
         let bot = Bot::new("token");
         let mailer = Mailer::new(&config).expect("Failed to create mailer");
@@ -371,7 +423,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        let result = process_job(&bot, &config, &mailer, job).await;
+        let result = process_job(&pool, &bot, &config, &mailer, job).await;
         db.bulk_update_jobs(vec![result]).await?;
 
         let (status, retry_count): (OutboxStatus, i32) =
@@ -406,6 +458,7 @@ mod tests {
             smtp_username: None,
             smtp_password: None,
             smtp_from: "test@televent.app".to_string(),
+            smtp_pool_size: 0,
         };
         let bot = Bot::new("token");
         let mailer = Mailer::new(&config).expect("Failed to create mailer");
@@ -428,7 +481,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        let result = process_job(&bot, &config, &mailer, job).await;
+        let result = process_job(&pool, &bot, &config, &mailer, job).await;
         db.bulk_update_jobs(vec![result]).await?;
 
         let status: OutboxStatus =

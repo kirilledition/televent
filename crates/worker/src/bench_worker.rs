@@ -25,7 +25,8 @@ mod tests {
             smtp_port: 1025,
             smtp_username: None,
             smtp_password: None,
-            smtp_from: "test@televent.app".to_string(),
+            smtp_from: "noreply@televent.app".to_string(),
+            smtp_pool_size: 10,
         };
         // Use a dummy token; we won't actually send requests if we mock or if the token is invalid.
         // But process_job calls `processors::process_message`.
@@ -87,10 +88,11 @@ mod tests {
 
             let mut tasks = JoinSet::new();
             for job in jobs {
+                let pool = pool.clone();
                 let bot = bot.clone();
                 let config = config.clone();
                 let mailer = mailer.clone();
-                tasks.spawn(async move { process_job(&bot, &config, &mailer, job).await });
+                tasks.spawn(async move { process_job(&pool, &bot, &config, &mailer, job).await });
             }
 
             let mut results = Vec::new();
@@ -106,7 +108,10 @@ mod tests {
         }
 
         let duration = start_time.elapsed();
-        println!("Processed {} jobs in {:?}", job_count, duration);
+        println!(
+            "Processed {} jobs ({} results) in {:?}",
+            job_count, processed_count, duration
+        );
 
         Ok(())
     }

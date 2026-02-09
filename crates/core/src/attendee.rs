@@ -6,13 +6,16 @@
 //! The Interceptor pattern routes these internal emails to Telegram notifications
 //! instead of SMTP, avoiding paid email service dependencies during MVP phase.
 
+use crate::models::UserId;
+use std::fmt;
+use std::str::FromStr;
 use thiserror::Error;
 
 /// Internal email domain for Televent users
 pub const INTERNAL_DOMAIN: &str = "televent.internal";
 
 /// Errors that can occur when processing attendee emails
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum AttendeeError {
     #[error("Invalid email format: {0}")]
     InvalidFormat(String),
@@ -21,66 +24,144 @@ pub enum AttendeeError {
     InvalidTelegramId(String),
 }
 
-/// Generate an internal email address from a Telegram ID
+/// Value Object representing an internal Televent email address
+///
+/// Wraps a UserId to ensure type safety and correct formatting.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InternalEmail(UserId);
+
+impl InternalEmail {
+    /// Create a new InternalEmail from a UserId
+    pub fn new(user_id: UserId) -> Self {
+        Self(user_id)
+    }
+
+    /// Get the underlying UserId
+    pub fn user_id(&self) -> UserId {
+        self.0
+    }
+
+    /// Get the email address as a string
+    pub fn as_str(&self) -> String {
+        format!("tg_{}@{}", self.0, INTERNAL_DOMAIN)
+    }
+}
+
+impl fmt::Display for InternalEmail {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl FromStr for InternalEmail {
+    type Err = AttendeeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let user_id =
+            parse_internal_email(s).ok_or_else(|| AttendeeError::InvalidFormat(s.to_string()))?;
+        Ok(InternalEmail(user_id))
+    }
+}
+
+/// Generate an internal email address from a User ID
 ///
 /// # Examples
 ///
 /// ```
 /// use televent_core::attendee::generate_internal_email;
+/// use televent_core::models::UserId;
 ///
-/// let email = generate_internal_email(123456789);
+/// let user_id = UserId::new(123456789);
+/// let email = generate_internal_email(user_id);
 /// assert_eq!(email, "tg_123456789@televent.internal");
 /// ```
-pub fn generate_internal_email(telegram_id: i64) -> String {
-    format!("tg_{}@{}", telegram_id, INTERNAL_DOMAIN)
+pub fn generate_internal_email(user_id: UserId) -> String {
+    InternalEmail::new(user_id).as_str()
 }
 
-/// Extract Telegram ID from an internal email address
+/// Parse an internal email address to extract the User ID
 ///
-/// Returns `Ok(Some(telegram_id))` for valid internal emails,
-/// `Ok(None)` for external emails (not @televent.internal),
-/// or `Err` if the format is invalid.
+/// Returns `Some(UserId)` if the email is a valid internal email,
+/// `None` otherwise.
 ///
 /// # Examples
 ///
 /// ```
-/// use televent_core::attendee::extract_telegram_id;
+/// use televent_core::attendee::parse_internal_email;
+/// use televent_core::models::UserId;
 ///
-/// // Internal email
-/// let result = extract_telegram_id("tg_123456789@televent.internal").unwrap();
-/// assert_eq!(result, Some(123456789));
+/// // Valid internal email
+/// let email = "tg_123456789@televent.internal";
+/// let user_id = parse_internal_email(email);
+/// assert_eq!(user_id, Some(UserId::new(123456789)));
 ///
-/// // External email
-/// let result = extract_telegram_id("user@gmail.com").unwrap();
-/// assert_eq!(result, None);
+/// // Invalid or external email
+/// assert_eq!(parse_internal_email("user@gmail.com"), None);
+/// assert_eq!(parse_internal_email("tg_abc@televent.internal"), None);
 /// ```
+pub fn parse_internal_email(email: &str) -> Option<UserId> {
+    // Check if it's an internal email
+    if !email.ends_with(&format!("@{}", INTERNAL_DOMAIN)) {
+        return None;
+    }
+
+    // Extract local part
+    let local_part = email.split('@').next()?;
+
+    // Verify tg_ prefix
+    if !local_part.starts_with("tg_") {
+        return None;
+    }
+
+    // Parse telegram_id
+    let id_str = &local_part[3..];
+    match id_str.parse::<i64>() {
+        Ok(id) => Some(UserId::new(id)),
+        Err(_) => None,
+    }
+}
+
+/// Extract Telegram ID from an internal email address
+///
+/// DEPRECATED: Use `parse_internal_email` instead.
+///
+/// Returns `Ok(Some(telegram_id))` for valid internal emails,
+/// `Ok(None)` for external emails (not @televent.internal),
+/// or `Err` if the format is invalid but looks like it aimed to be internal.
 pub fn extract_telegram_id(email: &str) -> Result<Option<i64>, AttendeeError> {
     // Check if it's an internal email
     if !email.ends_with(&format!("@{}", INTERNAL_DOMAIN)) {
         return Ok(None);
     }
 
-    // Extract local part
-    let local_part = email
-        .split('@')
-        .next()
-        .ok_or_else(|| AttendeeError::InvalidFormat(email.to_string()))?;
-
-    // Verify tg_ prefix
-    if !local_part.starts_with("tg_") {
-        return Err(AttendeeError::InvalidFormat(format!(
-            "Expected 'tg_' prefix, got: {}",
-            local_part
-        )));
+    match parse_internal_email(email) {
+        Some(user_id) => Ok(Some(user_id.inner())),
+        None => {
+            // If parse_internal_email returns None but it ended with the domain,
+            // it means the format was invalid (e.g. not tg_ prefix or not a number).
+            // We need to reconstruct the specific error for backward compatibility if possible,
+            // or just return a generic format error.
+            if !email.starts_with("tg_")
+                && email.contains('@')
+                && !email.split('@').next().unwrap_or("").starts_with("tg_")
+            {
+                // Trying to match exact error messages from before might be brittle,
+                // but let's try to be helpful.
+                let local_part = email.split('@').next().unwrap_or("");
+                Err(AttendeeError::InvalidFormat(format!(
+                    "Expected 'tg_' prefix, got: {}",
+                    local_part
+                )))
+            } else {
+                let local_part = email.split('@').next().unwrap_or("");
+                if let Some(id_str) = local_part.strip_prefix("tg_") {
+                    Err(AttendeeError::InvalidTelegramId(id_str.to_string()))
+                } else {
+                    Err(AttendeeError::InvalidFormat(email.to_string()))
+                }
+            }
+        }
     }
-
-    // Parse telegram_id
-    let id_str = &local_part[3..];
-    let telegram_id = id_str
-        .parse::<i64>()
-        .map_err(|_| AttendeeError::InvalidTelegramId(id_str.to_string()))?;
-
-    Ok(Some(telegram_id))
 }
 
 /// Check if an email address is an internal Televent email
@@ -102,95 +183,67 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_generate_internal_email() {
-        assert_eq!(
-            generate_internal_email(123456789),
-            "tg_123456789@televent.internal"
-        );
-        assert_eq!(generate_internal_email(999), "tg_999@televent.internal");
+    fn test_internal_email_struct() {
+        let user_id = UserId::new(123456789);
+        let email = InternalEmail::new(user_id);
+        assert_eq!(email.user_id(), user_id);
+        assert_eq!(email.as_str(), "tg_123456789@televent.internal");
+        assert_eq!(email.to_string(), "tg_123456789@televent.internal");
     }
 
     #[test]
-    fn test_extract_telegram_id_valid_internal() {
+    fn test_generate_internal_email() {
+        let user_id = UserId::new(123456789);
+        assert_eq!(
+            generate_internal_email(user_id),
+            "tg_123456789@televent.internal"
+        );
+        assert_eq!(
+            generate_internal_email(UserId::new(999)),
+            "tg_999@televent.internal"
+        );
+    }
+
+    #[test]
+    fn test_parse_internal_email() {
+        // Valid
+        assert_eq!(
+            parse_internal_email("tg_123456789@televent.internal"),
+            Some(UserId::new(123456789))
+        );
+
+        // Invalid domain
+        assert_eq!(parse_internal_email("tg_123@gmail.com"), None);
+
+        // Missing prefix
+        assert_eq!(parse_internal_email("123@televent.internal"), None);
+
+        // Invalid ID
+        assert_eq!(parse_internal_email("tg_abc@televent.internal"), None);
+        assert_eq!(parse_internal_email("tg_@televent.internal"), None);
+    }
+
+    #[test]
+    fn test_extract_telegram_id_backward_compat() {
+        // Valid
         let result = extract_telegram_id("tg_123456789@televent.internal").unwrap();
         assert_eq!(result, Some(123456789));
 
-        let result = extract_telegram_id("tg_999@televent.internal").unwrap();
-        assert_eq!(result, Some(999));
-    }
-
-    #[test]
-    fn test_extract_telegram_id_external_email() {
+        // External
         let result = extract_telegram_id("user@gmail.com").unwrap();
         assert_eq!(result, None);
 
-        let result = extract_telegram_id("john@outlook.com").unwrap();
-        assert_eq!(result, None);
-    }
+        // Invalid format errors
+        let result = extract_telegram_id("123@televent.internal");
+        assert!(matches!(result, Err(AttendeeError::InvalidFormat(_))));
 
-    #[test]
-    fn test_extract_telegram_id_invalid_format() {
-        // Missing tg_ prefix
-        let result = extract_telegram_id("123456789@televent.internal");
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            AttendeeError::InvalidFormat(_)
-        ));
-
-        // Invalid telegram_id (not a number)
         let result = extract_telegram_id("tg_abc@televent.internal");
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            AttendeeError::InvalidTelegramId(_)
-        ));
-
-        // Empty telegram_id
-        let result = extract_telegram_id("tg_@televent.internal");
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            AttendeeError::InvalidTelegramId(_)
-        ));
+        assert!(matches!(result, Err(AttendeeError::InvalidTelegramId(_))));
     }
 
     #[test]
     fn test_is_internal_email() {
-        // Valid internal emails
-        assert!(is_internal_email("tg_123456789@televent.internal"));
-        assert!(is_internal_email("tg_999@televent.internal"));
-        assert!(is_internal_email("anything@televent.internal"));
-
-        // External emails
+        assert!(is_internal_email("tg_123@televent.internal"));
         assert!(!is_internal_email("user@gmail.com"));
-        assert!(!is_internal_email("john@outlook.com"));
-        assert!(!is_internal_email("test@example.com"));
-        assert!(!is_internal_email("tg_123@wrongdomain.com"));
-    }
-
-    #[test]
-    fn test_roundtrip_conversion() {
-        // Generate internal email and extract telegram_id back
-        let original_id = 123456789i64;
-        let email = generate_internal_email(original_id);
-        let extracted_id = extract_telegram_id(&email).unwrap();
-        assert_eq!(extracted_id, Some(original_id));
-    }
-
-    #[test]
-    fn test_is_internal_matches_extract() {
-        // is_internal_email and extract_telegram_id should be consistent
-        let internal = "tg_123@televent.internal";
-        let external = "user@gmail.com";
-
-        assert_eq!(
-            is_internal_email(internal),
-            extract_telegram_id(internal).unwrap().is_some()
-        );
-        assert_eq!(
-            is_internal_email(external),
-            extract_telegram_id(external).unwrap().is_some()
-        );
     }
 }

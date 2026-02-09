@@ -443,7 +443,7 @@ pub async fn handle_invite(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         let username = invitee_str.trim_start_matches('@');
         match db.find_user_by_username(username).await? {
             Some(user_info) => (
-                generate_internal_email(user_info.telegram_id),
+                generate_internal_email(televent_core::models::UserId::new(user_info.telegram_id)),
                 Some(user_info.telegram_id),
             ),
             None => {
@@ -840,6 +840,86 @@ pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()
                 telegram_id,
                 parse_error
             );
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle callback queries (RSVP buttons)
+pub async fn handle_callback_query(bot: Bot, q: CallbackQuery, db: BotDb) -> Result<()> {
+    let data = match q.data {
+        Some(d) => d,
+        None => return Ok(()),
+    };
+
+    // Check if it's an RSVP callback
+    if !data.starts_with("rsvp:") {
+        return Ok(());
+    }
+
+    let user_id = q.from.id.0 as i64;
+    let parts: Vec<&str> = data.split(':').collect();
+
+    // Format: rsvp:<event_id>:<status>
+    if parts.len() != 3 {
+        // Just answer to stop spinner
+        bot.answer_callback_query(q.id)
+            .text("❌ Invalid data")
+            .await?;
+        return Ok(());
+    }
+
+    let event_id_str = parts[1];
+    let status = parts[2];
+
+    let event_id = match uuid::Uuid::parse_str(event_id_str) {
+        Ok(id) => id,
+        Err(_) => {
+            bot.answer_callback_query(q.id)
+                .text("❌ Invalid event ID")
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Confirm RSVP in DB (transactional)
+    match db.confirm_rsvp(event_id, user_id, status).await {
+        Ok(_) => {
+            let status_emoji = match status {
+                "ACCEPTED" => "✅",
+                "DECLINED" => "❌",
+                "TENTATIVE" => "🤔",
+                _ => "",
+            };
+
+            // Edit the message to remove buttons and show status
+            if let Some(msg) = q.message {
+                let text = match &msg {
+                    teloxide::types::MaybeInaccessibleMessage::Regular(m) => m.text(),
+                    _ => None,
+                };
+
+                if let Some(text) = text
+                    && !text.contains("Status: ")
+                {
+                    let new_text = format!("{}\n\nStatus: {} {}", text, status_emoji, status);
+
+                    // Edit text and remove keyboard
+                    bot.edit_message_text(msg.chat().id, msg.id(), new_text)
+                        .reply_markup(teloxide::types::InlineKeyboardMarkup::default())
+                        .await?;
+                }
+            }
+
+            bot.answer_callback_query(q.id).text("RSVP Updated").await?;
+        }
+        Err(e) => {
+            tracing::error!("Failed to confirm RSVP: {}", e);
+            bot.answer_callback_query(q.id)
+                .text("❌ Failed to update RSVP. Please try again.")
+                .show_alert(true)
+                .await?;
         }
     }
 

@@ -756,7 +756,6 @@
         "type": "object",
         "description": "Event attendee with RSVP status",
         "required": [
-          "id",
           "event_id",
           "email",
           "role",
@@ -776,26 +775,22 @@
             "type": "string",
             "format": "uuid"
           },
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
           "role": {
             "$ref": "#/components/schemas/AttendeeRole"
           },
           "status": {
             "$ref": "#/components/schemas/ParticipationStatus"
           },
-          "telegram_id": {
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user_id": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },

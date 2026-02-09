@@ -31,6 +31,8 @@ pub fn build_handler_tree() -> UpdateHandler<RequestError> {
         )
         // Then handle as text message (for event creation)
         .branch(dptree::filter(|msg: Message| msg.text().is_some()).endpoint(handle_message))
+        // Handle callback queries
+        .branch(Update::filter_callback_query().endpoint(handle_callback_query))
 }
 
 /// Run the Telegram bot service
@@ -89,6 +91,17 @@ async fn handle_message(bot: Bot, msg: Message, db: BotDb) -> ResponseResult<()>
 
     if let Err(e) = result {
         tracing::error!("Error handling text message: {}", e);
+    }
+
+    Ok(())
+}
+
+/// Handle callback queries
+async fn handle_callback_query(bot: Bot, q: CallbackQuery, db: BotDb) -> ResponseResult<()> {
+    let result = handlers::handle_callback_query(bot, q, db).await;
+
+    if let Err(e) = result {
+        tracing::error!("Error handling callback query: {}", e);
     }
 
     Ok(())

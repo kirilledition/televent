@@ -17,8 +17,9 @@ use televent_core::models::{User, UserId};
 
 use crate::db;
 use crate::error::ApiError;
-
-use super::{caldav_xml, ical};
+use crate::routes::{caldav_xml, ical as ical_route};
+use televent_core::attendee;
+use televent_core::models::ParticipationStatus;
 
 /// CalDAV OPTIONS handler
 ///
@@ -112,8 +113,11 @@ async fn caldav_get_event(
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Event not found: {}", event_uid)))?;
 
+    // List attendees
+    let attendees = db::events::get_event_attendees(&pool, event.id).await?;
+
     // Convert to iCalendar format
-    let ical = ical::event_to_ical(&event)?;
+    let ical = ical_route::event_to_ical(&event, &attendees)?;
 
     // Return with proper headers
     Ok((
@@ -133,6 +137,9 @@ const MAX_CALDAV_BODY_SIZE: usize = 1024 * 1024;
 /// Maximum number of hrefs allowed in a calendar-multiget report
 const MAX_MULTIGET_HREFS: usize = 200;
 
+/// CalDAV PUT handler
+///
+/// Creates or updates an event from iCalendar data
 /// CalDAV PUT handler
 ///
 /// Creates or updates an event from iCalendar data
@@ -158,9 +165,34 @@ async fn caldav_put_event(
     let ical_str = String::from_utf8(body_bytes.to_vec())
         .map_err(|e| ApiError::BadRequest(format!("Invalid UTF-8: {}", e)))?;
 
-    // Parse iCalendar
+    // Parse iCalendar using ical crate
+    let parser = ical::IcalParser::new(std::io::Cursor::new(&ical_str));
+    let calendar = parser
+        .into_iter()
+        .next()
+        .ok_or_else(|| ApiError::BadRequest("Empty calendar".to_string()))?
+        .map_err(|e| ApiError::BadRequest(format!("Failed to parse calendar: {}", e)))?;
+
+    let event = calendar
+        .events
+        .first()
+        .ok_or_else(|| ApiError::BadRequest("No event found in calendar".to_string()))?;
+
+    // Extract basic properties
+    // We'll use a local helper or inline logic. For now, let's reuse ical_to_event_data logic but adapted?
+    // actually, let's just use ical_to_event_data for the basic fields to avoid rewriting parsing logic for dates/recurrence right now,
+    // AND iterate over the parsed `event` properties for attendees.
+    // This parses twice but is safer to avoid regression on date parsing which can be complex.
+    // Wait, ical_to_event_data parses the STRING.
+    // Efficiently, we should do it once.
+    // But ical_to_event_data is robust for now.
+    // Correct approach: Use `ical_to_event_data` for event fields, and `ical` crate for Attendees.
+    // This is technically double parsing but negligible for small ICS files.
+    //
+    // TODO: Refactor ical_to_event_data to use ical crate internally later.
+
     let (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone) =
-        ical::ical_to_event_data(&ical_str)?;
+        ical_route::ical_to_event_data(&ical_str)?;
 
     // Check if UID matches the URL
     if uid != event_uid {
@@ -170,10 +202,16 @@ async fn caldav_put_event(
         )));
     }
 
-    // Check if event already exists
-    let existing = db::events::get_event_by_uid(&pool, user.id, &uid).await?;
+    // Start transaction
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    let (status_code, etag) = if let Some(existing_event) = existing {
+    // Check if event already exists
+    let existing = db::events::get_event_by_uid(&mut *tx, user.id, &uid).await?;
+
+    let (status_code, etag, event_id) = if let Some(existing_event) = existing {
         // Check If-Match header for optimistic locking (RFC 4791)
         if let Some(if_match) = headers.get(header::IF_MATCH) {
             let requested_etag = if_match
@@ -190,7 +228,7 @@ async fn caldav_put_event(
 
         // Update existing event
         let updated = db::events::update_event(
-            &pool,
+            &mut tx,
             user.id,
             existing_event.id,
             Some(summary),
@@ -213,7 +251,7 @@ async fn caldav_put_event(
             rrule,
         )
         .await?;
-        (StatusCode::NO_CONTENT, updated.etag)
+        (StatusCode::NO_CONTENT, updated.etag, updated.id)
     } else {
         // Create new event
         use crate::db::events::EventTiming;
@@ -232,9 +270,9 @@ async fn caldav_put_event(
         let tz = Timezone::parse(&timezone).unwrap_or_default();
 
         let created = db::events::create_event(
-            &pool,
+            &mut *tx,
             user.id,
-            uid,
+            uid.to_string(),
             summary,
             description,
             location,
@@ -243,11 +281,53 @@ async fn caldav_put_event(
             rrule,
         )
         .await?;
-        (StatusCode::CREATED, created.etag)
+        (StatusCode::CREATED, created.etag, created.id)
     };
 
+    // Process Attendees
+    for property in &event.properties {
+        if property.name == "ATTENDEE"
+            && let Some(value) = &property.value
+        {
+            // value is usually "mailto:email@example.com"
+            let email = value.trim_start_matches("mailto:");
+            if let Some(internal_user_id) = attendee::parse_internal_email(email) {
+                // Check if self? (optional)
+                if internal_user_id == user.id {
+                    continue; // Skip self as attendee? Or keep it? keeping it is safer for state.
+                }
+
+                // Upsert attendee
+                // Default status NEEDS-ACTION roughly matches 'NeedsAction' from caldav spec
+                // We use our internal status
+                let is_new_attendee = db::events::upsert_event_attendee(
+                    &mut *tx,
+                    event_id,
+                    internal_user_id,
+                    email,
+                    ParticipationStatus::NeedsAction,
+                )
+                .await?;
+
+                if is_new_attendee {
+                    // Create notification
+                    let payload = serde_json::json!({
+                        "event_id": event_id,
+                        "target_user_id": internal_user_id
+                    });
+                    db::events::create_outbox_message(&mut *tx, "invite_notification", payload)
+                        .await?;
+                }
+            }
+        }
+    }
+
     // Increment sync token
-    let _new_sync_token = db::users::increment_sync_token(&pool, user.id).await?;
+    let _new_sync_token = db::users::increment_sync_token_tx(&mut tx, user.id).await?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     Ok((status_code, [(header::ETAG, format!("\"{}\"", etag))], "").into_response())
 }
@@ -321,8 +401,8 @@ async fn caldav_report(
             // Parse sync token to get last known state
             let last_sync_token = sync_token
                 .as_ref()
-                .and_then(|s| s.rsplit('/').next())
-                .and_then(|s| s.parse::<i64>().ok())
+                .and_then(|s: &String| s.rsplit('/').next())
+                .and_then(|s: &str| s.parse::<i64>().ok())
                 .unwrap_or(0);
 
             tracing::info!(

@@ -37,23 +37,22 @@ impl KeyExtractor for UserOrIpKeyExtractor {
         let headers = req.headers();
 
         // 1. Try X-Real-IP (trusted proxy set header)
-        if let Some(header) = headers.get("x-real-ip") {
-            if let Ok(val) = header.to_str() {
-                if let Ok(ip) = val.trim().parse::<IpAddr>() {
-                    return Ok(RateLimitKey::Ip(ip));
-                }
-            }
+        if let Some(header) = headers.get("x-real-ip")
+            && let Ok(val) = header.to_str()
+            && let Ok(ip) = val.trim().parse::<IpAddr>()
+        {
+            return Ok(RateLimitKey::Ip(ip));
         }
 
         // 2. Try X-Forwarded-For (standard for proxies like Nginx/Railway)
-        if let Some(header) = headers.get("x-forwarded-for") {
-            if let Ok(val) = header.to_str() {
-                // Takes the first IP in the list (Client, Proxy1, Proxy2)
-                if let Some(client_ip) = val.split(',').next() {
-                    if let Ok(ip) = client_ip.trim().parse::<IpAddr>() {
-                        return Ok(RateLimitKey::Ip(ip));
-                    }
-                }
+        if let Some(header) = headers.get("x-forwarded-for")
+            && let Ok(val) = header.to_str()
+        {
+            // Takes the first IP in the list (Client, Proxy1, Proxy2)
+            if let Some(client_ip) = val.split(',').next()
+                && let Ok(ip) = client_ip.trim().parse::<IpAddr>()
+            {
+                return Ok(RateLimitKey::Ip(ip));
             }
         }
 

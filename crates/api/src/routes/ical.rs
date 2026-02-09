@@ -3,21 +3,25 @@
 //! Converts between our Event model and iCalendar (RFC 5545) format
 
 use chrono::{DateTime, Utc};
-use televent_core::models::{Event, EventStatus};
+use televent_core::models::{Event, EventAttendee, EventStatus, ParticipationStatus};
 
 use crate::error::ApiError;
 
 /// Convert our Event model to iCalendar format
-pub fn event_to_ical(event: &Event) -> Result<String, ApiError> {
+pub fn event_to_ical(event: &Event, attendees: &[EventAttendee]) -> Result<String, ApiError> {
     let mut buf = String::with_capacity(512);
-    event_to_ical_into(event, &mut buf)?;
+    event_to_ical_into(event, attendees, &mut buf)?;
     Ok(buf)
 }
 
 /// Convert our Event model to iCalendar format, writing to a buffer
 ///
 /// This avoids allocating a new String for the result if a buffer is reused.
-pub fn event_to_ical_into(event: &Event, buf: &mut String) -> Result<(), ApiError> {
+pub fn event_to_ical_into(
+    event: &Event,
+    attendees: &[EventAttendee],
+    buf: &mut String,
+) -> Result<(), ApiError> {
     let mut writer = FoldedWriter::new(buf);
 
     writer.write_line("BEGIN:VCALENDAR")?;
@@ -67,6 +71,20 @@ pub fn event_to_ical_into(event: &Event, buf: &mut String) -> Result<(), ApiErro
         EventStatus::Cancelled => "CANCELLED",
     };
     writer.write_property("STATUS", status_str)?;
+
+    // Attendees
+    for attendee in attendees {
+        let partstat = match attendee.status {
+            ParticipationStatus::NeedsAction => "NEEDS-ACTION",
+            ParticipationStatus::Accepted => "ACCEPTED",
+            ParticipationStatus::Declined => "DECLINED",
+            ParticipationStatus::Tentative => "TENTATIVE",
+        };
+
+        let prop_name = format!("ATTENDEE;CN=User;RSVP=TRUE;PARTSTAT={}", partstat);
+        let value = format!("mailto:{}", attendee.email);
+        writer.write_property(&prop_name, &value)?;
+    }
 
     // Recurrence rule
     if let Some(ref rrule) = event.rrule {
@@ -442,7 +460,8 @@ mod tests {
     #[test]
     fn test_event_to_ical_basic() {
         let event = create_test_event();
-        let ical = event_to_ical(&event).unwrap();
+        let attendees = vec![];
+        let ical = event_to_ical(&event, &attendees).unwrap();
 
         assert!(ical.contains("BEGIN:VCALENDAR"));
         assert!(ical.contains("BEGIN:VEVENT"));
@@ -462,7 +481,8 @@ mod tests {
         event.start_date = Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
         event.end_date = Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 2).unwrap());
 
-        let ical = event_to_ical(&event).unwrap();
+        let attendees = vec![];
+        let ical = event_to_ical(&event, &attendees).unwrap();
 
         assert!(ical.contains("BEGIN:VEVENT"));
         assert!(ical.contains("UID:test-event-123"));
@@ -475,7 +495,8 @@ mod tests {
         let mut event = create_test_event();
         event.rrule = Some("FREQ=DAILY;COUNT=10".to_string());
 
-        let ical = event_to_ical(&event).unwrap();
+        let attendees = vec![];
+        let ical = event_to_ical(&event, &attendees).unwrap();
 
         assert!(ical.contains("RRULE:FREQ=DAILY;COUNT=10"));
     }
@@ -484,14 +505,63 @@ mod tests {
     fn test_event_to_ical_statuses() {
         let mut event = create_test_event();
 
+        let attendees = vec![];
         event.status = EventStatus::Confirmed;
-        assert!(event_to_ical(&event).unwrap().contains("STATUS:CONFIRMED"));
+        assert!(
+            event_to_ical(&event, &attendees)
+                .unwrap()
+                .contains("STATUS:CONFIRMED")
+        );
 
         event.status = EventStatus::Tentative;
-        assert!(event_to_ical(&event).unwrap().contains("STATUS:TENTATIVE"));
+        assert!(
+            event_to_ical(&event, &attendees)
+                .unwrap()
+                .contains("STATUS:TENTATIVE")
+        );
 
         event.status = EventStatus::Cancelled;
-        assert!(event_to_ical(&event).unwrap().contains("STATUS:CANCELLED"));
+        assert!(
+            event_to_ical(&event, &attendees)
+                .unwrap()
+                .contains("STATUS:CANCELLED")
+        );
+    }
+
+    #[test]
+    fn test_event_to_ical_with_attendees() {
+        let event = create_test_event();
+        let attendees = vec![
+            EventAttendee {
+                event_id: event.id,
+                email: "test@example.com".to_string(),
+                user_id: None,
+                role: televent_core::models::AttendeeRole::Attendee,
+                status: ParticipationStatus::Accepted,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            },
+            EventAttendee {
+                event_id: event.id,
+                email: "decliner@example.com".to_string(),
+                user_id: None,
+                role: televent_core::models::AttendeeRole::Attendee,
+                status: ParticipationStatus::Declined,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            },
+        ];
+
+        let ical = event_to_ical(&event, &attendees).unwrap();
+
+        assert!(
+            ical.contains("ATTENDEE;CN=User;RSVP=TRUE;PARTSTAT=ACCEPTED:mailto:test@example.com")
+        );
+        assert!(
+            ical.contains(
+                "ATTENDEE;CN=User;RSVP=TRUE;PARTSTAT=DECLINED:mailto:decliner@example.com"
+            )
+        );
     }
 
     #[test]
@@ -580,7 +650,8 @@ END:VCALENDAR"#;
     #[test]
     fn test_ical_roundtrip() {
         let event = create_test_event();
-        let ical = event_to_ical(&event).unwrap();
+        let attendees = vec![];
+        let ical = event_to_ical(&event, &attendees).unwrap();
 
         // Parse it back
         let (uid, summary, description, location, _, _, _, _, status, _) =
@@ -613,8 +684,9 @@ END:VCALENDAR"#;
     #[test]
     fn test_event_to_ical_into() {
         let event = create_test_event();
+        let attendees = vec![];
         let mut buf = String::new();
-        event_to_ical_into(&event, &mut buf).unwrap();
+        event_to_ical_into(&event, &attendees, &mut buf).unwrap();
 
         assert!(buf.contains("BEGIN:VCALENDAR"));
         assert!(buf.contains("UID:test-event-123"));
@@ -625,7 +697,8 @@ END:VCALENDAR"#;
         let mut event = create_test_event();
         event.summary = "This is a very long summary that should definitely be folded because it exceeds the seventy-five octet limit imposed by the iCalendar specification (RFC 5545).".to_string();
 
-        let ical = event_to_ical(&event).unwrap();
+        let attendees = vec![];
+        let ical = event_to_ical(&event, &attendees).unwrap();
 
         // Check if it contains CRLF + space
         assert!(ical.contains("\r\n "));
@@ -666,7 +739,8 @@ END:VCALENDAR"#;
         // Note: RRULE validation happens at API boundary, so this tests that the serializer itself is vulnerable
         event.rrule = Some("FREQ=DAILY\r\nATTENDEE:MAILTO:evil@example.com".to_string());
 
-        let ical = event_to_ical(&event).unwrap();
+        let attendees = vec![];
+        let ical = event_to_ical(&event, &attendees).unwrap();
 
         // Check if the injected property appears on its own line
         // The serializer does not escape RRULE, so CRLF is passed through

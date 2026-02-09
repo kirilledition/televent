@@ -1,14 +1,7 @@
 use api::{AppState, create_router};
-use axum::{
-    body::Body,
-    http::{Request, StatusCode},
-};
-use chrono::Utc;
 use moka::future::Cache;
 use sqlx::{PgPool, Row};
 use std::time::{Duration, Instant};
-use tower::ServiceExt; // for oneshot
-use uuid::Uuid;
 
 #[sqlx::test]
 #[ignore]

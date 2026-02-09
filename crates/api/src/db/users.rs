@@ -53,23 +53,6 @@ pub async fn get_user_by_username(pool: &PgPool, username: &str) -> Result<Optio
     Ok(user)
 }
 
-/// Increment sync token for a user's calendar
-pub async fn increment_sync_token(pool: &PgPool, user_id: UserId) -> Result<String, ApiError> {
-    let result = sqlx::query_scalar::<_, String>(
-        "UPDATE users
-         SET sync_token = (sync_token::bigint + 1)::text,
-             ctag = EXTRACT(EPOCH FROM NOW())::text,
-             updated_at = NOW()
-         WHERE telegram_id = $1
-         RETURNING sync_token",
-    )
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(result)
-}
-
 /// Increment sync token for a user's calendar (within transaction)
 pub async fn increment_sync_token_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

@@ -76,6 +76,7 @@ impl UnifiedConfig {
             smtp_username: None,
             smtp_password: None,
             smtp_from: "noreply@televent.app".to_string(),
+            smtp_pool_size: 10,
         }
     }
 }

@@ -316,12 +316,11 @@ pub enum OutboxStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct EventAttendee {
     #[typeshare(serialized_as = "string")]
-    pub id: Uuid,
-    #[typeshare(serialized_as = "string")]
     pub event_id: Uuid,
     pub email: String, // tg_123@televent.internal or external
+    #[sqlx(rename = "user_id")]
     #[typeshare(serialized_as = "string")]
-    pub telegram_id: Option<i64>, // Populated for internal users
+    pub user_id: Option<i64>, // Populated for internal users
     pub role: AttendeeRole,
     pub status: ParticipationStatus,
     #[typeshare(serialized_as = "string")]
@@ -342,7 +341,7 @@ pub enum AttendeeRole {
 /// Participation status (RFC 5545 PARTSTAT parameter)
 #[typeshare]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, ToSchema)]
-#[sqlx(type_name = "participation_status")]
+#[sqlx(type_name = "attendee_status")]
 pub enum ParticipationStatus {
     #[sqlx(rename = "NEEDS-ACTION")]
     #[serde(rename = "NeedsAction")]
@@ -592,10 +591,9 @@ mod tests {
     #[test]
     fn test_event_attendee_structure() {
         let attendee = EventAttendee {
-            id: Uuid::new_v4(),
             event_id: Uuid::new_v4(),
             email: "tg_123456789@televent.internal".to_string(),
-            telegram_id: Some(123456789),
+            user_id: Some(123456789),
             role: AttendeeRole::Attendee,
             status: ParticipationStatus::NeedsAction,
             created_at: Utc::now(),
@@ -606,7 +604,7 @@ mod tests {
         let json = serde_json::to_string(&attendee).unwrap();
         let deserialized: EventAttendee = serde_json::from_str(&json).unwrap();
         assert_eq!(attendee.email, deserialized.email);
-        assert_eq!(attendee.telegram_id, deserialized.telegram_id);
+        assert_eq!(attendee.user_id, deserialized.user_id);
         assert_eq!(attendee.role, deserialized.role);
         assert_eq!(attendee.status, deserialized.status);
     }

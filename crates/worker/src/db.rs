@@ -2,7 +2,7 @@
 //!
 //! Handles fetching and updating outbox messages
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{FromRow, PgPool};
 use televent_core::models::OutboxStatus;
@@ -82,6 +82,7 @@ impl WorkerDb {
     }
 
     /// Mark a message as completed
+    #[cfg(test)]
     pub async fn mark_completed(&self, message_id: Uuid) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -99,6 +100,7 @@ impl WorkerDb {
     }
 
     /// Mark a message as failed with error message
+    #[cfg(test)]
     pub async fn mark_failed(&self, message_id: Uuid, error_msg: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -120,6 +122,7 @@ impl WorkerDb {
     /// Reschedule a message with exponential backoff
     ///
     /// Backoff formula: 2^retry_count minutes
+    #[cfg(test)]
     pub async fn reschedule_message(
         &self,
         message_id: Uuid,
@@ -128,7 +131,7 @@ impl WorkerDb {
     ) -> Result<(), sqlx::Error> {
         // Calculate backoff: 2^retry_count minutes (1m, 2m, 4m, 8m, 16m)
         let backoff_minutes = 2_i64.pow((current_retry_count + 1) as u32);
-        let next_scheduled = Utc::now() + Duration::minutes(backoff_minutes);
+        let next_scheduled = Utc::now() + chrono::Duration::minutes(backoff_minutes);
 
         sqlx::query(
             r#"
