@@ -257,7 +257,9 @@ impl Event {
             date.and_hms_opt(0, 0, 0)
                 .map(|dt| dt.and_utc())
                 .ok_or_else(|| {
-                    CalendarError::InvalidEventData("Failed to create timestamp from date".to_string())
+                    CalendarError::InvalidEventData(
+                        "Failed to create timestamp from date".to_string(),
+                    )
                 })
         }
     }

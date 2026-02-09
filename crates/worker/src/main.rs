@@ -4,9 +4,9 @@
 //! For library usage, see the worker crate's lib.rs.
 
 use anyhow::Result;
+use televent_shared::bootstrap;
 use teloxide::Bot;
 use tracing::info;
-use televent_shared::bootstrap;
 
 #[tokio::main]
 async fn main() -> Result<()> {

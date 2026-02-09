@@ -47,7 +47,10 @@ pub async fn init_db(config: &CoreConfig) -> Result<sqlx::PgPool> {
         .connect(&config.database_url)
         .await?;
 
-    tracing::info!("✓ Database pool established (max_connections: {})", config.db_max_connections);
+    tracing::info!(
+        "✓ Database pool established (max_connections: {})",
+        config.db_max_connections
+    );
 
     Ok(pool)
 }
