@@ -408,6 +408,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "televent-core",
+ "televent-shared",
  "tempfile",
  "tokio",
  "tower",
@@ -669,6 +670,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "televent-core",
+ "televent-shared",
  "teloxide",
  "teloxide_tests",
  "thiserror 2.0.18",
@@ -4223,7 +4225,6 @@ checksum = "20f34339676cdcab560c9a82300c4c2581f68b9369aedf0fae86f2ff9565ff3e"
 name = "televent-core"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "chrono",
  "chrono-tz",
  "dotenvy",
@@ -4236,6 +4237,20 @@ dependencies = [
  "typeshare",
  "utoipa",
  "uuid",
+]
+
+[[package]]
+name = "televent-shared"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dotenvy",
+ "sqlx",
+ "televent-core",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -5514,6 +5529,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "televent-core",
+ "televent-shared",
  "teloxide",
  "thiserror 2.0.18",
  "tokio",

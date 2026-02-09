@@ -53,6 +53,7 @@ mod tests {
             core: CoreConfig {
                 database_url: "postgres://test".to_string(),
                 telegram_bot_token: "test_token".to_string(),
+                db_max_connections: 20,
             },
             host: "0.0.0.0".to_string(),
             port: 3000,

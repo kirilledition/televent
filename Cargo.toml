@@ -6,6 +6,7 @@ members = [
     "crates/bot",
     "crates/worker",
     "crates/server",
+    "crates/shared",
 ]
 
 [workspace.package]
