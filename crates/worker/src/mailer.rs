@@ -104,6 +104,7 @@ mod tests {
             core: CoreConfig {
                 database_url: "postgres://localhost".to_string(),
                 telegram_bot_token: "test_token".to_string(),
+                db_max_connections: 10,
             },
             poll_interval_secs: 10,
             max_retry_count: 5,

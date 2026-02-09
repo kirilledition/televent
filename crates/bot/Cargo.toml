@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 # Internal
 televent-core = { path = "../core" }
+televent-shared = { path = "../shared" }
 
 # Core
 tokio.workspace = true

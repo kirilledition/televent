@@ -22,5 +22,15 @@ pub enum CalendarError {
     InvalidEventData(String),
 }
 
+/// Configuration errors
+#[derive(Error, Debug)]
+pub enum ConfigError {
+    #[error("Missing environment variable: {0}")]
+    MissingEnvVar(String),
+
+    #[error("Invalid environment variable: {0}")]
+    InvalidEnvVar(String),
+}
+
 /// Result type alias for calendar operations
 pub type CalendarResult<T> = Result<T, CalendarError>;

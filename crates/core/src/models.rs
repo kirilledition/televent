@@ -2,6 +2,7 @@
 //!
 //! These models represent the core business entities and map to database tables.
 
+use crate::error::CalendarError;
 use chrono::{DateTime, NaiveDate, Utc};
 
 /// Calendar name constant (shared by all users)
@@ -42,12 +43,6 @@ impl UserId {
 impl fmt::Display for UserId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl From<i64> for UserId {
-    fn from(id: i64) -> Self {
-        Self(id)
     }
 }
 
@@ -250,16 +245,20 @@ pub struct Event {
 }
 
 impl Event {
-    pub fn start_as_timestamp(&self) -> DateTime<Utc> {
+    pub fn start_as_timestamp(&self) -> Result<DateTime<Utc>, CalendarError> {
         if let Some(s) = self.start {
-            s
+            Ok(s)
         } else {
             // Treat Date as 00:00 UTC for sorting purposes only
-            self.start_date
-                .unwrap_or_default()
-                .and_hms_opt(0, 0, 0)
-                .unwrap()
-                .and_utc()
+            let date = self.start_date.ok_or_else(|| {
+                CalendarError::InvalidEventData("Event has no start time or date".to_string())
+            })?;
+
+            date.and_hms_opt(0, 0, 0)
+                .map(|dt| dt.and_utc())
+                .ok_or_else(|| {
+                    CalendarError::InvalidEventData("Failed to create timestamp from date".to_string())
+                })
         }
     }
 }
@@ -367,12 +366,6 @@ mod tests {
         let id = UserId::new(123456789);
         assert_eq!(id.inner(), 123456789);
         assert_eq!(id.to_string(), "123456789");
-    }
-
-    #[test]
-    fn test_user_id_from_i64() {
-        let id: UserId = 123456789_i64.into();
-        assert_eq!(id.inner(), 123456789);
     }
 
     #[test]
