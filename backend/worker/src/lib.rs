@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(cfg.max_retry_count, 5);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_process_job_email_success(pool: PgPool) -> sqlx::Result<()> {
         use serde_json::json;
         use televent_core::config::CoreConfig;
@@ -381,7 +381,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_process_job_unknown_retry(pool: PgPool) -> sqlx::Result<()> {
         use serde_json::json;
         use televent_core::config::CoreConfig;
@@ -440,7 +440,7 @@ mod tests {
         Ok(())
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_process_job_max_retries(pool: PgPool) -> sqlx::Result<()> {
         use serde_json::json;
         use televent_core::config::CoreConfig;

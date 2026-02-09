@@ -1,12 +1,12 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/core",
-    "crates/api",
-    "crates/bot",
-    "crates/worker",
-    "crates/server",
-    "crates/shared",
+    "core",
+    "api",
+    "bot",
+    "worker",
+    "server",
+    "shared",
 ]
 
 [workspace.package]

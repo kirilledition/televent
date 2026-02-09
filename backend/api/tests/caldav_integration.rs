@@ -10,7 +10,7 @@ use televent_core::attendee::generate_internal_email;
 use televent_core::models::UserId;
 use tower::ServiceExt;
 
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_caldav_put_with_internal_attendee(pool: PgPool) {
     // 1. Setup Users
     let user_a_id = UserId::new(1001);
@@ -134,7 +134,7 @@ async fn test_caldav_put_with_internal_attendee(pool: PgPool) {
     assert_eq!(payload["event_id"].as_str().unwrap(), event_id.to_string());
 }
 
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_health_check(pool: PgPool) {
     let auth_cache = Cache::builder()
         .time_to_live(Duration::from_secs(300))

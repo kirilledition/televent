@@ -680,7 +680,7 @@ mod tests {
     use super::*;
     use chrono::Duration;
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_user_setup(pool: PgPool) {
         let db = BotDb::new(pool);
         let telegram_id = 1001;
@@ -694,7 +694,7 @@ mod tests {
         assert!(result2.is_ok());
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_event_lifecycle(pool: PgPool) {
         let db = BotDb::new(pool);
         let telegram_id = 1002;
@@ -761,7 +761,7 @@ mod tests {
         assert!(info_none.is_none());
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_device_password_management(pool: PgPool) {
         let db = BotDb::new(pool);
         let telegram_id = 1003;
@@ -806,7 +806,7 @@ mod tests {
         assert!(devices_after.is_empty());
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_invites_and_rsvps(pool: PgPool) {
         let db = BotDb::new(pool);
         let organizer_id = 1004;
@@ -893,7 +893,7 @@ mod tests {
         assert_eq!(org_id_check, organizer_id);
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_confirm_rsvp_transaction(pool: PgPool) {
         let db = BotDb::new(pool);
         let organizer_id = 2004;
@@ -969,7 +969,7 @@ mod tests {
         assert_eq!(att.status, "TENTATIVE");
     }
 
-    #[sqlx::test(migrations = "../../migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     async fn test_user_lookup_and_outbox(pool: PgPool) {
         let db = BotDb::new(pool);
         let telegram_id = 1006;

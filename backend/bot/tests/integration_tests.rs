@@ -7,7 +7,7 @@ use teloxide::dptree::deps;
 use teloxide_tests::{MockBot, MockMessageText, MockPrivateChat, MockUser};
 
 /// Test that /start command gets routed correctly and creates a user
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_dispatcher_start_command(pool: PgPool) {
     let db = BotDb::new(pool.clone());
 
@@ -49,7 +49,7 @@ async fn test_dispatcher_start_command(pool: PgPool) {
 }
 
 /// Test that /help command gets routed correctly
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_dispatcher_help_command(pool: PgPool) {
     let db = BotDb::new(pool);
 
@@ -75,7 +75,7 @@ async fn test_dispatcher_help_command(pool: PgPool) {
 }
 
 /// Test that /list command gets routed correctly
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_dispatcher_list_command(pool: PgPool) {
     let db = BotDb::new(pool.clone());
 
@@ -111,7 +111,7 @@ async fn test_dispatcher_list_command(pool: PgPool) {
 }
 
 /// Test text message routing to event creation
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_dispatcher_text_message_event_creation(pool: PgPool) {
     let db = BotDb::new(pool.clone());
 
@@ -168,7 +168,7 @@ async fn test_dispatcher_text_message_event_creation(pool: PgPool) {
 }
 
 /// Test invalid text message handling
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_dispatcher_invalid_text_message(pool: PgPool) {
     let db = BotDb::new(pool.clone());
 
@@ -211,7 +211,7 @@ async fn test_dispatcher_invalid_text_message(pool: PgPool) {
 }
 
 /// Test /device command routing
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_dispatcher_device_command(pool: PgPool) {
     let db = BotDb::new(pool.clone());
 
@@ -246,7 +246,7 @@ async fn test_dispatcher_device_command(pool: PgPool) {
 }
 
 /// Test /export command routing
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_dispatcher_export_command(pool: PgPool) {
     let db = BotDb::new(pool.clone());
 
@@ -282,7 +282,7 @@ async fn test_dispatcher_export_command(pool: PgPool) {
 }
 
 /// Test multiple sequential commands
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_dispatcher_multiple_commands(pool: PgPool) {
     let db = BotDb::new(pool.clone());
 

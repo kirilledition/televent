@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
     let pool = bootstrap::init_db(&config.core).await?;
 
     // Run migrations
-    sqlx::migrate!("../../migrations").run(&pool).await?;
+    sqlx::migrate!("../migrations").run(&pool).await?;
     tracing::info!("Database migrations completed");
 
     // Initialize Auth Cache (TTL: 5 minutes)

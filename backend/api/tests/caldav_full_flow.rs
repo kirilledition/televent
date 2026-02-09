@@ -95,7 +95,7 @@ fn create_request(
     req
 }
 
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_caldav_full_flow(pool: PgPool) {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("api=debug,info")
