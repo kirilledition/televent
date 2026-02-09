@@ -12,6 +12,7 @@ The system follows a monorepo structure with shared core domain logic and multip
 flowchart TB
     subgraph Clients
         TG["Telegram App"]
+        TMA["Telegram Mini App (Next.js)"]
         CAL["Calendar Apps"]
     end
 
@@ -27,6 +28,7 @@ flowchart TB
     end
 
     TG --> BOT
+    TMA -->|REST| API
     CAL -->|CalDAV| API
     
     BOT --> CORE
@@ -48,6 +50,7 @@ flowchart TB
 | crates/api    | HTTP Server. Handles CalDAV protocol and REST endpoints.         | axum, tower                    |
 | crates/bot    | Telegram Interface. Command parsing and conversational FSM.      | teloxide                       |
 | crates/worker | Job Processor. Handles emails, notifications, and cleanups.      | tokio, lettre                  |
+| crates/shared | Bootstrap & Common. Database pool, logging, shared utilities.    | sqlx, tracing                  |
 | crates/server | Unified Entry Point. Runs API, Bot, and Worker in one process.   | tokio                          |
 | frontend      | Frontend. Telegram Mini App and Web Dashboard.                   | Next.js 16, Tailwind 4, tma.js |
 | migrations/   | Database Schema. SQLx migration files.                           | sql                            |
@@ -57,7 +60,6 @@ flowchart TB
 ```mermaid
 erDiagram
     users ||--o{ events : "owns"
-    users ||--o{ device_passwords : "has"
     users ||--o{ device_passwords : "has"
     events ||--o{ event_attendees : "has"
 
@@ -80,6 +82,8 @@ erDiagram
         text location
         timestamptz start
         timestamptz end
+        date start_date
+        date end_date
         boolean is_all_day
         enum status "CONFIRMED, TENTATIVE, CANCELLED"
         text rrule "RRULE string"
@@ -102,10 +106,9 @@ erDiagram
 
 
     event_attendees {
-        uuid id PK
-        uuid event_id FK "Ref: events.id"
-        text email "Internal or External"
-        bigint telegram_id "Nullable"
+        uuid event_id PK, FK "Ref: events.id"
+        text email PK "Internal or External"
+        bigint user_id "Nullable - Ref: users.telegram_id"
         text role "ORGANIZER, ATTENDEE"
         text status "NEEDS-ACTION, ACCEPTED..."
         timestamptz created_at
@@ -120,6 +123,7 @@ erDiagram
         integer retry_count
         timestamptz scheduled_at
         timestamptz processed_at
+        timestamptz created_at
         text error_message
     }
 
@@ -129,10 +133,10 @@ erDiagram
 ### Schema Description
 
 - **users**: Stores Telegram users. `telegram_id` is the primary key and links to Telegram's ecosystem. Calendar data (`sync_token`, `ctag`) is merged directly into this table (each user has one calendar).
-- **events**: Calendar events. Linked to `users` via `telegram_id`.
-- **event_attendees**: Participants in events. Can be internal (linked via `telegram_id` if known) or external (email only).
+- **events**: Calendar events. Linked to `users` via `user_id` (telegram_id). Supports both time-based and date-based (all-day) events.
+- **event_attendees**: Participants in events. Uses a composite primary key `(event_id, email)`. Can be internal (linked via `user_id` if known) or external (email only).
 - **device_passwords**: App-specific passwords for CalDAV clients (Thunderbird, iOS) to authenticate using Basic Auth, as Telegram doesn't provide passwords.
-- **outbox_messages**: Transactional outbox for asynchronous tasks like sending emails or Telegram notifications.
+- **outbox_messages**: Transactional outbox for asynchronous tasks like sending emails or Telegram notifications. Includes `created_at` for auditing.
 
 ## Bot Commands
 
@@ -228,7 +232,7 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 - [x] Database schema for attendees and RSVPs.
 - [x] Implementation of the Interceptor logic in the worker.
 - [x] Bot commands for RSVP management (/invite, /rsvp).
-- [ ] Logic for sending Telegram notifications to invitees.
+- [x] Logic for sending Telegram notifications to invitees.
 
 ### Phase 3: Staging and QA
 - Validation against Supabase (production-like Postgres).
@@ -236,11 +240,11 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 
 ### Phase 4: Frontend Development (Current)
 - [x] Next.js foundation with Telegram SDK (tma.js).
-- [/] Event Management (CRUD)
-    - [/] Create/Edit Event Form (Catppuccin Mocha Theme)
-    - [/] Event Listing
-    - [ ] Event Deletion
-- [ ] Typeshare integration for Rust-to-TypeScript safety.
+- [x] Event Management (CRUD)
+    - [x] Create/Edit Event Form (Catppuccin Mocha Theme)
+    - [x] Event Listing
+    - [x] Event Deletion
+- [x] Typeshare integration for Rust-to-TypeScript safety.
 - [ ] Mock mode for quick local iteration.
 
 ### Phase 5: Production Deployment
@@ -260,18 +264,18 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 - Background worker for outbox processing (emails and Telegram notifications).
 - Unified server process running all services.
 - CalDAV basic auth and event synchronization (verified with curl/cadaver).
-- Event invitations and RSVP via Telegram Bot.
+- Event invitations and RSVP via Telegram Bot (Internal Invites fully enabled).
 - Frontend:
     - Next.js + Tailwind + tma.js setup complete.
     - Basic routing and UI components (Catppuccin theme) implemented.
-    - Event Creation Form (UI only).
-
+    - Event Creation/Edit Form and Event Listing fully integrated.
+    - Event Deletion implemented.
+    - Integration with Backend API complete.
 
 ### In Progress
-- Frontend (Telegram Mini App) implementation:
-    - Event creation form (UI implemented).
-    - Event listing (UI implemented).
-    - Integration with Backend API.
+- Mock mode for quick local iteration.
+- Production deployment (Railway).
+- SMTP integration for external (non-Televent) invites.
 
 
 # Example prompt for agent 

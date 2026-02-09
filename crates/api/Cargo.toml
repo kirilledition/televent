@@ -43,10 +43,6 @@ tracing-subscriber.workspace = true
 # CalDAV/iCalendar
 quick-xml.workspace = true
 moka.workspace = true
-
-# Utilities
-dotenvy.workspace = true
-tracing-appender.workspace = true
 url.workspace = true
 base64.workspace = true
 hex.workspace = true

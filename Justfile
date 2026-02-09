@@ -94,12 +94,18 @@ gen-types:
     typeshare . --lang=typescript --output-file=frontend/src/types/schema.ts
     @echo "✅ Types generated to frontend/src/types/schema.ts"
 
+# Generate OpenAPI JSON
+gen-openapi:
+    @echo "Generating OpenAPI JSON..."
+    cargo test -p api --lib tests::export_openapi_json -- --nocapture
+    @echo "✅ OpenAPI JSON generated to docs/openapi.json"
+
 upgrade:
     cargo upgrade --incompatible --recursive
     cargo machete --fix --no-ignore
     cargo update
     
-# cargo msrv find --write-msrv --min 1.85
+# cargo msrv find --write-msrv --min 1.88
 
 # Upgrade frontend dependencies to bleeding edge
 upgrade-frontend:

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 /// Generate a random alphanumeric password
 fn generate_random_password() -> String {
-    use rand::Rng;
+    use rand::RngExt;
 
     const CHARSET: &[u8] = b"0123456789\
                              abcdefghijklmnopqrstuvwxyz\

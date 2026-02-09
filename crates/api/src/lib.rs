@@ -261,7 +261,7 @@ mod tests {
             .to_pretty_json()
             .expect("Failed to serialize OpenAPI to JSON");
 
-        let path = "../../openapi.json";
+        let path = "../../docs/openapi.json";
         let mut file = File::create(path).expect("Failed to create openapi.json");
         file.write_all(json.as_bytes())
             .expect("Failed to write openapi.json");

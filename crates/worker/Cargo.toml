@@ -41,5 +41,3 @@ chrono.workspace = true
 
 # Logging
 tracing.workspace = true
-tracing-subscriber.workspace = true
-dotenvy.workspace = true
