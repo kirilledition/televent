@@ -6,37 +6,23 @@
 use anyhow::Result;
 use teloxide::Bot;
 use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use televent_shared::bootstrap;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load environment variables from .env file
-    dotenvy::dotenv().ok();
+    // 1. Init env
+    bootstrap::init_env();
 
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,worker=debug,sqlx=warn".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // 2. Init tracing
+    let _guard = bootstrap::init_tracing("worker");
 
     info!("Starting Televent worker (standalone mode)");
 
-    // Load configuration (use library's exported Config)
+    // 3. Load configuration (use library's exported Config)
     let config = worker::Config::from_env()?;
 
-    // Create database connection pool with explicit configuration
-    // Standalone worker mode: sized for job processing (~10 connections)
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(10)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .idle_timeout(std::time::Duration::from_secs(300))
-        .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
-        .connect(&config.database_url)
-        .await?;
-    info!("✓ Database pool established (max_connections: 10)");
+    // 4. Init DB
+    let pool = bootstrap::init_db(&config.core).await?;
 
     // Run migrations
     sqlx::migrate!("../../migrations").run(&pool).await?;

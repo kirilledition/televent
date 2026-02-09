@@ -7,38 +7,24 @@ mod config;
 
 use anyhow::Result;
 use config::Config;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use televent_shared::bootstrap;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load environment variables from .env file
-    dotenvy::dotenv().ok();
+    // 1. Init env
+    bootstrap::init_env();
 
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,bot=debug,sqlx=warn".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // 2. Init tracing
+    let _guard = bootstrap::init_tracing("bot");
 
     tracing::info!("Starting Televent Telegram bot (standalone mode)");
 
-    // Load configuration
+    // 3. Load configuration
     let config = Config::from_env()?;
     tracing::info!("Configuration loaded");
 
-    // Create database connection pool with explicit configuration
-    // Standalone bot mode: sized for Telegram message handlers (~10 connections)
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(10)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .idle_timeout(std::time::Duration::from_secs(300))
-        .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
-        .connect(&config.database_url)
-        .await?;
-    tracing::info!("✓ Database pool established (max_connections: 10)");
+    // 4. Init DB
+    let pool = bootstrap::init_db(&config.core).await?;
 
     // Run migrations
     sqlx::migrate!("../../migrations").run(&pool).await?;

@@ -2,7 +2,7 @@
 //!
 //! Handles loading of common environment variables.
 
-use anyhow::{Context, Result};
+use crate::error::ConfigError;
 use std::env;
 
 /// Common configuration used across services
@@ -13,20 +13,28 @@ pub struct CoreConfig {
 
     /// Telegram bot token
     pub telegram_bot_token: String,
+
+    /// Maximum database connections (default: 20)
+    pub db_max_connections: u32,
 }
 
 impl CoreConfig {
     /// Load common configuration from environment variables
     ///
     /// This will also initialize dotenv if it hasn't been done yet.
-    pub fn from_env() -> Result<Self> {
+    pub fn from_env() -> Result<Self, ConfigError> {
         // Load .env file if it exists
         dotenvy::dotenv().ok();
 
         Ok(Self {
-            database_url: env::var("DATABASE_URL").context("DATABASE_URL must be set")?,
+            database_url: env::var("DATABASE_URL")
+                .map_err(|_| ConfigError::MissingEnvVar("DATABASE_URL".to_string()))?,
             telegram_bot_token: env::var("TELEGRAM_BOT_TOKEN")
-                .context("TELEGRAM_BOT_TOKEN must be set")?,
+                .map_err(|_| ConfigError::MissingEnvVar("TELEGRAM_BOT_TOKEN".to_string()))?,
+            db_max_connections: env::var("DATABASE_MAX_CONNECTIONS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(20),
         })
     }
 }
