@@ -12,16 +12,15 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use sqlx::PgPool;
 use televent_core::models::{Event, EventStatus, Timezone};
+use televent_core::validation::{
+    MAX_DESCRIPTION_LENGTH, MAX_LOCATION_LENGTH, MAX_RRULE_LENGTH, MAX_SUMMARY_LENGTH,
+    MAX_UID_LENGTH, validate_length, validate_no_control_chars,
+};
 use typeshare::typeshare;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 // Constants for input validation
-const MAX_UID_LENGTH: usize = 256;
-const MAX_SUMMARY_LENGTH: usize = 256;
-const MAX_DESCRIPTION_LENGTH: usize = 10000;
-const MAX_LOCATION_LENGTH: usize = 1024;
-const MAX_RRULE_LENGTH: usize = 1024;
 const MAX_EVENTS_LIMIT: i64 = 1000;
 
 /// Create event request
@@ -55,57 +54,25 @@ pub struct CreateEventRequest {
 
 impl CreateEventRequest {
     pub fn validate(&self) -> Result<(), ApiError> {
-        if self.uid.len() > MAX_UID_LENGTH {
-            return Err(ApiError::BadRequest(format!(
-                "UID too long (max {})",
-                MAX_UID_LENGTH
-            )));
+        validate_length("UID", &self.uid, MAX_UID_LENGTH).map_err(ApiError::BadRequest)?;
+        validate_length("Summary", &self.summary, MAX_SUMMARY_LENGTH)
+            .map_err(ApiError::BadRequest)?;
+
+        if let Some(description) = &self.description {
+            validate_length("Description", description, MAX_DESCRIPTION_LENGTH)
+                .map_err(ApiError::BadRequest)?;
         }
-        if self.summary.len() > MAX_SUMMARY_LENGTH {
-            return Err(ApiError::BadRequest(format!(
-                "Summary too long (max {})",
-                MAX_SUMMARY_LENGTH
-            )));
+
+        if let Some(location) = &self.location {
+            validate_length("Location", location, MAX_LOCATION_LENGTH)
+                .map_err(ApiError::BadRequest)?;
         }
-        if self
-            .description
-            .as_ref()
-            .is_some_and(|d| d.len() > MAX_DESCRIPTION_LENGTH)
-        {
-            return Err(ApiError::BadRequest(format!(
-                "Description too long (max {})",
-                MAX_DESCRIPTION_LENGTH
-            )));
+
+        if let Some(rrule) = &self.rrule {
+            validate_length("RRule", rrule, MAX_RRULE_LENGTH).map_err(ApiError::BadRequest)?;
+            validate_no_control_chars("RRule", rrule).map_err(ApiError::BadRequest)?;
         }
-        if self
-            .location
-            .as_ref()
-            .is_some_and(|l| l.len() > MAX_LOCATION_LENGTH)
-        {
-            return Err(ApiError::BadRequest(format!(
-                "Location too long (max {})",
-                MAX_LOCATION_LENGTH
-            )));
-        }
-        if self
-            .rrule
-            .as_ref()
-            .is_some_and(|r| r.len() > MAX_RRULE_LENGTH)
-        {
-            return Err(ApiError::BadRequest(format!(
-                "RRule too long (max {})",
-                MAX_RRULE_LENGTH
-            )));
-        }
-        if self
-            .rrule
-            .as_ref()
-            .is_some_and(|r| r.chars().any(|c| c == '\r' || c == '\n'))
-        {
-            return Err(ApiError::BadRequest(
-                "RRule cannot contain control characters".to_string(),
-            ));
-        }
+
         Ok(())
     }
 }
@@ -128,55 +95,26 @@ pub struct UpdateEventRequest {
 
 impl UpdateEventRequest {
     pub fn validate(&self) -> Result<(), ApiError> {
-        if self
-            .summary
-            .as_ref()
-            .is_some_and(|s| s.len() > MAX_SUMMARY_LENGTH)
-        {
-            return Err(ApiError::BadRequest(format!(
-                "Summary too long (max {})",
-                MAX_SUMMARY_LENGTH
-            )));
+        if let Some(summary) = &self.summary {
+            validate_length("Summary", summary, MAX_SUMMARY_LENGTH)
+                .map_err(ApiError::BadRequest)?;
         }
-        if self
-            .description
-            .as_ref()
-            .is_some_and(|d| d.len() > MAX_DESCRIPTION_LENGTH)
-        {
-            return Err(ApiError::BadRequest(format!(
-                "Description too long (max {})",
-                MAX_DESCRIPTION_LENGTH
-            )));
+
+        if let Some(description) = &self.description {
+            validate_length("Description", description, MAX_DESCRIPTION_LENGTH)
+                .map_err(ApiError::BadRequest)?;
         }
-        if self
-            .location
-            .as_ref()
-            .is_some_and(|l| l.len() > MAX_LOCATION_LENGTH)
-        {
-            return Err(ApiError::BadRequest(format!(
-                "Location too long (max {})",
-                MAX_LOCATION_LENGTH
-            )));
+
+        if let Some(location) = &self.location {
+            validate_length("Location", location, MAX_LOCATION_LENGTH)
+                .map_err(ApiError::BadRequest)?;
         }
-        if self
-            .rrule
-            .as_ref()
-            .is_some_and(|r| r.len() > MAX_RRULE_LENGTH)
-        {
-            return Err(ApiError::BadRequest(format!(
-                "RRule too long (max {})",
-                MAX_RRULE_LENGTH
-            )));
+
+        if let Some(rrule) = &self.rrule {
+            validate_length("RRule", rrule, MAX_RRULE_LENGTH).map_err(ApiError::BadRequest)?;
+            validate_no_control_chars("RRule", rrule).map_err(ApiError::BadRequest)?;
         }
-        if self
-            .rrule
-            .as_ref()
-            .is_some_and(|r| r.chars().any(|c| c == '\r' || c == '\n'))
-        {
-            return Err(ApiError::BadRequest(
-                "RRule cannot contain control characters".to_string(),
-            ));
-        }
+
         Ok(())
     }
 }

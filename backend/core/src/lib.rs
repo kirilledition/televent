@@ -9,6 +9,7 @@ pub mod error;
 pub mod models;
 pub mod recurrence;
 pub mod timezone;
+pub mod validation;
 
 pub use attendee::{
     AttendeeError, extract_telegram_id, generate_internal_email, is_internal_email,
