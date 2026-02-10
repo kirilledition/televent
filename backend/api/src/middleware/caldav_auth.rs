@@ -92,13 +92,39 @@ pub async fn caldav_basic_auth(
     };
 
     // Verify password against each device password
+    // We parallelize this using JoinSet to:
+    // 1. Reduce latency (latency is max(Argon2 time) instead of sum(Argon2 time))
+    // 2. Mitigate timing attacks (time taken is roughly constant regardless of which device matches)
     let mut verified_device_id: Option<Uuid> = None;
+    let mut set = tokio::task::JoinSet::new();
+
     for (device_id, hashed_password) in &device_passwords {
-        // Argon2 verification is expensive, so this loop is the critical path.
-        // We limit it to 10 iterations above.
-        if verify_password(password.clone(), hashed_password.clone()).await? {
-            verified_device_id = Some(*device_id);
-            break;
+        let password_clone = password.clone();
+        let hashed_password_clone = hashed_password.clone();
+        let device_id_clone = *device_id;
+
+        set.spawn(async move {
+            let matches = verify_password(password_clone, hashed_password_clone).await;
+            (device_id_clone, matches)
+        });
+    }
+
+    // Wait for first success or all failures
+    while let Some(res) = set.join_next().await {
+        match res {
+            Ok((device_id, Ok(true))) => {
+                verified_device_id = Some(device_id);
+                // Abort remaining tasks to save CPU (though blocking tasks may continue running)
+                set.abort_all();
+                break;
+            }
+            Ok((_, Err(e))) => {
+                tracing::error!("Password verification failed: {:?}", e);
+            }
+            Err(e) => {
+                tracing::error!("Task join error: {}", e);
+            }
+            _ => {} // Wrong password or other error
         }
     }
 
