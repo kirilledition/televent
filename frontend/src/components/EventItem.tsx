@@ -1,3 +1,4 @@
+import { type MouseEvent, type KeyboardEvent } from 'react'
 import { Event } from '@/types/event'
 import { Trash2, MapPin, Clock } from 'lucide-react'
 
@@ -21,6 +22,20 @@ export function EventItem({ event, onDelete, onEdit }: EventItemProps) {
     return result
   }
 
+  const handleDelete = (e: MouseEvent) => {
+    e.stopPropagation()
+    if (window.confirm('Are you sure you want to delete this event?')) {
+      onDelete(event.id)
+    }
+  }
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onEdit(event)
+    }
+  }
+
   return (
     <div
       className="group relative mb-2 flex items-start gap-3 rounded-lg px-4 py-4 transition-colors hover:opacity-90"
@@ -32,34 +47,22 @@ export function EventItem({ event, onDelete, onEdit }: EventItemProps) {
         style={{ backgroundColor: 'var(--ctp-sapphire)' }}
       />
 
-      {/* Event content */}
+      {/* Event content - Main interactive area */}
       <div
-        className="min-w-0 flex-1 cursor-pointer pl-2"
+        className="min-w-0 flex-1 cursor-pointer pl-2 pr-12 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)]"
         onClick={() => onEdit(event)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
+        aria-label={`Edit event: ${event.title}`}
       >
-        <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="mb-2 flex items-start gap-3">
           <h3
             className="text-lg font-medium"
             style={{ color: 'var(--ctp-text)' }}
           >
             {event.title}
           </h3>
-
-          {/* Delete button - always visible on mobile */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete(event.id)
-            }}
-            className="rounded-lg p-2 transition-all hover:opacity-70"
-            style={{ backgroundColor: 'var(--ctp-surface0)' }}
-            aria-label="Delete event"
-          >
-            <Trash2
-              className="h-4 w-4"
-              style={{ color: 'var(--ctp-subtext0)' }}
-            />
-          </button>
         </div>
 
         <div className="space-y-1">
@@ -88,6 +91,20 @@ export function EventItem({ event, onDelete, onEdit }: EventItemProps) {
           )}
         </div>
       </div>
+
+      {/* Delete button - Positioned absolutely to separate from main action */}
+      <button
+        onClick={handleDelete}
+        className="absolute top-4 right-4 rounded-lg p-2 transition-all hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-red)]"
+        style={{ backgroundColor: 'var(--ctp-surface0)' }}
+        aria-label={`Delete event: ${event.title}`}
+        title="Delete event"
+      >
+        <Trash2
+          className="h-4 w-4"
+          style={{ color: 'var(--ctp-subtext0)' }}
+        />
+      </button>
     </div>
   )
 }
