@@ -7,11 +7,15 @@ export async function generateStaticParams() {
   }))
 }
 
-export default async function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EventDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
   const resolvedParams = await params
   const id = resolvedParams.id
 
-  const event = DUMMY_EVENTS.find(e => e.id === id)
+  const event = DUMMY_EVENTS.find((e) => e.id === id)
 
   if (!event) {
     return (

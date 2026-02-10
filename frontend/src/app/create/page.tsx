@@ -12,10 +12,5 @@ export default function CreateEventPage() {
     router.back()
   }
 
-  return (
-    <CreateEvent
-      onClose={() => router.back()}
-      onCreate={handleCreate}
-    />
-  )
+  return <CreateEvent onClose={() => router.back()} onCreate={handleCreate} />
 }
