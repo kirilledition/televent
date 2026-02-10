@@ -20,6 +20,10 @@ use crate::error::ApiError;
 use crate::routes::{caldav_xml, ical as ical_route};
 use televent_core::attendee;
 use televent_core::models::ParticipationStatus;
+use televent_core::validation::{
+    MAX_DESCRIPTION_LENGTH, MAX_LOCATION_LENGTH, MAX_RRULE_LENGTH, MAX_SUMMARY_LENGTH,
+    MAX_UID_LENGTH, validate_length, validate_no_control_chars,
+};
 
 /// CalDAV OPTIONS handler
 ///
@@ -193,6 +197,24 @@ async fn caldav_put_event(
 
     let (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone) =
         ical_route::ical_to_event_data(&ical_str)?;
+
+    // Validate inputs
+    validate_length("UID", &uid, MAX_UID_LENGTH).map_err(ApiError::BadRequest)?;
+    validate_length("Summary", &summary, MAX_SUMMARY_LENGTH).map_err(ApiError::BadRequest)?;
+
+    if let Some(desc) = &description {
+        validate_length("Description", desc, MAX_DESCRIPTION_LENGTH)
+            .map_err(ApiError::BadRequest)?;
+    }
+
+    if let Some(loc) = &location {
+        validate_length("Location", loc, MAX_LOCATION_LENGTH).map_err(ApiError::BadRequest)?;
+    }
+
+    if let Some(r) = &rrule {
+        validate_length("RRule", r, MAX_RRULE_LENGTH).map_err(ApiError::BadRequest)?;
+        validate_no_control_chars("RRule", r).map_err(ApiError::BadRequest)?;
+    }
 
     // Check if UID matches the URL
     if uid != event_uid {
