@@ -82,7 +82,7 @@ async fn test_caldav_put_with_internal_attendee(pool: PgPool) {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/caldav/1001/test-event-123.ics"))
+                .uri("/caldav/1001/test-event-123.ics".to_string())
                 .header("Authorization", format!("Basic {}", encoded))
                 .header("Content-Type", "text/calendar")
                 .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((

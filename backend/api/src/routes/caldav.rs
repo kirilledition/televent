@@ -198,7 +198,7 @@ async fn caldav_put_event(
     if uid != event_uid {
         return Err(ApiError::BadRequest(format!(
             "UID mismatch: {} != {}",
-            uid, event_uid
+            &uid, &event_uid
         )));
     }
 
@@ -224,7 +224,6 @@ async fn caldav_put_event(
                     requested_etag, current_etag
                 )));
             }
-        }
 
         // Update existing event
         let updated = db::events::update_event(
@@ -262,9 +261,7 @@ async fn caldav_put_event(
                 date: start.date_naive(),
                 end_date: end.date_naive(),
             }
-        } else {
             EventTiming::Timed { start, end }
-        };
 
         // Parse timezone (default to UTC if invalid)
         let tz = Timezone::parse(&timezone).unwrap_or_default();
@@ -319,7 +316,6 @@ async fn caldav_put_event(
                         .await?;
                 }
             }
-        }
     }
 
     // Increment sync token
@@ -396,7 +392,6 @@ async fn caldav_report(
                 response_xml,
             )
                 .into_response())
-        }
         caldav_xml::ReportType::SyncCollection { sync_token } => {
             // Parse sync token to get last known state
             let last_sync_token = sync_token
@@ -443,7 +438,6 @@ async fn caldav_report(
                 response_xml,
             )
                 .into_response())
-        }
         caldav_xml::ReportType::CalendarMultiget { hrefs } => {
             tracing::info!("CalendarMultiget: {} hrefs requested", hrefs.len());
 
@@ -477,7 +471,6 @@ async fn caldav_report(
                 response_xml,
             )
                 .into_response())
-        }
     }
 }
 
@@ -513,7 +506,6 @@ async fn caldav_delete_event(
                     requested_etag, current_etag
                 )));
             }
-        }
     }
 
     // Perform deletion and sync token increment in a transaction
@@ -592,7 +584,6 @@ fn extract_uids_from_hrefs(hrefs: &[String]) -> Vec<Cow<'_, str>> {
                     uids.push(Cow::Owned(s));
                 }
             }
-        }
     }
     uids
 }
@@ -631,7 +622,6 @@ async fn caldav_handler(
                 body,
             )
             .await
-        }
         "REPORT" => caldav_report(State(pool), Path(user_identifier), auth_user_id, body).await,
         _ => Err(ApiError::BadRequest(format!(
             "Method {} not supported for calendar collection",
@@ -663,7 +653,6 @@ async fn event_handler(
                 auth_user_id,
             )
             .await
-        }
         Method::PUT => {
             caldav_put_event(
                 State(pool),
@@ -673,7 +662,6 @@ async fn event_handler(
                 body,
             )
             .await
-        }
         Method::DELETE => {
             caldav_delete_event(
                 State(pool),
@@ -682,7 +670,6 @@ async fn event_handler(
                 headers,
             )
             .await
-        }
         _ => Err(ApiError::BadRequest(format!(
             "Method {} not supported for event resource",
             method
@@ -740,14 +727,11 @@ mod tests {
         // Verify borrowing behavior (optimization check)
         // uid1 should be borrowed from hrefs
         match uids[0] {
-            Cow::Borrowed(_) => {} // OK
+            Cow::Borrowed(_) => (),
             Cow::Owned(_) => panic!("uid1 should be borrowed"),
-        }
 
         // uid 5 should be owned (because of decoding)
-        match uids[4] {
-            Cow::Borrowed(_) => panic!("uid 5 should be owned"),
-            Cow::Owned(_) => {} // OK
+        if let Cow::Borrowed(_) = uids[4] {
+            panic!("uid 5 should be owned");
         }
     }
-}

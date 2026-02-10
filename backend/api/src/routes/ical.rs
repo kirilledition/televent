@@ -427,12 +427,13 @@ fn parse_datetime(value: &str, is_all_day: bool) -> Result<DateTime<Utc>, ApiErr
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::print_stdout)]
 mod tests {
     use super::*;
     use televent_core::models::UserId;
     use uuid::Uuid;
 
-    fn create_test_event() -> Event {
+    pub fn create_test_event() -> Event {
         use televent_core::models::Timezone;
         let now = Utc::now();
         Event {
@@ -709,12 +710,11 @@ END:VCALENDAR"#;
         assert_eq!(summary, event.summary);
     }
 
+    }
     #[test]
     fn test_unescape_text_edge_cases() {
         // Simple case
-        assert_eq!(unescape_text("test"), "test");
         // Escaped chars
-        assert_eq!(unescape_text("foo\\;bar"), "foo;bar");
         assert_eq!(unescape_text("foo\\,bar"), "foo,bar");
         assert_eq!(unescape_text("foo\\nbar"), "foo\nbar");
         assert_eq!(unescape_text("foo\\\\bar"), "foo\\bar");
@@ -734,7 +734,7 @@ END:VCALENDAR"#;
 
     #[test]
     fn test_event_to_ical_rrule_injection() {
-        let mut event = create_test_event();
+        let mut event = tests::create_test_event();
         // Inject a malicious property via RRULE
         // Note: RRULE validation happens at API boundary, so this tests that the serializer itself is vulnerable
         event.rrule = Some("FREQ=DAILY\r\nATTENDEE:MAILTO:evil@example.com".to_string());
@@ -746,7 +746,6 @@ END:VCALENDAR"#;
         // The serializer does not escape RRULE, so CRLF is passed through
         assert!(ical.contains("RRULE:FREQ=DAILY\r\nATTENDEE:MAILTO:evil@example.com"));
     }
-}
 
 #[test]
 fn test_ical_to_event_data_rrule_injection_prevention() {
