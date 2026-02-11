@@ -67,7 +67,8 @@ pub fn event_to_ical_into(
         EventStatus::Tentative => "TENTATIVE",
         EventStatus::Cancelled => "CANCELLED",
     };
-    writer.write_property("STATUS", status_str)?;
+    // Optimization: Status strings are short and safe
+    writer.write_safe_property("STATUS", status_str)?;
 
     // Attendees
     for attendee in attendees {
@@ -90,7 +91,8 @@ pub fn event_to_ical_into(
     }
 
     // Sequence
-    writer.write_property("SEQUENCE", &event.version.to_string())?;
+    // Optimization: Avoid allocating string for integer
+    writer.write_int_property("SEQUENCE", event.version)?;
 
     // Created
     writer.write_datetime_property("CREATED", &event.created_at)?;
@@ -125,6 +127,33 @@ impl<'a> FoldedWriter<'a> {
 
     fn write_property_no_escape(&mut self, name: &str, value: &str) -> Result<(), ApiError> {
         self.write_property_impl(name, value, false)
+    }
+
+    fn write_safe_property(&mut self, name: &str, value: &str) -> Result<(), ApiError> {
+        // Optimization: Write directly to buffer without escaping or folding checks.
+        // Use ONLY for values known to be safe (no control chars) and short enough to fit on a line.
+        self.buf.push_str(name);
+        self.buf.push(':');
+        self.buf.push_str(value);
+        self.buf.push_str("\r\n");
+        Ok(())
+    }
+
+    fn write_int_property<T: std::fmt::Display>(
+        &mut self,
+        name: &str,
+        value: T,
+    ) -> Result<(), ApiError> {
+        // Optimization: Write directly to buffer using write! macro to avoid allocation
+        self.buf.push_str(name);
+        self.buf.push(':');
+
+        use std::fmt::Write;
+        write!(self.buf, "{}", value)
+            .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+
+        self.buf.push_str("\r\n");
+        Ok(())
     }
 
     fn write_datetime_property(
