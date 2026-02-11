@@ -136,7 +136,7 @@ async fn test_cadaver_full_flow(pool: PgPool) {
         telegram_bot_token: "test_token".to_string(),
     };
 
-    let app = create_router(state, "*");
+    let app = create_router(state, "*", ".");
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("Failed to bind");

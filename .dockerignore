@@ -1,0 +1,10 @@
+target/
+**/node_modules/
+.git/
+.env
+.env.*
+Dockerfile
+.dockerignore
+frontend/.next/
+frontend/out/
+backend/target/

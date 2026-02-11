@@ -804,7 +804,6 @@ END:VCALENDAR"#;
         // The serializer does not escape RRULE, so CRLF is passed through
         assert!(ical.contains("RRULE:FREQ=DAILY\r\nATTENDEE:MAILTO:evil@example.com"));
     }
-
 }
 
 #[test]

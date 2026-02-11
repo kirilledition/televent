@@ -14,6 +14,7 @@ pub struct ApiConfig {
     pub host: String,
     pub port: u16,
     pub cors_allowed_origin: String,
+    pub static_dir: String,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +37,7 @@ impl UnifiedConfig {
                     .unwrap_or_else(|_| "3000".into())
                     .parse()?,
                 cors_allowed_origin: env::var("CORS_ALLOWED_ORIGIN").unwrap_or_else(|_| "*".into()),
+                static_dir: env::var("STATIC_DIR").unwrap_or_else(|_| "../frontend/out".into()),
             },
             worker: WorkerConfig {
                 poll_interval_secs: env::var("WORKER_POLL_INTERVAL_SECS")
@@ -60,6 +62,7 @@ impl UnifiedConfig {
             host: self.api.host.clone(),
             port: self.api.port,
             cors_allowed_origin: self.api.cors_allowed_origin.clone(),
+            static_dir: self.api.static_dir.clone(),
         }
     }
 
