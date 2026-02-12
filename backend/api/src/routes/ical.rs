@@ -214,6 +214,7 @@ impl<'a> FoldedWriter<'a> {
                     ';' => Some("\\;"),
                     ',' => Some("\\,"),
                     '\n' => Some("\\n"),
+                    '\r' => Some(""), // Strip CR to prevent injection
                     _ => None,
                 }
             } else {
@@ -804,7 +805,6 @@ END:VCALENDAR"#;
         // The serializer does not escape RRULE, so CRLF is passed through
         assert!(ical.contains("RRULE:FREQ=DAILY\r\nATTENDEE:MAILTO:evil@example.com"));
     }
-
 }
 
 #[test]
@@ -829,4 +829,52 @@ fn test_ical_to_event_data_summary_sanitization() {
 
     // Should be sanitized (stripped CR)
     assert_eq!(summary, "BadSummary");
+}
+
+#[cfg(test)]
+mod repro_crlf_injection {
+    use super::*;
+    use chrono::Utc;
+    use televent_core::models::{Event, EventStatus, Timezone, UserId};
+    use uuid::Uuid;
+
+    #[test]
+    fn test_crlf_injection_in_summary() {
+        let now = Utc::now();
+        let event = Event {
+            id: Uuid::new_v4(),
+            user_id: UserId::new(123),
+            uid: "injection-test".to_string(),
+            version: 1,
+            etag: "etag".to_string(),
+            // CR injection attempt
+            summary: "Test\rATTENDEE:evil@example.com".to_string(),
+            description: None,
+            location: None,
+            start: Some(now),
+            end: Some(now),
+            start_date: None,
+            end_date: None,
+            is_all_day: false,
+            rrule: None,
+            status: EventStatus::Confirmed,
+            timezone: Timezone::default(),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let attendees = vec![];
+        let ical = event_to_ical(&event, &attendees).unwrap();
+
+        // The CR should be stripped or escaped, so it should NOT look like a property
+        // If vulnerable, it would contain "SUMMARY:Test\rATTENDEE:evil@example.com"
+        // And potentially be parsed as two lines.
+
+        // We assert that it does NOT contain the raw injection sequence
+        assert!(!ical.contains("\rATTENDEE"), "CRLF injection successful!");
+
+        // We expect it to be safe, e.g. "TestATTENDEE" (stripped) or "Test\nATTENDEE" (if escaped to \n)
+        // But since we are stripping CR, "TestATTENDEE" is expected if we implement stripping.
+        // For now, let's just assert safety.
+    }
 }

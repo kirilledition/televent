@@ -57,6 +57,7 @@ impl CreateEventRequest {
         validate_length("UID", &self.uid, MAX_UID_LENGTH).map_err(ApiError::BadRequest)?;
         validate_length("Summary", &self.summary, MAX_SUMMARY_LENGTH)
             .map_err(ApiError::BadRequest)?;
+        validate_no_control_chars("Summary", &self.summary).map_err(ApiError::BadRequest)?;
 
         if let Some(description) = &self.description {
             validate_length("Description", description, MAX_DESCRIPTION_LENGTH)
@@ -66,6 +67,7 @@ impl CreateEventRequest {
         if let Some(location) = &self.location {
             validate_length("Location", location, MAX_LOCATION_LENGTH)
                 .map_err(ApiError::BadRequest)?;
+            validate_no_control_chars("Location", location).map_err(ApiError::BadRequest)?;
         }
 
         if let Some(rrule) = &self.rrule {
@@ -98,6 +100,7 @@ impl UpdateEventRequest {
         if let Some(summary) = &self.summary {
             validate_length("Summary", summary, MAX_SUMMARY_LENGTH)
                 .map_err(ApiError::BadRequest)?;
+            validate_no_control_chars("Summary", summary).map_err(ApiError::BadRequest)?;
         }
 
         if let Some(description) = &self.description {
@@ -108,6 +111,7 @@ impl UpdateEventRequest {
         if let Some(location) = &self.location {
             validate_length("Location", location, MAX_LOCATION_LENGTH)
                 .map_err(ApiError::BadRequest)?;
+            validate_no_control_chars("Location", location).map_err(ApiError::BadRequest)?;
         }
 
         if let Some(rrule) = &self.rrule {
@@ -531,5 +535,34 @@ mod tests {
             rrule: Some("FREQ=DAILY\r\nATTENDEE:EVIL".to_string()),
         };
         assert!(req.validate().is_err());
+    }
+
+    #[test]
+    fn test_create_event_validation_control_chars() {
+        let req = CreateEventRequest {
+            uid: "valid-uid".to_string(),
+            summary: "Summary\rWithCR".to_string(),
+            description: None,
+            location: None,
+            start: Utc::now(),
+            end: Utc::now(),
+            is_all_day: false,
+            timezone: televent_core::models::Timezone::default(),
+            rrule: None,
+        };
+        assert!(req.validate().is_err());
+
+        let req = CreateEventRequest {
+            uid: "valid-uid".to_string(),
+            summary: "Valid Summary".to_string(),
+            description: Some("Desc\nWithLF".to_string()),
+            location: None,
+            start: Utc::now(),
+            end: Utc::now(),
+            is_all_day: false,
+            timezone: televent_core::models::Timezone::default(),
+            rrule: None,
+        };
+        assert!(req.validate().is_ok());
     }
 }
