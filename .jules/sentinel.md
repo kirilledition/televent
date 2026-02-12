@@ -27,3 +27,8 @@
 **Vulnerability:** Documented Content-Security-Policy was missing from the `security_headers` middleware, leaving the application vulnerable to XSS and Clickjacking.
 **Learning:** Documentation or internal memory can drift from implementation. Always verify security controls in code.
 **Prevention:** Implement automated tests that assert the presence of specific security headers (CSP, HSTS) to prevent regression or "ghost" controls.
+
+## 2025-02-12 - iCalendar CRLF Injection
+**Vulnerability:** iCalendar serialization (RFC 5545) was vulnerable to CRLF injection because `write_property_impl` only escaped `\n` but not `\r`. A malicious `\r` in a property value could introduce a new line, potentially injecting arbitrary properties.
+**Learning:** Text-based protocols like iCalendar are extremely sensitive to line endings. Simply escaping `\n` is insufficient if `\r` is left raw, as some parsers might treat `\r` as a line break or it can be part of a CRLF sequence.
+**Prevention:** Always strip or escape ALL control characters in text-based protocol serialization. For iCalendar, since `\n` is escaped to `\\n`, `\r` should be stripped or also escaped (though stripping is safer for simple text). Input validation should also reject control characters in strict fields (like Summary) but allow safe newlines in multi-line fields (Description).
