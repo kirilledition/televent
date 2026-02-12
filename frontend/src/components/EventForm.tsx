@@ -57,15 +57,25 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
     timezone: (initialData?.timezone as string) || 'UTC',
   })
 
-  // Generate duration options (5 min steps)
+  // Generate duration options (smart steps)
   const durationOptions = useMemo(() => {
-    const options = []
-    // Up to 12 hours (720 mins)
-    for (let i = 5; i <= 720; i += 5) {
-      options.push(i)
+    const options: number[] = []
+
+    // < 1h: 5 min steps
+    for (let i = 5; i < 60; i += 5) options.push(i)
+    // 1h - 4h: 15 min steps
+    for (let i = 60; i <= 240; i += 15) options.push(i)
+    // > 4h: 30 min steps
+    for (let i = 270; i <= 720; i += 30) options.push(i)
+
+    // Ensure initial duration is included if it's unique
+    if (initialDuration && !options.includes(initialDuration)) {
+      options.push(initialDuration)
+      options.sort((a, b) => a - b)
     }
+
     return options
-  }, [])
+  }, [initialDuration])
 
   const createMutation = useMutation({
     mutationFn: (data: CreateEventRequest) => api.createEvent(data),
@@ -182,13 +192,26 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
             }
             className="bg-surface text-text border-border focus:border-primary w-full appearance-none rounded-lg p-3 transition-colors outline-none"
           >
-            {durationOptions.map((mins) => (
-              <option key={mins} value={mins}>
-                {mins} min{' '}
-                {mins >= 60 &&
-                  `(${Math.floor(mins / 60)}h ${mins % 60 > 0 ? (mins % 60) + 'm' : ''})`}
-              </option>
-            ))}
+            <optgroup label="Minutes">
+              {durationOptions
+                .filter((m) => m < 60)
+                .map((mins) => (
+                  <option key={mins} value={mins}>
+                    {mins} min
+                  </option>
+                ))}
+            </optgroup>
+            <optgroup label="Hours">
+              {durationOptions
+                .filter((m) => m >= 60)
+                .map((mins) => (
+                  <option key={mins} value={mins}>
+                    {mins} min (
+                    {Math.floor(mins / 60)}h
+                    {mins % 60 > 0 ? ` ${mins % 60}m` : ''})
+                  </option>
+                ))}
+            </optgroup>
           </select>
         </div>
       </div>
