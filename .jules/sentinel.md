@@ -27,3 +27,8 @@
 **Vulnerability:** Documented Content-Security-Policy was missing from the `security_headers` middleware, leaving the application vulnerable to XSS and Clickjacking.
 **Learning:** Documentation or internal memory can drift from implementation. Always verify security controls in code.
 **Prevention:** Implement automated tests that assert the presence of specific security headers (CSP, HSTS) to prevent regression or "ghost" controls.
+
+## 2025-05-25 - [IP Spoofing in Rate Limiting]
+**Vulnerability:** Rate limiter extracted the *first* IP from `X-Forwarded-For` (`Client, Proxy`), allowing attackers to bypass limits by spoofing the header (sending `SpoofedIP`).
+**Learning:** `X-Forwarded-For` is a list where the *leftmost* entries are client-controlled and untrusted. Only the entry added by the trusted immediate peer (the *rightmost* one) is reliable.
+**Prevention:** Use the last IP in the list (or iterate from the right) when extracting the client IP behind a trusted proxy.
