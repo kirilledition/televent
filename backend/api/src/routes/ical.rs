@@ -431,32 +431,51 @@ impl<'a> Iterator for UnfoldingIter<'a> {
 
 /// Unescape iCalendar text
 fn unescape_text(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars();
+    let bytes = s.as_bytes();
 
-    while let Some(c) = chars.next() {
-        // Strip CR to prevent injection (lines() handles CRLF, but not CR alone)
-        if c == '\r' {
-            continue;
-        }
-
-        if c == '\\' {
-            match chars.next() {
-                Some('n') | Some('N') => result.push('\n'),
-                Some('\\') => result.push('\\'),
-                Some(';') => result.push(';'),
-                Some(',') => result.push(','),
-                Some(other) => {
-                    result.push('\\');
-                    result.push(other);
-                }
-                None => result.push('\\'), // Trailing backslash
-            }
-        } else {
-            result.push(c);
+    // Fast path: Find first character that needs escaping (\ or \r)
+    // Both are ASCII chars, so we can scan bytes safely as they cannot be part of multi-byte UTF-8 sequences.
+    let mut first_special = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'\\' || b == b'\r' {
+            first_special = Some(i);
+            break;
         }
     }
-    result
+
+    match first_special {
+        None => s.to_string(),
+        Some(i) => {
+            let mut result = String::with_capacity(s.len());
+            // Bulk copy safe prefix
+            result.push_str(&s[..i]);
+
+            let mut chars = s[i..].chars();
+            while let Some(c) = chars.next() {
+                // Strip CR to prevent injection (lines() handles CRLF, but not CR alone)
+                if c == '\r' {
+                    continue;
+                }
+
+                if c == '\\' {
+                    match chars.next() {
+                        Some('n') | Some('N') => result.push('\n'),
+                        Some('\\') => result.push('\\'),
+                        Some(';') => result.push(';'),
+                        Some(',') => result.push(','),
+                        Some(other) => {
+                            result.push('\\');
+                            result.push(other);
+                        }
+                        None => result.push('\\'), // Trailing backslash
+                    }
+                } else {
+                    result.push(c);
+                }
+            }
+            result
+        }
+    }
 }
 
 /// Parse a datetime string, handling both DATE and DATE-TIME formats
