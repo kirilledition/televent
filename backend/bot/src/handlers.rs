@@ -8,6 +8,7 @@ use anyhow::Result;
 use chrono::{Duration, Utc};
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
+use teloxide::utils::html::escape;
 
 /// Handle the /start command
 pub async fn handle_start(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
@@ -114,7 +115,9 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                          Password: Use the password above\n\n\
                          ⚠️ <b>Important:</b> Save this password securely! \
                          You won't be able to see it again.",
-                        device_name, password, telegram_id
+                        escape(&device_name),
+                        password,
+                        telegram_id
                     );
 
                     bot.send_message(msg.chat.id, response)
@@ -153,7 +156,7 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                     response.push_str(&format!(
                         "{}. <b>{}</b>\n   🆔 <code>{}</code>\n   📅 Created: {}\n",
                         idx + 1,
-                        device.name,
+                        escape(&device.name),
                         device.id,
                         device.created_at.format("%Y-%m-%d %H:%M")
                     ));
@@ -340,13 +343,13 @@ pub async fn handle_list(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             response.push_str(&format!(
                 "{}. <b>{}</b>\n   📆 {}\n   🕐 {}\n",
                 idx + 1,
-                event.summary,
+                escape(&event.summary),
                 start.format("%a, %b %d"),
                 time_str
             ));
 
             if let Some(location) = &event.location {
-                response.push_str(&format!("   📍 {}\n", location));
+                response.push_str(&format!("   📍 {}\n", escape(location)));
             }
 
             response.push('\n');
@@ -490,12 +493,14 @@ pub async fn handle_invite(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             let success_msg = if invitee_telegram_id.is_some() {
                 format!(
                     "✅ Invited {} to event: <b>{}</b>\n\nThey will receive a Telegram notification.",
-                    invitee_str, event_info.summary
+                    escape(invitee_str),
+                    escape(&event_info.summary)
                 )
             } else {
                 format!(
                     "✅ Invited {} to event: <b>{}</b>\n\n⚠️ External invites are logged but not sent in MVP mode.",
-                    invitee_str, event_info.summary
+                    escape(invitee_str),
+                    escape(&event_info.summary)
                 )
             };
 
@@ -561,13 +566,13 @@ pub async fn handle_rsvp(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             let organizer = invite
                 .organizer_username
                 .as_ref()
-                .map(|u| format!("@{}", u))
+                .map(|u| format!("@{}", escape(u)))
                 .unwrap_or_else(|| "Unknown".to_string());
 
             let location_text = invite
                 .location
                 .as_ref()
-                .map(|loc| format!("\n📍 {}", loc))
+                .map(|loc| format!("\n📍 {}", escape(loc)))
                 .unwrap_or_default();
 
             let start = invite.start.unwrap_or_else(|| {
@@ -586,7 +591,7 @@ pub async fn handle_rsvp(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
 
             response.push_str(&format!(
                 "🔹 <b>{}</b>\n   🕒 {} {}\n   👤 From: {}{}\n   <code>/rsvp {} accept</code>\n\n",
-                invite.summary,
+                escape(&invite.summary),
                 start.format("%a %b %d"),
                 time_str,
                 organizer,
@@ -769,7 +774,7 @@ pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()
                     let location_text = parsed_event
                         .location
                         .as_ref()
-                        .map(|loc| format!("\n📍 <b>Location:</b> {}", loc))
+                        .map(|loc| format!("\n📍 <b>Location:</b> {}", escape(loc)))
                         .unwrap_or_default();
 
                     let start = event.display_start();
@@ -795,7 +800,7 @@ pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()
                          📅 {}\n\
                          🕐 {}{}\n\n\
                          Use /list to view your upcoming events.",
-                        event.summary,
+                        escape(&event.summary),
                         start.format("%A, %B %d, %Y"),
                         timing_details,
                         location_text
@@ -827,7 +832,7 @@ pub async fn handle_text_message(bot: Bot, msg: Message, db: BotDb) -> Result<()
             // Send helpful error message
             let response = format!(
                 "❌ <b>Could not create event</b>\n\n{}\n\n{}",
-                parse_error,
+                escape(&parse_error.to_string()),
                 format_example()
             );
 
@@ -903,6 +908,8 @@ pub async fn handle_callback_query(bot: Bot, q: CallbackQuery, db: BotDb) -> Res
                 if let Some(text) = text
                     && !text.contains("Status: ")
                 {
+                    // Use plain text edit to update status without losing content, though formatting is lost.
+                    // Since we don't use ParseMode::Html here, injection is not possible.
                     let new_text = format!("{}\n\nStatus: {} {}", text, status_emoji, status);
 
                     // Edit text and remove keyboard
@@ -1554,5 +1561,13 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].summary, "Meeting");
         assert_eq!(events[0].location.as_deref(), Some("Conference Room"));
+    }
+
+    #[test]
+    fn test_html_escaping_utility() {
+        use teloxide::utils::html::escape;
+        let input = "Me & You <script>";
+        let escaped = escape(input);
+        assert_eq!(escaped, "Me &amp; You &lt;script&gt;");
     }
 }
