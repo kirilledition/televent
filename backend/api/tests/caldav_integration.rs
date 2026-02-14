@@ -55,7 +55,7 @@ async fn test_caldav_put_with_internal_attendee(pool: PgPool) {
         auth_cache,
         telegram_bot_token: "test_token".to_string(),
     };
-    let app = create_router(state, "*");
+    let app = create_router(state, "*", ".");
 
     // 4. Create PUT Request with Internal Attendee
     let internal_email = generate_internal_email(user_b_id);
@@ -145,7 +145,7 @@ async fn test_health_check(pool: PgPool) {
         auth_cache,
         telegram_bot_token: "test_token".to_string(),
     };
-    let app = create_router(state, "*");
+    let app = create_router(state, "*", ".");
 
     let response = app
         .oneshot(

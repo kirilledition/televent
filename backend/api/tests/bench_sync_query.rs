@@ -16,7 +16,7 @@ async fn bench_sync_query(pool: PgPool) {
         auth_cache,
         telegram_bot_token: "test_token".to_string(),
     };
-    let _app = create_router(state, "*");
+    let _app = create_router(state, "*", ".");
 
     // Create user
     let user_id = 123456789i64;

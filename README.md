@@ -258,6 +258,7 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 ## Current Status
 
 ### Working
+- Production deployment (Railway).
 - PostgreSQL Database infrastructure.
 - Axum API Server with CalDAV support (RFC 4791 compliant).
 - Telegram Bot core commands and event creation parsing.
@@ -274,7 +275,6 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 
 ### In Progress
 - Mock mode for quick local iteration.
-- Production deployment (Railway).
 - SMTP integration for external (non-Televent) invites.
 
 
@@ -753,3 +753,6 @@ If user chooses #2, invoke via SlashCommand tool: `/run-prompt 005`
 - After saving, present the decision tree as inline text (not AskUserQuestion)
 - Use the SlashCommand tool to invoke /run-prompt when user makes their choice
 </meta_instructions>
+## Deployment
+
+For instructions on deploying Televent to Railway (production), please refer to the [Deployment Guide](DEPLOYMENT.md).

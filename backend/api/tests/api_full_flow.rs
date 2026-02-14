@@ -113,7 +113,7 @@ async fn test_api_full_flow(pool: PgPool) {
         auth_cache,
         telegram_bot_token: bot_token.to_string(),
     };
-    let app = create_router(state, "*");
+    let app = create_router(state, "*", ".");
 
     // 1. Create Event
     let event_uid = "api-test-uid";

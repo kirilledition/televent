@@ -14,6 +14,8 @@ pub struct Config {
     pub host: String,
     pub port: u16,
     pub cors_allowed_origin: String,
+    /// Directory to serve static files from (frontend export)
+    pub static_dir: String,
 }
 
 impl Config {
@@ -30,6 +32,7 @@ impl Config {
                 .context("Failed to parse API_PORT as u16")?,
             cors_allowed_origin: env::var("CORS_ALLOWED_ORIGIN")
                 .unwrap_or_else(|_| "*".to_string()), // Defaults to "*" (allow all, no credentials)
+            static_dir: env::var("STATIC_DIR").unwrap_or_else(|_| "../frontend/out".to_string()),
         })
     }
 }
@@ -58,11 +61,13 @@ mod tests {
             host: "0.0.0.0".to_string(),
             port: 3000,
             cors_allowed_origin: "*".to_string(),
+            static_dir: "../frontend/out".to_string(),
         };
 
         assert_eq!(config.host, "0.0.0.0");
         assert_eq!(config.port, 3000);
         assert_eq!(config.database_url, "postgres://test");
         assert_eq!(config.telegram_bot_token, "test_token");
+        assert_eq!(config.static_dir, "../frontend/out");
     }
 }

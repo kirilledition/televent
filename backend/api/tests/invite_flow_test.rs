@@ -89,7 +89,7 @@ async fn test_invite_flow_end_to_end(pool: PgPool) {
         auth_cache,
         telegram_bot_token: "test_token".to_string(),
     };
-    let app = create_router(state, "*");
+    let app = create_router(state, "*", ".");
 
     // Generate internal email for User B
     let internal_email = generate_internal_email(user_b_id);

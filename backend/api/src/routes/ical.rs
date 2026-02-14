@@ -853,7 +853,6 @@ END:VCALENDAR"#;
         // The output should be "SUMMARY:HelloATTENDEE:..." (stripped)
         assert!(ical.contains("SUMMARY:HelloATTENDEE"), "CR should be stripped");
     }
-
 }
 
 #[test]

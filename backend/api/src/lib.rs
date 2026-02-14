@@ -103,7 +103,7 @@ impl FromRef<AppState> for PgPool {
 }
 
 /// Create the application router
-pub fn create_router(state: AppState, cors_origin: &str) -> Router {
+pub fn create_router(state: AppState, cors_origin: &str, static_dir: &str) -> Router {
     let cors = if cors_origin == "*" {
         CorsLayer::new()
             .allow_origin(Any)
@@ -125,6 +125,8 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
             }
         }
     };
+
+    let static_index = std::path::Path::new(static_dir).join("index.html");
 
     Router::new()
         .merge(routes::health::routes())
@@ -171,8 +173,7 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
         // Serve frontend static files with SPA fallback
         .nest_service(
             "/app",
-            ServeDir::new("../frontend/out")
-                .not_found_service(ServeFile::new("../frontend/out/index.html")),
+            ServeDir::new(static_dir).not_found_service(ServeFile::new(static_index)),
         )
         .layer(cors)
         .layer(axum_middleware::from_fn(
@@ -235,7 +236,7 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
 /// * `state` - Application state containing database pool and caches
 /// * `config` - Server configuration
 pub async fn run_api(state: AppState, config: &config::Config) -> Result<(), std::io::Error> {
-    let app = create_router(state, &config.cors_allowed_origin);
+    let app = create_router(state, &config.cors_allowed_origin, &config.static_dir);
     let addr = format!("{}:{}", config.host, config.port);
 
     tracing::info!("API server listening on {}", addr);
@@ -287,7 +288,7 @@ mod tests {
         };
 
         // Test 1: Wildcard "*"
-        let app = create_router(state.clone(), "*");
+        let app = create_router(state.clone(), "*", ".");
 
         let req = Request::builder()
             .method(Method::OPTIONS)
@@ -310,7 +311,7 @@ mod tests {
         assert!(allow_creds.is_none());
 
         // Test 2: Specific Origin
-        let app = create_router(state.clone(), "http://example.com");
+        let app = create_router(state.clone(), "http://example.com", ".");
 
         let req = Request::builder()
             .method(Method::OPTIONS)
@@ -330,7 +331,7 @@ mod tests {
 
         // Test 3: "mirror" should NO LONGER work as a magic value
         // It will be treated as a literal origin "mirror", which won't match "http://evil.com"
-        let app = create_router(state.clone(), "mirror");
+        let app = create_router(state.clone(), "mirror", ".");
 
         let req = Request::builder()
             .method(Method::OPTIONS)
