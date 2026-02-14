@@ -48,9 +48,14 @@ impl KeyExtractor for UserOrIpKeyExtractor {
         if let Some(header) = headers.get("x-forwarded-for")
             && let Ok(val) = header.to_str()
         {
-            // Takes the first IP in the list (Client, Proxy1, Proxy2)
-            if let Some(client_ip) = val.split(',').next()
-                && let Ok(ip) = client_ip.trim().parse::<IpAddr>()
+            // Security: Use the *last* valid IP in the list.
+            // X-Forwarded-For appends IPs: "Client, Proxy1, Proxy2".
+            // The last IP is the one that connected to the immediate trusted proxy (e.g. Railway LB).
+            // Taking the first IP allows spoofing (e.g., "SpoofedIP, RealIP").
+            if let Some(ip) = val
+                .split(',')
+                .rev()
+                .find_map(|s| s.trim().parse::<IpAddr>().ok())
             {
                 return Ok(RateLimitKey::Ip(ip));
             }
@@ -175,6 +180,35 @@ mod tests {
         let key = extractor.extract(&req).unwrap();
 
         // Should return X-Real-IP
+        assert_eq!(key, RateLimitKey::Ip("5.6.7.8".parse().unwrap()));
+    }
+}
+
+#[cfg(test)]
+mod spoofing_test {
+    use super::*;
+    use axum::body::Body;
+    use axum::extract::ConnectInfo;
+    use tower_governor::key_extractor::KeyExtractor;
+
+    #[tokio::test]
+    async fn test_rate_limit_key_extraction_spoofing() {
+        let extractor = UserOrIpKeyExtractor;
+
+        // Test X-Forwarded-For spoofing
+        // Client sends: X-Forwarded-For: 1.2.3.4 (spoofed)
+        // Proxy appends: , 5.6.7.8 (real)
+        // Header value: "1.2.3.4, 5.6.7.8"
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut().insert(ConnectInfo(addr));
+
+        req.headers_mut()
+            .insert("x-forwarded-for", "1.2.3.4, 5.6.7.8".parse().unwrap());
+
+        let key = extractor.extract(&req).unwrap();
+
+        // Should return the LAST IP (5.6.7.8), not the first (1.2.3.4)
         assert_eq!(key, RateLimitKey::Ip("5.6.7.8".parse().unwrap()));
     }
 }
