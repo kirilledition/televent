@@ -1,4 +1,4 @@
-import { type MouseEvent, type KeyboardEvent } from 'react'
+import { type MouseEvent, type KeyboardEvent, memo } from 'react'
 import { Event } from '@/types/event'
 import { Trash2, MapPin, Clock } from 'lucide-react'
 
@@ -8,7 +8,11 @@ interface EventItemProps {
   onEdit: (event: Event) => void
 }
 
-export function EventItem({ event, onDelete, onEdit }: EventItemProps) {
+export const EventItem = memo(function EventItem({
+  event,
+  onDelete,
+  onEdit,
+}: EventItemProps) {
   const formatDuration = (minutes: number) => {
     const hours = Math.floor(minutes / 60)
     const mins = minutes % 60
@@ -107,4 +111,4 @@ export function EventItem({ event, onDelete, onEdit }: EventItemProps) {
       </button>
     </div>
   )
-}
+})
