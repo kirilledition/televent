@@ -14,20 +14,26 @@ export function EventList({
   onEditEvent,
 }: EventListProps) {
   // Sort events by date and time
+  // Optimization: useMemo to prevent re-sorting on every render
+  // Optimization: String comparison is ~20x faster than new Date() parsing
   const sortedEvents = useMemo(() => {
     return [...events].sort((a, b) => {
-      // Optimized: String comparison is ~20x faster than new Date() instantiation
-      // Date is YYYY-MM-DD, Time is HH:mm (24h)
-      const dateCompare = a.date.localeCompare(b.date)
-      if (dateCompare !== 0) return dateCompare
+      // Primary sort by date
+      if (a.date < b.date) return -1
+      if (a.date > b.date) return 1
 
+      // Secondary sort by time (treat missing time as 00:00)
       const timeA = a.time || '00:00'
       const timeB = b.time || '00:00'
-      return timeA.localeCompare(timeB)
+      if (timeA < timeB) return -1
+      if (timeA > timeB) return 1
+
+      return 0
     })
   }, [events])
 
   // Group events by date
+  // Optimization: useMemo to prevent re-grouping on every render
   const groupedEvents = useMemo(() => {
     return sortedEvents.reduce(
       (acc, event) => {
