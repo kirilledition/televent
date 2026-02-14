@@ -213,6 +213,30 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
                 ))}
             </optgroup>
           </select>
+          <div className="mt-2 flex gap-2">
+            {[15, 30, 45, 60].map((mins) => (
+              <button
+                key={mins}
+                type="button"
+                onClick={() => setFormData({ ...formData, duration: mins })}
+                aria-label={`Set duration to ${mins} minutes`}
+                aria-pressed={formData.duration === mins}
+                className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                  formData.duration === mins
+                    ? 'text-[var(--ctp-crust)]'
+                    : 'text-[var(--ctp-text)] hover:opacity-80'
+                }`}
+                style={{
+                  backgroundColor:
+                    formData.duration === mins
+                      ? 'var(--ctp-mauve)'
+                      : 'var(--ctp-surface0)',
+                }}
+              >
+                {mins}m
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
