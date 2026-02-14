@@ -28,6 +28,11 @@
 **Learning:** Documentation or internal memory can drift from implementation. Always verify security controls in code.
 **Prevention:** Implement automated tests that assert the presence of specific security headers (CSP, HSTS) to prevent regression or "ghost" controls.
 
+## 2025-05-25 - [IP Spoofing in Rate Limiting]
+**Vulnerability:** Rate limiter extracted the *first* IP from `X-Forwarded-For` (`Client, Proxy`), allowing attackers to bypass limits by spoofing the header (sending `SpoofedIP`).
+**Learning:** `X-Forwarded-For` is a list where the *leftmost* entries are client-controlled and untrusted. Only the entry added by the trusted immediate peer (the *rightmost* one) is reliable.
+**Prevention:** Use the last IP in the list (or iterate from the right) when extracting the client IP behind a trusted proxy.
+
 ## 2025-02-12 - iCalendar CRLF Injection
 **Vulnerability:** iCalendar serialization (RFC 5545) was vulnerable to CRLF injection because `write_property_impl` only escaped `\n` but not `\r`. A malicious `\r` in a property value could introduce a new line, potentially injecting arbitrary properties.
 **Learning:** Text-based protocols like iCalendar are extremely sensitive to line endings. Simply escaping `\n` is insufficient if `\r` is left raw, as some parsers might treat `\r` as a line break or it can be part of a CRLF sequence.
