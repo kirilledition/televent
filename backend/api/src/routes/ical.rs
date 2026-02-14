@@ -207,6 +207,11 @@ impl<'a> FoldedWriter<'a> {
         let mut current_line_len = name.len() + 1;
 
         for c in value.chars() {
+            // Strip CR to prevent CRLF injection in all cases
+            if c == '\r' {
+                continue;
+            }
+
             // Escape special characters: \ ; , \n
             let replacement = if escape {
                 match c {
@@ -820,8 +825,33 @@ END:VCALENDAR"#;
         let ical = event_to_ical(&event, &attendees).unwrap();
 
         // Check if the injected property appears on its own line
-        // The serializer does not escape RRULE, so CRLF is passed through
-        assert!(ical.contains("RRULE:FREQ=DAILY\r\nATTENDEE:MAILTO:evil@example.com"));
+        // The serializer does not escape RRULE, but we now strip CR to prevent CRLF injection
+        assert!(!ical.contains("\r\nATTENDEE"));
+        // Since we strip CR, it becomes just LF, which is not a valid line break in ical
+        assert!(ical.contains("RRULE:FREQ=DAILY\nATTENDEE:MAILTO:evil@example.com"));
+    }
+
+    #[test]
+    fn test_event_to_ical_cr_injection() {
+        let mut event = create_test_event();
+        // Inject a malicious property via SUMMARY with just \r (since \n is escaped)
+        // If the serializer passes \r through, it might form a newline in lenient parsers
+        event.summary = "Hello\rATTENDEE:evil@example.com".to_string();
+
+        let attendees = vec![];
+        let ical = event_to_ical(&event, &attendees).unwrap();
+
+        // Assert that the output does NOT contain a raw CR followed by ATTENDEE
+        // We expect the CR to be stripped or escaped
+        assert!(!ical.contains("\rATTENDEE"), "Output contained raw CR injection: {}", ical);
+
+        // Also ensure it didn't just escape it to \r (literal backslash r) which is not valid but safe
+        // Ideally it should be "HelloATTENDEE..." (stripped) or "Hello ATTENDEE..." (replaced)
+        // Note: valid ical contains \r\n as line endings, so we can't assert no \r at all.
+        // We verify that the injected property name is not preceded by a newline.
+
+        // The output should be "SUMMARY:HelloATTENDEE:..." (stripped)
+        assert!(ical.contains("SUMMARY:HelloATTENDEE"), "CR should be stripped");
     }
 
 }
