@@ -209,6 +209,30 @@ export function CreateEvent({
     }
   }
 
+  const handleTimeClick = (index: number) => {
+    if (!timePickerRef.current) return
+    const itemHeight = 48
+    timePickerRef.current.scrollTo({
+      top: index * itemHeight,
+      behavior: 'smooth',
+    })
+    if (timeOptions[index]) {
+      setTime(timeOptions[index])
+    }
+  }
+
+  const handleDurationClick = (index: number) => {
+    if (!durationPickerRef.current) return
+    const itemHeight = 48
+    durationPickerRef.current.scrollTo({
+      top: index * itemHeight,
+      behavior: 'smooth',
+    })
+    if (durationOptions[index]) {
+      setDuration(durationOptions[index].value)
+    }
+  }
+
   return (
     <div
       className="mx-auto min-h-screen w-full sm:max-w-md"
@@ -409,18 +433,24 @@ export function CreateEvent({
               onScrollEnd={handleTimeScrollEnd}
               onTouchEnd={handleTimeScrollEnd}
               onMouseUp={handleTimeScrollEnd}
-              className="scrollbar-hide h-full overflow-y-scroll"
+              className="scrollbar-hide h-full overflow-y-scroll focus:ring-2 focus:ring-[var(--ctp-sapphire)] focus:outline-none"
+              tabIndex={0}
+              role="listbox"
+              aria-label="Select time"
             >
               <div className="h-24" />
               {timeOptions.map((timeOption, index) => (
                 <div
                   key={index}
-                  className="flex h-12 items-center justify-center text-xl select-none"
+                  onClick={() => handleTimeClick(index)}
+                  className="hover:bg-opacity-20 flex h-12 cursor-pointer items-center justify-center rounded-md text-xl select-none hover:bg-[var(--ctp-surface0)]"
                   style={{
                     color: 'var(--ctp-text)',
                     opacity: timeOption === time ? 1 : 0.4,
                     transition: 'opacity 0.2s',
                   }}
+                  role="option"
+                  aria-selected={timeOption === time}
                 >
                   {timeOption}
                 </div>
@@ -461,18 +491,24 @@ export function CreateEvent({
               onScrollEnd={handleDurationScrollEnd}
               onTouchEnd={handleDurationScrollEnd}
               onMouseUp={handleDurationScrollEnd}
-              className="scrollbar-hide h-full overflow-y-scroll"
+              className="scrollbar-hide h-full overflow-y-scroll focus:ring-2 focus:ring-[var(--ctp-sapphire)] focus:outline-none"
+              tabIndex={0}
+              role="listbox"
+              aria-label="Select duration"
             >
               <div className="h-24" />
               {durationOptions.map((durationOption, index) => (
                 <div
                   key={index}
-                  className="flex h-12 items-center justify-center text-xl select-none"
+                  onClick={() => handleDurationClick(index)}
+                  className="hover:bg-opacity-20 flex h-12 cursor-pointer items-center justify-center rounded-md text-xl select-none hover:bg-[var(--ctp-surface0)]"
                   style={{
                     color: 'var(--ctp-text)',
                     opacity: durationOption.value === duration ? 1 : 0.4,
                     transition: 'opacity 0.2s',
                   }}
+                  role="option"
+                  aria-selected={durationOption.value === duration}
                 >
                   {durationOption.label}
                 </div>
