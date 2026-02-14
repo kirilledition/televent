@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, KeyboardEvent } from 'react'
 import { Event } from '@/types/event'
 import { MapPin } from 'lucide-react'
 
@@ -233,6 +233,42 @@ export function CreateEvent({
     }
   }
 
+  const handleTimeKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      const currentIndex = timeOptions.indexOf(time)
+      if (currentIndex === -1) return
+
+      if (e.key === 'ArrowUp' && currentIndex > 0) {
+        handleTimeClick(currentIndex - 1)
+      } else if (
+        e.key === 'ArrowDown' &&
+        currentIndex < timeOptions.length - 1
+      ) {
+        handleTimeClick(currentIndex + 1)
+      }
+    }
+  }
+
+  const handleDurationKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      const currentIndex = durationOptions.findIndex(
+        (d) => d.value === duration
+      )
+      if (currentIndex === -1) return
+
+      if (e.key === 'ArrowUp' && currentIndex > 0) {
+        handleDurationClick(currentIndex - 1)
+      } else if (
+        e.key === 'ArrowDown' &&
+        currentIndex < durationOptions.length - 1
+      ) {
+        handleDurationClick(currentIndex + 1)
+      }
+    }
+  }
+
   return (
     <div
       className="mx-auto min-h-screen w-full sm:max-w-md"
@@ -433,6 +469,7 @@ export function CreateEvent({
               onScrollEnd={handleTimeScrollEnd}
               onTouchEnd={handleTimeScrollEnd}
               onMouseUp={handleTimeScrollEnd}
+              onKeyDown={handleTimeKeyDown}
               className="scrollbar-hide h-full overflow-y-scroll focus:ring-2 focus:ring-[var(--ctp-sapphire)] focus:outline-none"
               tabIndex={0}
               role="listbox"
@@ -491,6 +528,7 @@ export function CreateEvent({
               onScrollEnd={handleDurationScrollEnd}
               onTouchEnd={handleDurationScrollEnd}
               onMouseUp={handleDurationScrollEnd}
+              onKeyDown={handleDurationKeyDown}
               className="scrollbar-hide h-full overflow-y-scroll focus:ring-2 focus:ring-[var(--ctp-sapphire)] focus:outline-none"
               tabIndex={0}
               role="listbox"

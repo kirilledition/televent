@@ -206,8 +206,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
                 .filter((m) => m >= 60)
                 .map((mins) => (
                   <option key={mins} value={mins}>
-                    {mins} min (
-                    {Math.floor(mins / 60)}h
+                    {mins} min ({Math.floor(mins / 60)}h
                     {mins % 60 > 0 ? ` ${mins % 60}m` : ''})
                   </option>
                 ))}
