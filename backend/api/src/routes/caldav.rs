@@ -251,8 +251,7 @@ async fn caldav_put_event(
         // Update existing event
         let updated = db::events::update_event(
             &mut tx,
-            user.id,
-            existing_event.id,
+            existing_event,
             Some(summary),
             description,
             location,

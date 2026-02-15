@@ -327,8 +327,7 @@ async fn update_event(
 
     let event = db::events::update_event(
         &mut conn,
-        auth_user.id,
-        event_id,
+        current,
         req.summary,
         req.description,
         req.location,
