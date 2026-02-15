@@ -12,3 +12,7 @@ This journal tracks unique UX and accessibility patterns, challenges, and soluti
 ## 2024-05-22 - Inconsistent Date/Time Pickers
 **Learning:** The application uses two different patterns for event creation and editing. `CreateEvent` uses a custom scroll-based picker, while `EventForm` (used for editing) uses standard HTML5 inputs.
 **Action:** When unifying UI or adding features, consider which pattern to standardize on. The custom picker is more touch-friendly but less accessible than native inputs.
+
+## 2024-05-24 - Keyboard Navigation in Custom Pickers
+**Learning:** `tabIndex={0}` and `role="listbox"` are insufficient for accessible scroll pickers. Users expect standard listbox interaction (ArrowUp/ArrowDown) to change selection, not just scroll the container.
+**Action:** Implement `onKeyDown` handlers for Arrow keys to explicitly update state and selection, in addition to existing scroll/click logic.
