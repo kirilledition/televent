@@ -3,6 +3,7 @@
 //! Converts between our Event model and iCalendar (RFC 5545) format
 
 use chrono::{DateTime, Utc};
+use std::borrow::Cow;
 use televent_core::models::{Event, EventAttendee, EventStatus, ParticipationStatus};
 
 use crate::error::ApiError;
@@ -258,16 +259,16 @@ pub fn ical_to_event_data(
     ical_str: &str,
 ) -> Result<
     (
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        DateTime<Utc>,
-        DateTime<Utc>,
-        bool,
-        Option<String>,
-        EventStatus,
-        String,
+        Cow<'_, str>,         // uid
+        Cow<'_, str>,         // summary
+        Option<Cow<'_, str>>, // description
+        Option<Cow<'_, str>>, // location
+        DateTime<Utc>,        // start
+        DateTime<Utc>,        // end
+        bool,                 // is_all_day
+        Option<Cow<'_, str>>, // rrule
+        EventStatus,          // status
+        Cow<'_, str>,         // timezone
     ),
     ApiError,
 > {
@@ -286,82 +287,161 @@ pub fn ical_to_event_data(
     let mut is_all_day = false;
     let mut rrule = None;
     let mut status = EventStatus::Confirmed;
-    let mut timezone = "UTC".to_string();
+    let mut timezone = Cow::Borrowed("UTC");
 
-    // Naive unfolding: Join lines that start with space/tab to previous line
-    // Uses an iterator to avoid allocating a large buffer for the entire unfolded content
-    for line in UnfoldingIter::new(ical_str) {
-        let line = line.trim();
+    // Rust borrow checker note:
+    // We cannot create a borrow of `line_cow` (local) and return it.
+    // We MUST extract ownership or re-borrow from `ical_str`.
+    //
+    // The previous error `cannot return value referencing local variable line_cow` persists
+    // because `line_cow` (even if variant `Borrowed`) is still a local variable binding.
+    //
+    // However, if `line_cow` is `Borrowed(&'a str)`, we can copy that `&'a str`!
+    // `&'a str` implements Copy.
+    //
+    // So:
+    // match line_cow {
+    //   Cow::Borrowed(s) => { ... use `s` directly ... }
+    // }
+    //
+    // Inside that branch, `s` is `&'a str`.
+    // We can return `Cow::Borrowed(s)`.
+    //
+    // Let's ensure we use `s` and slices of `s`.
 
-        if line == "BEGIN:VEVENT" {
-            in_vevent = true;
-            continue;
-        }
+    for line_cow in UnfoldingIter::new(ical_str) {
+        match line_cow {
+            Cow::Borrowed(line_str) => {
+                // line_str has lifetime 'a. It is Copy.
+                let line = line_str.trim(); // line is &'a str
 
-        if line == "END:VEVENT" {
-            break;
-        }
-
-        if !in_vevent {
-            continue;
-        }
-
-        // Parse property lines
-        if let Some((key, value)) = line.split_once(':') {
-            let (prop_name, params) = if let Some((name, params_str)) = key.split_once(';') {
-                (name, Some(params_str))
-            } else {
-                (key, None)
-            };
-
-            match prop_name {
-                "UID" => uid = Some(value.to_string()),
-                "SUMMARY" => summary = Some(unescape_text(value)),
-                "DESCRIPTION" => description = Some(unescape_text(value)),
-                "LOCATION" => location = Some(unescape_text(value)),
-                "DTSTART" => {
-                    // Check if this is an all-day event
-                    is_all_day = params
-                        .map(|p| p.contains("VALUE=DATE") && !p.contains("VALUE=DATE-TIME"))
-                        .unwrap_or(false);
-                    // Extract timezone from TZID parameter if present
-                    #[allow(clippy::collapsible_if)]
-                    if let Some(params_str) = params {
-                        if let Some(tzid_start) = params_str.find("TZID=") {
-                            let tz_part = &params_str[tzid_start + 5..];
-                            let tz_end = tz_part.find(';').unwrap_or(tz_part.len());
-                            timezone = tz_part[..tz_end].to_string();
-                        }
-                    }
-                    dtstart = Some(value.to_string());
+                if line == "BEGIN:VEVENT" {
+                    in_vevent = true;
+                    continue;
                 }
-                "DTEND" => {
-                    dtend = Some(value.to_string());
+                if line == "END:VEVENT" {
+                    break;
                 }
-                "RRULE" => {
-                    if value.contains('\r') || value.contains('\n') {
-                        return Err(ApiError::BadRequest(
-                            "RRULE cannot contain control characters".to_string(),
-                        ));
-                    }
-                    rrule = Some(value.to_string());
+                if !in_vevent {
+                    continue;
                 }
-                "STATUS" => {
-                    status = match value.to_uppercase().as_str() {
-                        "CONFIRMED" => EventStatus::Confirmed,
-                        "TENTATIVE" => EventStatus::Tentative,
-                        "CANCELLED" => EventStatus::Cancelled,
-                        _ => EventStatus::Confirmed,
+
+                if let Some((key, value)) = line.split_once(':') {
+                    // key and value are &'a str
+                    let (prop_name, params) = if let Some((name, params_str)) = key.split_once(';')
+                    {
+                        (name, Some(params_str))
+                    } else {
+                        (key, None)
                     };
+
+                    match prop_name {
+                        "UID" => uid = Some(Cow::Borrowed(value)),
+                        "SUMMARY" => summary = Some(unescape_text(value)),
+                        "DESCRIPTION" => description = Some(unescape_text(value)),
+                        "LOCATION" => location = Some(unescape_text(value)),
+                        "DTSTART" => {
+                            is_all_day = params
+                                .map(|p| p.contains("VALUE=DATE") && !p.contains("VALUE=DATE-TIME"))
+                                .unwrap_or(false);
+                            if let Some(params_str) = params
+                                && let Some(tzid_start) = params_str.find("TZID=")
+                            {
+                                let tz_part = &params_str[tzid_start + 5..];
+                                let tz_end = tz_part.find(';').unwrap_or(tz_part.len());
+                                timezone = Cow::Borrowed(&params_str[tzid_start + 5..][..tz_end]); // Explicit slice reborrow
+                            }
+                            dtstart = Some(value.to_string());
+                        }
+                        "DTEND" => dtend = Some(value.to_string()),
+                        "RRULE" => {
+                            if value.contains('\r') || value.contains('\n') {
+                                return Err(ApiError::BadRequest("Invalid RRULE".to_string()));
+                            }
+                            rrule = Some(Cow::Borrowed(value));
+                        }
+                        "STATUS" => {
+                            status = match value.to_uppercase().as_str() {
+                                "CONFIRMED" => EventStatus::Confirmed,
+                                "TENTATIVE" => EventStatus::Tentative,
+                                "CANCELLED" => EventStatus::Cancelled,
+                                _ => EventStatus::Confirmed,
+                            };
+                        }
+                        _ => {}
+                    }
                 }
-                _ => {}
+            }
+            Cow::Owned(ref line_string) => {
+                // line_string is &String (local)
+                let line = line_string.trim(); // line is &str (local)
+
+                if line == "BEGIN:VEVENT" {
+                    in_vevent = true;
+                    continue;
+                }
+                if line == "END:VEVENT" {
+                    break;
+                }
+                if !in_vevent {
+                    continue;
+                }
+
+                if let Some((key, value)) = line.split_once(':') {
+                    let (prop_name, params) = if let Some((name, params_str)) = key.split_once(';')
+                    {
+                        (name, Some(params_str))
+                    } else {
+                        (key, None)
+                    };
+
+                    match prop_name {
+                        "UID" => uid = Some(Cow::Owned(value.to_string())),
+                        "SUMMARY" => summary = Some(Cow::Owned(unescape_text(value).into_owned())),
+                        "DESCRIPTION" => {
+                            description = Some(Cow::Owned(unescape_text(value).into_owned()))
+                        }
+                        "LOCATION" => {
+                            location = Some(Cow::Owned(unescape_text(value).into_owned()))
+                        }
+                        "DTSTART" => {
+                            is_all_day = params
+                                .map(|p| p.contains("VALUE=DATE") && !p.contains("VALUE=DATE-TIME"))
+                                .unwrap_or(false);
+                            if let Some(params_str) = params
+                                && let Some(tzid_start) = params_str.find("TZID=")
+                            {
+                                let tz_part = &params_str[tzid_start + 5..];
+                                let tz_end = tz_part.find(';').unwrap_or(tz_part.len());
+                                timezone = Cow::Owned(tz_part[..tz_end].to_string());
+                            }
+                            dtstart = Some(value.to_string());
+                        }
+                        "DTEND" => dtend = Some(value.to_string()),
+                        "RRULE" => {
+                            if value.contains('\r') || value.contains('\n') {
+                                return Err(ApiError::BadRequest("Invalid RRULE".to_string()));
+                            }
+                            rrule = Some(Cow::Owned(value.to_string()));
+                        }
+                        "STATUS" => {
+                            status = match value.to_uppercase().as_str() {
+                                "CONFIRMED" => EventStatus::Confirmed,
+                                "TENTATIVE" => EventStatus::Tentative,
+                                "CANCELLED" => EventStatus::Cancelled,
+                                _ => EventStatus::Confirmed,
+                            };
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
     }
 
     // Validate required fields
     let uid = uid.ok_or_else(|| ApiError::BadRequest("UID is required".to_string()))?;
-    let summary = summary.unwrap_or_else(|| "Untitled Event".to_string());
+    let summary = summary.unwrap_or(Cow::Borrowed("Untitled Event"));
     let dtstart_str =
         dtstart.ok_or_else(|| ApiError::BadRequest("DTSTART is required".to_string()))?;
 
@@ -435,7 +515,7 @@ impl<'a> Iterator for UnfoldingIter<'a> {
 }
 
 /// Unescape iCalendar text
-fn unescape_text(s: &str) -> String {
+fn unescape_text(s: &str) -> Cow<'_, str> {
     let bytes = s.as_bytes();
 
     // Fast path: Find first character that needs escaping (\ or \r)
@@ -449,7 +529,7 @@ fn unescape_text(s: &str) -> String {
     }
 
     match first_special {
-        None => s.to_string(),
+        None => Cow::Borrowed(s),
         Some(i) => {
             let mut result = String::with_capacity(s.len());
             // Bulk copy safe prefix
@@ -478,7 +558,7 @@ fn unescape_text(s: &str) -> String {
                     result.push(c);
                 }
             }
-            result
+            Cow::Owned(result)
         }
     }
 }
@@ -667,8 +747,8 @@ END:VCALENDAR"#;
 
         assert_eq!(uid, "test-123");
         assert_eq!(summary, "Test Event");
-        assert_eq!(description, Some("Test Description".to_string()));
-        assert_eq!(location, Some("Test Location".to_string()));
+        assert_eq!(description, Some(Cow::Borrowed("Test Description")));
+        assert_eq!(location, Some(Cow::Borrowed("Test Location")));
         assert!(!is_all_day);
         assert_eq!(rrule, None);
         assert_eq!(status, EventStatus::Confirmed);
@@ -726,7 +806,7 @@ END:VCALENDAR"#;
 
         let (_, _, _, _, _, _, _, rrule, _, _) = ical_to_event_data(ical).unwrap();
 
-        assert_eq!(rrule, Some("FREQ=WEEKLY;BYDAY=MO".to_string()));
+        assert_eq!(rrule, Some(Cow::Borrowed("FREQ=WEEKLY;BYDAY=MO")));
     }
 
     #[test]
@@ -741,8 +821,8 @@ END:VCALENDAR"#;
 
         assert_eq!(uid, event.uid);
         assert_eq!(summary, event.summary);
-        assert_eq!(description, event.description);
-        assert_eq!(location, event.location);
+        assert_eq!(description, event.description.map(Cow::Owned));
+        assert_eq!(location, event.location.map(Cow::Owned));
         assert_eq!(status, event.status);
     }
 
@@ -843,7 +923,11 @@ END:VCALENDAR"#;
 
         // Assert that the output does NOT contain a raw CR followed by ATTENDEE
         // We expect the CR to be stripped or escaped
-        assert!(!ical.contains("\rATTENDEE"), "Output contained raw CR injection: {}", ical);
+        assert!(
+            !ical.contains("\rATTENDEE"),
+            "Output contained raw CR injection: {}",
+            ical
+        );
 
         // Also ensure it didn't just escape it to \r (literal backslash r) which is not valid but safe
         // Ideally it should be "HelloATTENDEE..." (stripped) or "Hello ATTENDEE..." (replaced)
@@ -851,9 +935,11 @@ END:VCALENDAR"#;
         // We verify that the injected property name is not preceded by a newline.
 
         // The output should be "SUMMARY:HelloATTENDEE:..." (stripped)
-        assert!(ical.contains("SUMMARY:HelloATTENDEE"), "CR should be stripped");
+        assert!(
+            ical.contains("SUMMARY:HelloATTENDEE"),
+            "CR should be stripped"
+        );
     }
-
 }
 
 #[test]
@@ -864,7 +950,7 @@ fn test_ical_to_event_data_rrule_injection_prevention() {
     assert!(result.is_err());
     match result {
         Err(ApiError::BadRequest(msg)) => {
-            assert_eq!(msg, "RRULE cannot contain control characters")
+            assert_eq!(msg, "Invalid RRULE")
         }
         _ => panic!("Expected BadRequest error"),
     }

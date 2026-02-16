@@ -254,9 +254,9 @@ async fn caldav_put_event(
         let updated = db::events::update_event(
             &mut tx,
             existing_event,
-            Some(summary),
-            description,
-            location,
+            Some(summary.into_owned()),
+            description.map(|s| s.into_owned()),
+            location.map(|s| s.into_owned()),
             if is_all_day { None } else { Some(start) },
             if is_all_day { None } else { Some(end) },
             if is_all_day {
@@ -271,7 +271,7 @@ async fn caldav_put_event(
             },
             Some(is_all_day),
             Some(status),
-            rrule,
+            rrule.map(|s| s.into_owned()),
         )
         .await?;
         (StatusCode::NO_CONTENT, updated.etag, updated.id)
@@ -295,13 +295,13 @@ async fn caldav_put_event(
         let created = db::events::create_event(
             &mut *tx,
             user.id,
-            uid.to_string(),
-            summary,
-            description,
-            location,
+            uid.into_owned(),
+            summary.into_owned(),
+            description.map(|s| s.into_owned()),
+            location.map(|s| s.into_owned()),
             timing,
             tz,
-            rrule,
+            rrule.map(|s| s.into_owned()),
         )
         .await?;
         (StatusCode::CREATED, created.etag, created.id)
