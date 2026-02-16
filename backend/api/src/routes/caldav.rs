@@ -295,7 +295,8 @@ async fn caldav_put_event(
         (StatusCode::CREATED, created.etag, created.id)
     };
 
-    // Process Attendees
+    // Process Attendees in bulk
+    let mut internal_attendees = std::collections::HashMap::new();
     for property in &event.properties {
         if property.name == "ATTENDEE"
             && let Some(value) = &property.value
@@ -303,33 +304,46 @@ async fn caldav_put_event(
             // value is usually "mailto:email@example.com"
             let email = value.trim_start_matches("mailto:");
             if let Some(internal_user_id) = attendee::parse_internal_email(email) {
-                // Check if self? (optional)
-                if internal_user_id == user.id {
-                    continue; // Skip self as attendee? Or keep it? keeping it is safer for state.
-                }
-
-                // Upsert attendee
-                // Default status NEEDS-ACTION roughly matches 'NeedsAction' from caldav spec
-                // We use our internal status
-                let is_new_attendee = db::events::upsert_event_attendee(
-                    &mut *tx,
-                    event_id,
-                    internal_user_id,
-                    email,
-                    ParticipationStatus::NeedsAction,
-                )
-                .await?;
-
-                if is_new_attendee {
-                    // Create notification
-                    let payload = serde_json::json!({
-                        "event_id": event_id,
-                        "target_user_id": internal_user_id
-                    });
-                    db::events::create_outbox_message(&mut *tx, "invite_notification", payload)
-                        .await?;
+                // Skip self
+                if internal_user_id != user.id {
+                    // Collect unique attendees by email
+                    internal_attendees.insert(
+                        email.to_string(),
+                        (internal_user_id, ParticipationStatus::NeedsAction),
+                    );
                 }
             }
+        }
+    }
+
+    if !internal_attendees.is_empty() {
+        let attendees_to_upsert = internal_attendees
+            .into_iter()
+            .map(|(email, (uid, status))| (uid, email, status))
+            .collect();
+
+        let upsert_results = db::events::upsert_event_attendees_bulk(
+            &mut *tx,
+            event_id,
+            attendees_to_upsert,
+        )
+        .await?;
+
+        let mut notifications = Vec::new();
+        for res in upsert_results {
+            if res.is_new {
+                notifications.push((
+                    "invite_notification",
+                    serde_json::json!({
+                        "event_id": event_id,
+                        "target_user_id": res.user_id
+                    }),
+                ));
+            }
+        }
+
+        if !notifications.is_empty() {
+            db::events::create_outbox_messages_bulk(&mut *tx, notifications).await?;
         }
     }
 
