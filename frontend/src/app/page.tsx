@@ -1,26 +1,72 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { EventList } from '../components/EventList'
-import { DUMMY_EVENTS } from '@/lib/dummy-data'
-import { Plus } from 'lucide-react'
+import { api } from '@/lib/api'
+import { mapApiEventToUiEvent } from '@/lib/mappers'
+import { Plus, Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Event } from '@/types/event'
 
 export default function CalendarPage() {
   const router = useRouter()
-  const [events, setEvents] = useState(DUMMY_EVENTS)
+  const queryClient = useQueryClient()
 
-  const handleDeleteEvent = useCallback((id: string) => {
-    setEvents((prev) => prev.filter((e) => e.id !== id))
-  }, [])
+  const { data: eventsData, isLoading, error } = useQuery({
+    queryKey: ['events'],
+    queryFn: () => api.getEvents(),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteEvent(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events'] })
+    },
+  })
+
+  const handleDeleteEvent = useCallback(
+    (id: string) => {
+      if (window.confirm('Are you sure you want to delete this event?')) {
+        deleteMutation.mutate(id)
+      }
+    },
+    [deleteMutation]
+  )
 
   const handleEditEvent = useCallback(
     (event: Event) => {
-      router.push(`/event/${event.id}`)
+      router.push(`/event-detail?id=${event.id}`)
     },
     [router]
   )
+
+  const events = eventsData ? eventsData.map(mapApiEventToUiEvent) : []
+
+  if (isLoading) {
+    return (
+      <div
+        className="flex h-screen items-center justify-center"
+        style={{ backgroundColor: 'var(--ctp-base)' }}
+      >
+        <Loader2
+          className="h-8 w-8 animate-spin"
+          style={{ color: 'var(--ctp-mauve)' }}
+        />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div
+        className="flex h-screen items-center justify-center p-4 text-center"
+        style={{ backgroundColor: 'var(--ctp-base)', color: 'var(--ctp-red)' }}
+      >
+        Error loading events: {error.message}
+      </div>
+    )
+  }
 
   return (
     <div

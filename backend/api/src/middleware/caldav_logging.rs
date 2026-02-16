@@ -66,7 +66,7 @@ pub async fn caldav_logger(req: Request, next: Next) -> Response {
         // Returning a 413 for a *response* doesn't make sense here.
         let bytes = match buffer_and_log_body(body, "Response Body").await {
             Ok(b) => b,
-            Err(_) => Bytes::new(),
+            Err(e) => { tracing::warn!("Failed to buffer response body for logging: {:?}", e); Bytes::new() },
         };
 
         return Response::from_parts(parts, Body::from(bytes));
