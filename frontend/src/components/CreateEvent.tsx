@@ -233,6 +233,38 @@ export function CreateEvent({
     }
   }
 
+  const handleTimeKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      const currentIndex = timeOptions.indexOf(time)
+      if (currentIndex < timeOptions.length - 1) {
+        handleTimeClick(currentIndex + 1)
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      const currentIndex = timeOptions.indexOf(time)
+      if (currentIndex > 0) {
+        handleTimeClick(currentIndex - 1)
+      }
+    }
+  }
+
+  const handleDurationKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      const currentIndex = durationOptions.findIndex((d) => d.value === duration)
+      if (currentIndex < durationOptions.length - 1) {
+        handleDurationClick(currentIndex + 1)
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      const currentIndex = durationOptions.findIndex((d) => d.value === duration)
+      if (currentIndex > 0) {
+        handleDurationClick(currentIndex - 1)
+      }
+    }
+  }
+
   return (
     <div
       className="mx-auto min-h-screen w-full sm:max-w-md"
@@ -433,6 +465,7 @@ export function CreateEvent({
               onScrollEnd={handleTimeScrollEnd}
               onTouchEnd={handleTimeScrollEnd}
               onMouseUp={handleTimeScrollEnd}
+              onKeyDown={handleTimeKeyDown}
               className="scrollbar-hide h-full overflow-y-scroll focus:ring-2 focus:ring-[var(--ctp-sapphire)] focus:outline-none"
               tabIndex={0}
               role="listbox"
@@ -491,6 +524,7 @@ export function CreateEvent({
               onScrollEnd={handleDurationScrollEnd}
               onTouchEnd={handleDurationScrollEnd}
               onMouseUp={handleDurationScrollEnd}
+              onKeyDown={handleDurationKeyDown}
               className="scrollbar-hide h-full overflow-y-scroll focus:ring-2 focus:ring-[var(--ctp-sapphire)] focus:outline-none"
               tabIndex={0}
               role="listbox"
