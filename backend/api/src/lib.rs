@@ -1,89 +1,74 @@
-//! Televent API Server Library
-
-pub mod config;
-mod db;
-pub mod error;
-pub mod middleware;
-mod routes;
-
-use axum::extract::FromRef;
-use axum::{Router, middleware as axum_middleware};
+use crate::config::API_BURST_SIZE;
+use crate::config::API_PERIOD_MS;
+use crate::config::CALDAV_BURST_SIZE;
+use crate::config::CALDAV_PERIOD_MS;
+use crate::docs::ApiDoc;
+use crate::middleware::security_headers;
+use crate::middleware::telegram_auth;
+use axum::{
+    Router,
+    extract::FromRef,
+    middleware as axum_middleware,
+};
+use axum_client_ip::SecureClientIpSource;
 use moka::future::Cache;
 use sqlx::PgPool;
-use televent_core::models::UserId;
-use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
-use tower_http::cors::{Any, CorsLayer};
-use tower_http::services::{ServeDir, ServeFile};
-use tower_http::trace::TraceLayer;
-
-use crate::middleware::caldav_auth::{LoginId, caldav_basic_auth};
-use crate::middleware::rate_limit::{
-    API_BURST_SIZE, API_PERIOD_MS, CALDAV_BURST_SIZE, CALDAV_PERIOD_MS, UserOrIpKeyExtractor,
+use std::sync::Arc;
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder, key_extractor::KeyExtractor};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
 };
-use crate::middleware::security_headers::security_headers;
-use crate::middleware::telegram_auth::telegram_auth;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+
+pub mod config;
+pub mod db;
+pub mod docs;
+pub mod error;
+pub mod middleware;
+pub mod models;
+pub mod routes;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
-    pub auth_cache: Cache<(LoginId, String), UserId>,
+    pub auth_cache: Cache<String, ()>, // Cache for device password hashes (key: "<user_id>:<password>")
     pub telegram_bot_token: String,
 }
 
-#[derive(OpenApi)]
-#[openapi(
-    paths(
-        routes::health::health_check,
-        routes::me::get_me,
-        routes::events::create_event,
-        routes::events::list_events,
-        routes::events::get_event,
-        routes::events::update_event,
-        routes::events::delete_event_handler,
-        routes::calendars::list_calendars,
-        routes::devices::create_device_password,
-        routes::devices::list_device_passwords,
-        routes::devices::delete_device_password,
-    ),
-    components(
-        schemas(
-            televent_core::models::UserId,
-            televent_core::models::Timezone,
-            televent_core::models::User,
-            televent_core::models::Event,
-            televent_core::models::EventStatus,
-            televent_core::models::EventAttendee,
-            televent_core::models::AttendeeRole,
-            televent_core::models::ParticipationStatus,
-            routes::health::HealthResponse,
-            routes::me::MeResponse,
-            routes::events::CreateEventRequest,
-            routes::events::UpdateEventRequest,
-            routes::events::ListEventsQuery,
-            routes::calendars::CalendarInfo,
-            routes::devices::CreateDeviceRequest,
-            routes::devices::DevicePasswordResponse,
-            routes::devices::DeviceListItem,
-        )
-    ),
-    tags(
-        (name = "health", description = "Health check endpoints"),
-        (name = "user", description = "User profile endpoints"),
-        (name = "events", description = "Event management endpoints"),
-        (name = "calendars", description = "Calendar management endpoints"),
-        (name = "devices", description = "Device management endpoints"),
-    ),
-    modifiers(&SecurityAddon)
-)]
-pub struct ApiDoc;
+// Extract IP for rate limiting
+#[derive(Clone, Copy, Debug)]
+struct UserOrIpKeyExtractor;
 
-struct SecurityAddon;
+impl KeyExtractor for UserOrIpKeyExtractor {
+    type Key = String;
 
-impl utoipa::Modify for SecurityAddon {
-    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        if let Some(components) = openapi.components.as_mut() {
+    fn extract<B>(&self, req: &axum::http::Request<B>) -> Result<Self::Key, tower_governor::governor::Quota> {
+        // 1. Try to get User ID from extensions (set by auth middleware)
+        if let Some(user_id) = req.extensions().get::<televent_core::models::UserId>() {
+            return Ok(format!("user:{}", user_id));
+        }
+
+        // 2. Fallback to IP address
+        // Using SecureClientIpSource from axum-client-ip would be better but requires more setup
+        // For now, we trust the ConnectInfo or X-Forwarded-For if properly configured
+        if let Some(ip) = req
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        {
+            return Ok(format!("ip:{}", ip.0.ip()));
+        }
+
+        // 3. Fallback for unknown (should be rare with correct setup)
+        Ok("unknown".to_string())
+    }
+}
+
+pub fn add_security_scheme(openapi: &mut utoipa::openapi::OpenApi) {
+    if let Some(components) = openapi.components.as_mut() {
+        if !components.security_schemes.contains_key("telegram_auth") {
             components.add_security_scheme(
                 "telegram_auth",
                 utoipa::openapi::security::SecurityScheme::ApiKey(
@@ -137,7 +122,7 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
                 .merge(routes::me::routes())
                 .layer(axum_middleware::from_fn_with_state(
                     state.clone(),
-                    telegram_auth,
+                    middleware::telegram_auth::telegram_auth,
                 ))
                 .layer(GovernorLayer::new(
                     GovernorConfigBuilder::default()
@@ -153,7 +138,7 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
             routes::caldav::routes()
                 .layer(axum_middleware::from_fn_with_state(
                     state.clone(),
-                    caldav_basic_auth,
+                    middleware::caldav_auth::caldav_basic_auth,
                 ))
                 // Rate limit BEFORE auth to prevent Argon2 CPU exhaustion attacks (DoS)
                 .layer(GovernorLayer::new(
@@ -232,8 +217,8 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
 /// This function starts the HTTP server and blocks until it exits.
 ///
 /// # Arguments
-/// * `state` - Application state containing database pool and caches
-/// * `config` - Server configuration
+/// *  - Application state containing database pool and caches
+/// *  - Server configuration
 pub async fn run_api(state: AppState, config: &config::Config) -> Result<(), std::io::Error> {
     let app = create_router(state, &config.cors_allowed_origin);
     let addr = format!("{}:{}", config.host, config.port);
@@ -253,6 +238,7 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::Write;
+    use std::path::Path;
 
     #[test]
     fn export_openapi_json() {
@@ -261,12 +247,39 @@ mod tests {
             .to_pretty_json()
             .expect("Failed to serialize OpenAPI to JSON");
 
-        let path = "../docs/openapi.json";
+        // Use a relative path from CARGO_MANIFEST_DIR to locate the docs folder
+        // backend/api/ -> backend/docs/
+        // Actually, the structure is backend/api and backend/docs is probably at backend/../docs?
+        // Wait, 'docs' folder is not in 'backend'.
+        // Repository structure:
+        // backend/
+        //   api/
+        // docs/ (maybe?)
+        // Let's assume we just want to output it if the directory exists, or skip it.
+        // Or write to OUT_DIR if it's for build.
+        // But this is a test.
+        // Let's try to find the project root.
+
+        let path = Path::new("../docs/openapi.json");
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+               // In CI or some envs, docs might not exist. Create it or skip.
+               // For CI, let's try to create it if it doesn't exist, to prevent failure.
+               // But usually this test is meant to update the repo file.
+               // If we are in CI, maybe we don't need to write it?
+               // But let's make it robust by checking directory existence.
+               if std::fs::create_dir_all(parent).is_err() {
+                   eprintln!("Warning: Could not create docs directory. Skipping openapi.json export.");
+                   return;
+               }
+            }
+        }
+
         let mut file = File::create(path).expect("Failed to create openapi.json");
         file.write_all(json.as_bytes())
             .expect("Failed to write openapi.json");
 
-        println!("OpenAPI JSON exported to {}", path);
+        println!("OpenAPI JSON exported to {:?}", path);
     }
 
     #[tokio::test]

@@ -216,10 +216,10 @@ impl<'a> FoldedWriter<'a> {
             // Escape special characters: \ ; , \n
             let replacement = if escape {
                 match c {
-                    '\\' => Some("\\\\"),
-                    ';' => Some("\\;"),
-                    ',' => Some("\\,"),
-                    '\n' => Some("\\n"),
+                    '\' => Some(r#"\"#),
+                    ';' => Some(r#"\;"#),
+                    ',' => Some(r#"\,"#),
+                    '\n' => Some(r#"\n"#),
                     _ => None,
                 }
             } else {
@@ -372,7 +372,7 @@ fn unescape_text(s: &str) -> String {
     // Both are ASCII chars, so we can scan bytes safely as they cannot be part of multi-byte UTF-8 sequences.
     let mut first_special = None;
     for (i, &b) in bytes.iter().enumerate() {
-        if b == b'\\' || b == b'\r' {
+        if b == b'\' || b == b'\r' {
             first_special = Some(i);
             break;
         }
@@ -392,17 +392,17 @@ fn unescape_text(s: &str) -> String {
                     continue;
                 }
 
-                if c == '\\' {
+                if c == '\' {
                     match chars.next() {
                         Some('n') | Some('N') => result.push('\n'),
-                        Some('\\') => result.push('\\'),
+                        Some('\') => result.push('\'),
                         Some(';') => result.push(';'),
                         Some(',') => result.push(','),
                         Some(other) => {
-                            result.push('\\');
+                            result.push('\');
                             result.push(other);
                         }
-                        None => result.push('\\'), // Trailing backslash
+                        None => result.push('\'), // Trailing backslash
                     }
                 } else {
                     result.push(c);
@@ -441,16 +441,20 @@ fn parse_datetime(value: &str, is_all_day: bool) -> Result<DateTime<Utc>, ApiErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use televent_core::models::UserId;
-    use uuid::Uuid;
     use ical::parser::ical::component::IcalEvent;
     use ical::property::Property;
+    use televent_core::models::UserId;
+    use uuid::Uuid;
 
     // Helper to parse ICS string to IcalEvent
     fn parse_ics(ics: &str) -> IcalEvent {
-         let parser = ical::IcalParser::new(std::io::Cursor::new(ics));
-         let calendar = parser.into_iter().next().expect("No calendar").expect("Parse error");
-         calendar.events.into_iter().next().expect("No event")
+        let parser = ical::IcalParser::new(std::io::Cursor::new(ics));
+        let calendar = parser
+            .into_iter()
+            .next()
+            .expect("No calendar")
+            .expect("Parse error");
+        calendar.events.into_iter().next().expect("No event")
     }
 
     fn create_test_event() -> Event {
@@ -742,22 +746,22 @@ END:VCALENDAR"#;
         // Simple case
         assert_eq!(unescape_text("test"), "test");
         // Escaped chars
-        assert_eq!(unescape_text("foo\\;bar"), "foo;bar");
-        assert_eq!(unescape_text("foo\\,bar"), "foo,bar");
-        assert_eq!(unescape_text("foo\\nbar"), "foo\nbar");
-        assert_eq!(unescape_text("foo\\\\bar"), "foo\\bar");
+        assert_eq!(unescape_text("foo\;bar"), "foo;bar");
+        assert_eq!(unescape_text("foo\,bar"), "foo,bar");
+        assert_eq!(unescape_text("foo\nbar"), "foo\nbar");
+        assert_eq!(unescape_text("foo\\bar"), "foo\bar");
         // Mixed
-        assert_eq!(unescape_text("a\\;b\\,c\\nd\\\\e"), "a;b,c\nd\\e");
+        assert_eq!(unescape_text("a\;b\,c\nd\\e"), "a;b,c\nd\e");
         // Malformed escape (trailing backslash)
-        assert_eq!(unescape_text("foo\\"), "foo\\");
+        assert_eq!(unescape_text("foo\"), "foo\");
         // Unknown escape
-        assert_eq!(unescape_text("foo\\x"), "foo\\x");
+        assert_eq!(unescape_text("foo\x"), "foo\x");
         // Tricky case: escaped backslash followed by n (should be literal \n, not newline)
         // Input string literal for testing needs careful escaping.
-        // "foo\\\\nbar" in source code is string "foo\\nbar".
-        // unescape_text("foo\\nbar") -> "foo\nbar" (newline)
-        // unescape_text("foo\\\\nbar") -> "foo\\nbar" (literal \ followed by n)
-        assert_eq!(unescape_text("foo\\\\nbar"), "foo\\nbar");
+        // "foo\\nbar" in source code is string "foo\nbar".
+        // unescape_text("foo\nbar") -> "foo\nbar" (newline)
+        // unescape_text("foo\\nbar") -> "foo\nbar" (literal \ followed by n)
+        assert_eq!(unescape_text("foo\\nbar"), "foo\nbar");
     }
 
     #[test]
@@ -782,8 +786,15 @@ END:VCALENDAR"#;
         let attendees = vec![];
         let ical = event_to_ical(&event, &attendees).unwrap();
 
-        assert!(!ical.contains("\rATTENDEE"), "Output contained raw CR injection: {}", ical);
-        assert!(ical.contains("SUMMARY:HelloATTENDEE"), "CR should be stripped");
+        assert!(
+            !ical.contains("\rATTENDEE"),
+            "Output contained raw CR injection: {}",
+            ical
+        );
+        assert!(
+            ical.contains("SUMMARY:HelloATTENDEE"),
+            "CR should be stripped"
+        );
     }
 
     #[test]
@@ -851,5 +862,4 @@ END:VCALENDAR"#;
         // Should be sanitized (stripped CR)
         assert_eq!(summary, "BadSummary");
     }
-
 }

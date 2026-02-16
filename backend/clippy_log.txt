@@ -1,0 +1,41 @@
+    Checking teloxide v0.17.0
+    Checking api v0.1.0 (/app/backend/api)
+    Checking worker v0.1.0 (/app/backend/worker)
+    Checking bot v0.1.0 (/app/backend/bot)
+error: function `upsert_event_attendee` is never used
+   --> api/src/db/events.rs:416:14
+    |
+416 | pub async fn upsert_event_attendee<'e, E>(
+    |              ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `-D dead-code` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(dead_code)]`
+
+error: function `create_outbox_message` is never used
+   --> api/src/db/events.rs:521:14
+    |
+521 | pub async fn create_outbox_message<'e, E>(
+    |              ^^^^^^^^^^^^^^^^^^^^^
+
+error: this `if` statement can be collapsed
+   --> api/src/routes/ical.rs:306:25
+    |
+306 | /                         if key == "TZID" {
+307 | |                             if let Some(tzid) = values.first() {
+308 | |                                 timezone = tzid.clone();
+309 | |                             }
+310 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+306 ~                         if key == "TZID"
+307 ~                             && let Some(tzid) = values.first() {
+308 |                                 timezone = tzid.clone();
+309 ~                             }
+    |
+
+error: could not compile `api` (lib) due to 3 previous errors

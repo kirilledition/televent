@@ -1,13 +1,13 @@
 use api::{AppState, create_router};
+use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use moka::future::Cache;
-use sqlx::{PgPool};
+use sqlx::PgPool;
 use std::time::{Duration, Instant};
 use televent_core::models::UserId;
 use tower::ServiceExt;
-use base64::{Engine, engine::general_purpose::STANDARD};
-use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 
 #[sqlx::test(migrations = "../migrations")]
 async fn bench_caldav_put_attendees(pool: PgPool) {
@@ -65,7 +65,10 @@ async fn bench_caldav_put_attendees(pool: PgPool) {
         let attendee_id = UserId::new(2000 + i as i64);
         // internal email format: user_<id>@televent.internal
         // Actually I should check what televent_core::attendee::parse_internal_email expects
-        attendees_ical.push_str(&format!("ATTENDEE;CN=User {};RSVP=TRUE:mailto:user_{}@televent.internal\r\n", i, attendee_id));
+        attendees_ical.push_str(&format!(
+            "ATTENDEE;CN=User {};RSVP=TRUE:mailto:user_{}@televent.internal\r\n",
+            i, attendee_id
+        ));
     }
 
     let ical_body = format!(
@@ -88,7 +91,10 @@ async fn bench_caldav_put_attendees(pool: PgPool) {
     let encoded = STANDARD.encode(credentials.as_bytes());
 
     // 5. Run benchmark
-    println!("Starting benchmark for CalDAV PUT with {} attendees...", num_attendees);
+    println!(
+        "Starting benchmark for CalDAV PUT with {} attendees...",
+        num_attendees
+    );
     let start = Instant::now();
 
     let response = app
@@ -109,7 +115,10 @@ async fn bench_caldav_put_attendees(pool: PgPool) {
         .unwrap();
 
     let duration = start.elapsed();
-    println!("CalDAV PUT with {} attendees took: {:?}", num_attendees, duration);
+    println!(
+        "CalDAV PUT with {} attendees took: {:?}",
+        num_attendees, duration
+    );
 
     assert_eq!(response.status(), StatusCode::CREATED);
 }
