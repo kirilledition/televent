@@ -45,7 +45,6 @@ rand.workspace = true
 thiserror.workspace = true
 
 # iCalendar
-icalendar.workspace = true
 
 [dev-dependencies]
 teloxide_tests.workspace = true
