@@ -216,10 +216,10 @@ impl<'a> FoldedWriter<'a> {
             // Escape special characters: \ ; , \n
             let replacement = if escape {
                 match c {
-                    '\' => Some(r#"\"#),
-                    ';' => Some(r#"\;"#),
-                    ',' => Some(r#"\,"#),
-                    '\n' => Some(r#"\n"#),
+                    '\' => Some(r"\"),
+                    ';' => Some(r"\;"),
+                    ',' => Some(r"\,"),
+                    '\n' => Some(r"\n"),
                     _ => None,
                 }
             } else {

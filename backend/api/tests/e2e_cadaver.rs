@@ -126,7 +126,11 @@ fn init_tracing() {
 #[sqlx::test(migrations = "../migrations")]
 async fn test_cadaver_full_flow(pool: PgPool) {
     // Check if cadaver is available
-    if std::process::Command::new("cadaver").arg("--version").output().is_err() {
+    if std::process::Command::new("cadaver")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
         eprintln!("Skipping test_cadaver_full_flow: cadaver binary not found");
         return;
     }
