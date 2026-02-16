@@ -5,6 +5,7 @@
 use anyhow::{Context, Result};
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
+use teloxide::utils::html::escape;
 use tracing::{error, info};
 
 use crate::db::OutboxMessage;
@@ -89,12 +90,14 @@ async fn process_invite_notification(
     let location_text = event
         .location
         .as_ref()
-        .map(|loc| format!("\n📍 <b>Location:</b> {}", loc))
+        .map(|loc| format!("\n📍 <b>Location:</b> {}", escape(loc)))
         .unwrap_or_default();
 
     let text = format!(
         "📅 <b>New Invite:</b> {}\n🕒 <b>Time:</b> {}{}",
-        event.summary, time_str, location_text
+        escape(&event.summary),
+        time_str,
+        location_text
     );
 
     let keyboard = InlineKeyboardMarkup::new(vec![vec![
@@ -172,7 +175,7 @@ async fn process_calendar_invite(message: &OutboxMessage, bot: &Bot) -> Result<(
             .context("Missing recipient_telegram_id for internal invite")?;
 
         let location_text = event_location
-            .map(|loc| format!("\n📍 <b>Location:</b> {}", loc))
+            .map(|loc| format!("\n📍 <b>Location:</b> {}", escape(loc)))
             .unwrap_or_default();
 
         let invite_text = format!(
@@ -180,7 +183,9 @@ async fn process_calendar_invite(message: &OutboxMessage, bot: &Bot) -> Result<(
              <b>Event:</b> {}\n\
              🕒 <b>Time:</b> {}{}\n\n\
              You've been invited to this event. Use /rsvp to respond.",
-            event_summary, event_start, location_text
+            escape(event_summary),
+            event_start,
+            location_text
         );
 
         bot.send_message(ChatId(telegram_id), invite_text)
