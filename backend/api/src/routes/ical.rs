@@ -300,7 +300,7 @@ pub fn ical_to_event_data(
                 // params is Option<Vec<(String, Vec<String>)>>
                 if let Some(ref params) = prop.params {
                     for (key, values) in params {
-                        if key == "VALUE" && values.contains(&"DATE".to_string()) {
+                        if key == "VALUE" && values.iter().any(|v| v == "DATE") {
                             is_all_day = true;
                         }
                         if key == "TZID" {
