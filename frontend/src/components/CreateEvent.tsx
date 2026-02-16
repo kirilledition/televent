@@ -252,13 +252,17 @@ export function CreateEvent({
   const handleDurationKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      const currentIndex = durationOptions.findIndex((d) => d.value === duration)
+      const currentIndex = durationOptions.findIndex(
+        (d) => d.value === duration
+      )
       if (currentIndex < durationOptions.length - 1) {
         handleDurationClick(currentIndex + 1)
       }
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      const currentIndex = durationOptions.findIndex((d) => d.value === duration)
+      const currentIndex = durationOptions.findIndex(
+        (d) => d.value === duration
+      )
       if (currentIndex > 0) {
         handleDurationClick(currentIndex - 1)
       }

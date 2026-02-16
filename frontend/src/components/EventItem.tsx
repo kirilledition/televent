@@ -53,7 +53,7 @@ export const EventItem = memo(function EventItem({
 
       {/* Event content - Main interactive area */}
       <div
-        className="min-w-0 flex-1 cursor-pointer pl-2 pr-12 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)]"
+        className="min-w-0 flex-1 cursor-pointer rounded-md pr-12 pl-2 focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none"
         onClick={() => onEdit(event)}
         role="button"
         tabIndex={0}
@@ -99,15 +99,12 @@ export const EventItem = memo(function EventItem({
       {/* Delete button - Positioned absolutely to separate from main action */}
       <button
         onClick={handleDelete}
-        className="absolute top-4 right-4 rounded-lg p-2 transition-all hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-red)]"
+        className="absolute top-4 right-4 rounded-lg p-2 transition-all hover:opacity-70 focus-visible:ring-2 focus-visible:ring-[var(--ctp-red)] focus-visible:outline-none"
         style={{ backgroundColor: 'var(--ctp-surface0)' }}
         aria-label={`Delete event: ${event.title}`}
         title="Delete event"
       >
-        <Trash2
-          className="h-4 w-4"
-          style={{ color: 'var(--ctp-subtext0)' }}
-        />
+        <Trash2 className="h-4 w-4" style={{ color: 'var(--ctp-subtext0)' }} />
       </button>
     </div>
   )
