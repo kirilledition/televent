@@ -179,21 +179,9 @@ async fn caldav_put_event(
         .first()
         .ok_or_else(|| ApiError::BadRequest("No event found in calendar".to_string()))?;
 
-    // Extract basic properties
-    // We'll use a local helper or inline logic. For now, let's reuse ical_to_event_data logic but adapted?
-    // actually, let's just use ical_to_event_data for the basic fields to avoid rewriting parsing logic for dates/recurrence right now,
-    // AND iterate over the parsed `event` properties for attendees.
-    // This parses twice but is safer to avoid regression on date parsing which can be complex.
-    // Wait, ical_to_event_data parses the STRING.
-    // Efficiently, we should do it once.
-    // But ical_to_event_data is robust for now.
-    // Correct approach: Use `ical_to_event_data` for event fields, and `ical` crate for Attendees.
-    // This is technically double parsing but negligible for small ICS files.
-    //
-    // TODO: Refactor ical_to_event_data to use ical crate internally later.
-
+    // Extract basic properties using the parsed event
     let (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone) =
-        ical_route::ical_to_event_data(&ical_str)?;
+        ical_route::ical_to_event_data(event)?;
 
     // Validate inputs
     validate_length("UID", &uid, MAX_UID_LENGTH).map_err(ApiError::BadRequest)?;
