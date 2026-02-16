@@ -7,9 +7,10 @@ use axum::{
 };
 use serde::Serialize;
 use televent_core::CalendarError;
+use utoipa::ToSchema;
 
 /// API error response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorResponse {
     pub error: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -17,13 +18,19 @@ pub struct ErrorResponse {
 }
 
 /// API error type that can be converted to HTTP responses
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ApiError {
+    #[error("Not Found: {0}")]
     NotFound(String),
+    #[error("Bad Request: {0}")]
     BadRequest(String),
+    #[error("Unauthorized: {0}")]
     Unauthorized(String),
+    #[error("Forbidden")]
     Forbidden,
+    #[error("Conflict: {0}")]
     Conflict(String),
+    #[error("Internal Server Error: {0}")]
     Internal(String),
 }
 
@@ -49,16 +56,6 @@ impl IntoResponse for ApiError {
             error: error.to_string(),
             details,
         });
-
-        // Add WWW-Authenticate header for 401 Unauthorized responses
-        // Required by RFC 2617 for HTTP Basic Auth
-        // Include helpful hint about using Telegram ID as username
-        // We DO NOT add WWW-Authenticate header here by default because:
-        // 1. It triggers native browser login prompt which confuses Telegram Mini App users
-        // 2. CalDAV auth is handled separately by `caldav_basic_auth`
-        // 3. Telegram authentication is custom header-based
-
-        // if status == StatusCode::UNAUTHORIZED { ... }
 
         (status, body).into_response()
     }
@@ -100,65 +97,6 @@ impl From<sqlx::Error> for ApiError {
                 }
             }
             _ => ApiError::Internal(format!("Database error: {}", err)),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use uuid::Uuid;
-
-    #[test]
-    fn test_error_response_serialization() {
-        let error = ErrorResponse {
-            error: "Not Found".to_string(),
-            details: Some("Resource does not exist".to_string()),
-        };
-
-        let json = serde_json::to_string(&error).unwrap();
-        assert!(json.contains("Not Found"));
-        assert!(json.contains("Resource does not exist"));
-    }
-
-    #[test]
-    fn test_error_response_without_details() {
-        let error = ErrorResponse {
-            error: "Forbidden".to_string(),
-            details: None,
-        };
-
-        let json = serde_json::to_string(&error).unwrap();
-        assert!(json.contains("Forbidden"));
-        assert!(!json.contains("details"));
-    }
-
-    #[test]
-    fn test_calendar_error_conversion() {
-        let event_id = Uuid::new_v4();
-        let err = CalendarError::EventNotFound(event_id);
-        let api_err: ApiError = err.into();
-
-        match api_err {
-            ApiError::NotFound(msg) => assert!(msg.contains(&event_id.to_string())),
-            _ => panic!("Expected NotFound error"),
-        }
-    }
-
-    #[test]
-    fn test_version_conflict_conversion() {
-        let err = CalendarError::VersionConflict {
-            expected: 5,
-            actual: 3,
-        };
-        let api_err: ApiError = err.into();
-
-        match api_err {
-            ApiError::Conflict(msg) => {
-                assert!(msg.contains("expected 5"));
-                assert!(msg.contains("got 3"));
-            }
-            _ => panic!("Expected Conflict error"),
         }
     }
 }

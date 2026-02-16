@@ -216,7 +216,7 @@ impl<'a> FoldedWriter<'a> {
             // Escape special characters: \ ; , \n
             let replacement = if escape {
                 match c {
-                    '\' => Some(r"\"),
+                    '\\' => Some(r"\\"),
                     ';' => Some(r"\;"),
                     ',' => Some(r"\,"),
                     '\n' => Some(r"\n"),
@@ -372,7 +372,7 @@ fn unescape_text(s: &str) -> String {
     // Both are ASCII chars, so we can scan bytes safely as they cannot be part of multi-byte UTF-8 sequences.
     let mut first_special = None;
     for (i, &b) in bytes.iter().enumerate() {
-        if b == b'\' || b == b'\r' {
+        if b == b'\\' || b == b'\r' {
             first_special = Some(i);
             break;
         }
@@ -392,17 +392,17 @@ fn unescape_text(s: &str) -> String {
                     continue;
                 }
 
-                if c == '\' {
+                if c == '\\' {
                     match chars.next() {
                         Some('n') | Some('N') => result.push('\n'),
-                        Some('\') => result.push('\'),
+                        Some('\\') => result.push('\\'),
                         Some(';') => result.push(';'),
                         Some(',') => result.push(','),
                         Some(other) => {
-                            result.push('\');
+                            result.push('\\');
                             result.push(other);
                         }
-                        None => result.push('\'), // Trailing backslash
+                        None => result.push('\\'), // Trailing backslash
                     }
                 } else {
                     result.push(c);
@@ -746,22 +746,22 @@ END:VCALENDAR"#;
         // Simple case
         assert_eq!(unescape_text("test"), "test");
         // Escaped chars
-        assert_eq!(unescape_text("foo\;bar"), "foo;bar");
-        assert_eq!(unescape_text("foo\,bar"), "foo,bar");
-        assert_eq!(unescape_text("foo\nbar"), "foo\nbar");
-        assert_eq!(unescape_text("foo\\bar"), "foo\bar");
+        assert_eq!(unescape_text("foo\\;bar"), "foo;bar");
+        assert_eq!(unescape_text("foo\\,bar"), "foo,bar");
+        assert_eq!(unescape_text("foo\\nbar"), "foo\nbar");
+        assert_eq!(unescape_text("foo\\\\bar"), "foo\\bar");
         // Mixed
-        assert_eq!(unescape_text("a\;b\,c\nd\\e"), "a;b,c\nd\e");
+        assert_eq!(unescape_text("a\\;b\\,c\\nd\\\\e"), "a;b,c\nd\\e");
         // Malformed escape (trailing backslash)
-        assert_eq!(unescape_text("foo\"), "foo\");
+        assert_eq!(unescape_text("foo\\"), "foo\\");
         // Unknown escape
-        assert_eq!(unescape_text("foo\x"), "foo\x");
+        assert_eq!(unescape_text("foo\\x"), "foo\\x");
         // Tricky case: escaped backslash followed by n (should be literal \n, not newline)
         // Input string literal for testing needs careful escaping.
-        // "foo\\nbar" in source code is string "foo\nbar".
-        // unescape_text("foo\nbar") -> "foo\nbar" (newline)
-        // unescape_text("foo\\nbar") -> "foo\nbar" (literal \ followed by n)
-        assert_eq!(unescape_text("foo\\nbar"), "foo\nbar");
+        // "foo\\\\nbar" in source code is string "foo\\nbar".
+        // unescape_text("foo\\nbar") -> "foo\nbar" (newline)
+        // unescape_text("foo\\\\nbar") -> "foo\\nbar" (literal \ followed by n)
+        assert_eq!(unescape_text("foo\\\\nbar"), "foo\\nbar");
     }
 
     #[test]

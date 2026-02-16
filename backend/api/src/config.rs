@@ -16,6 +16,12 @@ pub struct Config {
     pub cors_allowed_origin: String,
 }
 
+// Rate limiting constants
+pub const API_PERIOD_MS: u64 = 1000;
+pub const API_BURST_SIZE: u32 = 10;
+pub const CALDAV_PERIOD_MS: u64 = 5000;
+pub const CALDAV_BURST_SIZE: u32 = 5;
+
 impl Config {
     /// Load configuration from environment variables
     pub fn from_env() -> Result<Self> {

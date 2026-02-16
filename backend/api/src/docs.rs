@@ -1,4 +1,5 @@
 use utoipa::OpenApi;
+use crate::SecurityAddon;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -13,6 +14,6 @@ use utoipa::OpenApi;
     tags(
         (name = "televent", description = "Televent API")
     ),
-    modifiers(&crate::add_security_scheme)
+    modifiers(&SecurityAddon)
 )]
 pub struct ApiDoc;
