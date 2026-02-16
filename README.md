@@ -277,6 +277,12 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
 - Production deployment (Railway).
 - SMTP integration for external (non-Televent) invites.
 
+## Code Statistics
+
+<!-- TOKEI START -->
+<!-- TOKEI END -->
+
+
 
 # Example prompt for agent 
 
