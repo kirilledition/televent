@@ -1,6 +1,17 @@
-import { type MouseEvent, type KeyboardEvent, memo } from 'react'
+import { type KeyboardEvent, memo } from 'react'
 import { Event } from '@/types/event'
 import { Trash2, MapPin, Clock } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 
 interface EventItemProps {
   event: Event
@@ -24,13 +35,6 @@ export const EventItem = memo(function EventItem({
       result = `${mins}m`
     }
     return result
-  }
-
-  const handleDelete = (e: MouseEvent) => {
-    e.stopPropagation()
-    if (window.confirm('Are you sure you want to delete this event?')) {
-      onDelete(event.id)
-    }
   }
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -96,16 +100,61 @@ export const EventItem = memo(function EventItem({
         </div>
       </div>
 
-      {/* Delete button - Positioned absolutely to separate from main action */}
-      <button
-        onClick={handleDelete}
-        className="absolute top-4 right-4 rounded-lg p-2 transition-all hover:opacity-70 focus-visible:ring-2 focus-visible:ring-[var(--ctp-red)] focus-visible:outline-none"
-        style={{ backgroundColor: 'var(--ctp-surface0)' }}
-        aria-label={`Delete event: ${event.title}`}
-        title="Delete event"
-      >
-        <Trash2 className="h-4 w-4" style={{ color: 'var(--ctp-subtext0)' }} />
-      </button>
+      {/* Delete button - Wrapped in AlertDialog */}
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <button
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-4 right-4 rounded-lg p-2 transition-all hover:opacity-70 focus-visible:ring-2 focus-visible:ring-[var(--ctp-red)] focus-visible:outline-none"
+            style={{ backgroundColor: 'var(--ctp-surface0)' }}
+            aria-label={`Delete event: ${event.title}`}
+            title="Delete event"
+          >
+            <Trash2
+              className="h-4 w-4"
+              style={{ color: 'var(--ctp-subtext0)' }}
+            />
+          </button>
+        </AlertDialogTrigger>
+        <AlertDialogContent
+          onClick={(e) => e.stopPropagation()}
+          className="border-none shadow-xl"
+          style={{
+            backgroundColor: 'var(--ctp-base)',
+            color: 'var(--ctp-text)',
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle style={{ color: 'var(--ctp-text)' }}>
+              Delete Event
+            </AlertDialogTitle>
+            <AlertDialogDescription style={{ color: 'var(--ctp-subtext0)' }}>
+              Are you sure you want to delete &quot;{event.title}&quot;? This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              style={{
+                backgroundColor: 'var(--ctp-surface0)',
+                color: 'var(--ctp-text)',
+                borderColor: 'transparent',
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => onDelete(event.id)}
+              style={{
+                backgroundColor: 'var(--ctp-red)',
+                color: 'var(--ctp-base)',
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 })

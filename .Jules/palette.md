@@ -16,3 +16,11 @@ This journal tracks unique UX and accessibility patterns, challenges, and soluti
 ## 2024-05-24 - Keyboard Navigation in Custom Pickers
 **Learning:** `tabIndex={0}` and `role="listbox"` are insufficient for accessible scroll pickers. Users expect standard listbox interaction (ArrowUp/ArrowDown) to change selection, not just scroll the container.
 **Action:** Implement `onKeyDown` handlers for Arrow keys to explicitly update state and selection, in addition to existing scroll/click logic.
+
+## 2024-05-25 - Theming Shadcn Components
+**Learning:** Shadcn UI components rely on standard CSS variables (like `--background`) which may not be defined in custom-themed apps (e.g. using Catppuccin variables directly).
+**Action:** When adding Shadcn components to a custom-themed codebase, explicitly override default classes with theme-specific variables (e.g. `bg-[var(--ctp-base)]`) to ensure visual consistency.
+
+## 2024-05-25 - React Portals Event Bubbling
+**Learning:** Events from elements inside a React Portal (like `AlertDialogContent`) bubble up to their *React* parent (the component that rendered the Portal), not just their DOM parent. This means clicking inside a modal could trigger click handlers on the component that opened it (e.g. an `EventItem` row).
+**Action:** Always add `e.stopPropagation()` to the content container of a Portal-based component if it's rendered inside another interactive element.
