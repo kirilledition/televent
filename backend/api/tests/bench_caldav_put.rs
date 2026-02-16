@@ -9,7 +9,7 @@ use tower::ServiceExt;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 
-#[sqlx::test(migrations = "../../migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn bench_caldav_put_attendees(pool: PgPool) {
     // 1. Setup Main User
     let user_id = UserId::new(1001);
