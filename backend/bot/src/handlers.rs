@@ -934,43 +934,140 @@ pub async fn handle_callback_query(bot: Bot, q: CallbackQuery, db: BotDb) -> Res
 }
 
 /// Generate ICS content from a list of events
-fn generate_ics(events: &[crate::db::BotEvent]) -> String {
-    use icalendar::{Calendar, Component, Event, EventLike};
+struct FoldedWriter<'a> {
+    buf: &'a mut String,
+}
 
-    let mut calendar = Calendar::new();
-    calendar
-        .name("Televent Calendar")
-        .description("Exported from Televent Telegram Bot");
+impl<'a> FoldedWriter<'a> {
+    fn new(buf: &'a mut String) -> Self {
+        Self { buf }
+    }
+
+    fn write_line(&mut self, line: &str) {
+        self.buf.push_str(line);
+        self.buf.push_str("\r\n");
+    }
+
+    fn write_property(&mut self, name: &str, value: &str) {
+        self.write_property_impl(name, value, true)
+    }
+
+    fn write_datetime_property(&mut self, name: &str, datetime: &chrono::DateTime<chrono::Utc>) {
+        self.buf.push_str(name);
+        self.buf.push(':');
+        // YYYYMMDDTHHmmssZ
+        let _ = std::fmt::write(self.buf, format_args!("{}", datetime.format("%Y%m%dT%H%M%SZ")));
+        self.buf.push_str("\r\n");
+    }
+
+    fn write_date_property(&mut self, name: &str, date: &chrono::NaiveDate) {
+        self.buf.push_str(name);
+        self.buf.push(':');
+        let _ = std::fmt::write(self.buf, format_args!("{}", date.format("%Y%m%d")));
+        self.buf.push_str("\r\n");
+    }
+
+    fn write_property_impl(&mut self, name: &str, value: &str, escape: bool) {
+        self.buf.push_str(name);
+        self.buf.push(':');
+
+        let mut current_line_len = name.len() + 1;
+
+        for c in value.chars() {
+            if c == '\r' { continue; } // Strip CR
+
+            let replacement = if escape {
+                match c {
+                    '\\' => Some("\\\\"),
+                    ';' => Some("\\;"),
+                    ',' => Some("\\,"),
+                    '\n' => Some("\\n"),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            if let Some(s) = replacement {
+                for rc in s.chars() {
+                    let len = rc.len_utf8();
+                    if current_line_len + len > 75 {
+                        self.buf.push_str("\r\n ");
+                        current_line_len = 1;
+                    }
+                    self.buf.push(rc);
+                    current_line_len += len;
+                }
+            } else {
+                let len = c.len_utf8();
+                if current_line_len + len > 75 {
+                    self.buf.push_str("\r\n ");
+                    current_line_len = 1;
+                }
+                self.buf.push(c);
+                current_line_len += len;
+            }
+        }
+        self.buf.push_str("\r\n");
+    }
+}
+
+/// Generate ICS content from a list of events
+fn generate_ics(events: &[crate::db::BotEvent]) -> String {
+    // Pre-allocate buffer: ~200 bytes per event is a reasonable guess
+    let mut buf = String::with_capacity(events.len() * 200 + 512);
+
+    let mut writer = FoldedWriter::new(&mut buf);
+
+    writer.write_line("BEGIN:VCALENDAR");
+    writer.write_line("VERSION:2.0");
+    writer.write_line("PRODID:-//Televent//Televent Bot//EN");
+    writer.write_line("CALSCALE:GREGORIAN");
+
+    // Original implementation set these properties via methods
+    // calendar.name("Televent Calendar").description("Exported from Televent Telegram Bot");
+    // These likely map to X-WR-CALNAME and X-WR-CALDESC
+    writer.write_line("X-WR-CALNAME:Televent Calendar");
+    writer.write_line("X-WR-CALDESC:Exported from Televent Telegram Bot");
 
     for event in events {
-        let mut ics_event = Event::new();
-        ics_event.summary(&event.summary).uid(&event.id.to_string());
+        writer.write_line("BEGIN:VEVENT");
+        writer.write_property("UID", &event.id.to_string());
+
+        // DTSTAMP required
+        writer.write_datetime_property("DTSTAMP", &chrono::Utc::now());
+
+        writer.write_property("SUMMARY", &event.summary);
+
+        if let Some(desc) = &event.description {
+            writer.write_property("DESCRIPTION", desc);
+        }
+        if let Some(loc) = &event.location {
+            writer.write_property("LOCATION", loc);
+        }
 
         if event.is_all_day {
             if let Some(start_date) = event.start_date {
-                ics_event.all_day(start_date);
+                // icalendar crate's all_day sets DTSTART;VALUE=DATE
+                writer.write_date_property("DTSTART;VALUE=DATE", &start_date);
             }
         } else {
-            if let Some(start) = event.start {
-                ics_event.starts(start);
+             if let Some(start) = event.start {
+                writer.write_datetime_property("DTSTART", &start);
             }
             if let Some(end) = event.end {
-                ics_event.ends(end);
+                writer.write_datetime_property("DTEND", &end);
             }
         }
 
-        if let Some(desc) = &event.description {
-            ics_event.description(desc);
-        }
-        if let Some(loc) = &event.location {
-            ics_event.location(loc);
-        }
-
-        calendar.push(ics_event);
+        writer.write_line("END:VEVENT");
     }
 
-    calendar.to_string()
+    writer.write_line("END:VCALENDAR");
+
+    buf
 }
+
 
 #[cfg(test)]
 mod tests {
