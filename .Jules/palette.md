@@ -13,6 +13,6 @@ This journal tracks unique UX and accessibility patterns, challenges, and soluti
 **Learning:** The application uses two different patterns for event creation and editing. `CreateEvent` uses a custom scroll-based picker, while `EventForm` (used for editing) uses standard HTML5 inputs.
 **Action:** When unifying UI or adding features, consider which pattern to standardize on. The custom picker is more touch-friendly but less accessible than native inputs.
 
-## 2024-05-24 - Keyboard Navigation for Custom Pickers
-**Learning:** Custom scroll pickers with `tabIndex={0}` are focusable but NOT operable with keyboard unless `onKeyDown` handlers (Arrow Up/Down) are explicitly added to hijack scroll/selection. Mouse `onClick` handlers are insufficient for keyboard accessibility.
-**Action:** Always implement `onKeyDown` handlers (ArrowUp/ArrowDown) for custom listbox components to ensure they are fully operable without a mouse.
+## 2024-05-24 - Keyboard Navigation in Custom Pickers
+**Learning:** `tabIndex={0}` and `role="listbox"` are insufficient for accessible scroll pickers. Users expect standard listbox interaction (ArrowUp/ArrowDown) to change selection, not just scroll the container.
+**Action:** Implement `onKeyDown` handlers for Arrow keys to explicitly update state and selection, in addition to existing scroll/click logic.

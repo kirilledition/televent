@@ -22,7 +22,7 @@ use televent_core::attendee;
 use televent_core::models::ParticipationStatus;
 use televent_core::validation::{
     MAX_DESCRIPTION_LENGTH, MAX_LOCATION_LENGTH, MAX_RRULE_LENGTH, MAX_SUMMARY_LENGTH,
-    MAX_UID_LENGTH, validate_length, validate_no_control_chars,
+    MAX_UID_LENGTH, validate_length, validate_no_control_chars, validate_safe_multiline_text,
 };
 
 /// CalDAV OPTIONS handler
@@ -144,9 +144,6 @@ const MAX_MULTIGET_HREFS: usize = 200;
 /// CalDAV PUT handler
 ///
 /// Creates or updates an event from iCalendar data
-/// CalDAV PUT handler
-///
-/// Creates or updates an event from iCalendar data
 async fn caldav_put_event(
     State(pool): State<PgPool>,
     Path((user_identifier, event_uid)): Path<(String, String)>,
@@ -200,15 +197,20 @@ async fn caldav_put_event(
 
     // Validate inputs
     validate_length("UID", &uid, MAX_UID_LENGTH).map_err(ApiError::BadRequest)?;
+    validate_no_control_chars("UID", &uid).map_err(ApiError::BadRequest)?;
+
     validate_length("Summary", &summary, MAX_SUMMARY_LENGTH).map_err(ApiError::BadRequest)?;
+    validate_no_control_chars("Summary", &summary).map_err(ApiError::BadRequest)?;
 
     if let Some(desc) = &description {
         validate_length("Description", desc, MAX_DESCRIPTION_LENGTH)
             .map_err(ApiError::BadRequest)?;
+        validate_safe_multiline_text("Description", desc).map_err(ApiError::BadRequest)?;
     }
 
     if let Some(loc) = &location {
         validate_length("Location", loc, MAX_LOCATION_LENGTH).map_err(ApiError::BadRequest)?;
+        validate_no_control_chars("Location", loc).map_err(ApiError::BadRequest)?;
     }
 
     if let Some(r) = &rrule {
@@ -251,8 +253,7 @@ async fn caldav_put_event(
         // Update existing event
         let updated = db::events::update_event(
             &mut tx,
-            user.id,
-            existing_event.id,
+            existing_event,
             Some(summary),
             description,
             location,

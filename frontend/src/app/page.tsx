@@ -1,18 +1,26 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { EventList } from '../components/EventList'
 import { DUMMY_EVENTS } from '@/lib/dummy-data'
 import { Plus } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { Event } from '@/types/event'
 
 export default function CalendarPage() {
   const router = useRouter()
   const [events, setEvents] = useState(DUMMY_EVENTS)
 
-  const handleDeleteEvent = (id: string) => {
-    setEvents(events.filter((e) => e.id !== id))
-  }
+  const handleDeleteEvent = useCallback((id: string) => {
+    setEvents((prev) => prev.filter((e) => e.id !== id))
+  }, [])
+
+  const handleEditEvent = useCallback(
+    (event: Event) => {
+      router.push(`/event/${event.id}`)
+    },
+    [router]
+  )
 
   return (
     <div
@@ -50,7 +58,7 @@ export default function CalendarPage() {
         <EventList
           events={events}
           onDeleteEvent={handleDeleteEvent}
-          onEditEvent={(event) => router.push(`/event/${event.id}`)}
+          onEditEvent={handleEditEvent}
         />
       </div>
     </div>

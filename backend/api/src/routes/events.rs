@@ -14,7 +14,7 @@ use sqlx::PgPool;
 use televent_core::models::{Event, EventStatus, Timezone};
 use televent_core::validation::{
     MAX_DESCRIPTION_LENGTH, MAX_LOCATION_LENGTH, MAX_RRULE_LENGTH, MAX_SUMMARY_LENGTH,
-    MAX_UID_LENGTH, validate_length, validate_no_control_chars,
+    MAX_UID_LENGTH, validate_length, validate_no_control_chars, validate_safe_multiline_text,
 };
 use typeshare::typeshare;
 use utoipa::ToSchema;
@@ -55,17 +55,23 @@ pub struct CreateEventRequest {
 impl CreateEventRequest {
     pub fn validate(&self) -> Result<(), ApiError> {
         validate_length("UID", &self.uid, MAX_UID_LENGTH).map_err(ApiError::BadRequest)?;
+        validate_no_control_chars("UID", &self.uid).map_err(ApiError::BadRequest)?;
+
         validate_length("Summary", &self.summary, MAX_SUMMARY_LENGTH)
             .map_err(ApiError::BadRequest)?;
+        validate_no_control_chars("Summary", &self.summary).map_err(ApiError::BadRequest)?;
 
         if let Some(description) = &self.description {
             validate_length("Description", description, MAX_DESCRIPTION_LENGTH)
+                .map_err(ApiError::BadRequest)?;
+            validate_safe_multiline_text("Description", description)
                 .map_err(ApiError::BadRequest)?;
         }
 
         if let Some(location) = &self.location {
             validate_length("Location", location, MAX_LOCATION_LENGTH)
                 .map_err(ApiError::BadRequest)?;
+            validate_no_control_chars("Location", location).map_err(ApiError::BadRequest)?;
         }
 
         if let Some(rrule) = &self.rrule {
@@ -98,16 +104,20 @@ impl UpdateEventRequest {
         if let Some(summary) = &self.summary {
             validate_length("Summary", summary, MAX_SUMMARY_LENGTH)
                 .map_err(ApiError::BadRequest)?;
+            validate_no_control_chars("Summary", summary).map_err(ApiError::BadRequest)?;
         }
 
         if let Some(description) = &self.description {
             validate_length("Description", description, MAX_DESCRIPTION_LENGTH)
+                .map_err(ApiError::BadRequest)?;
+            validate_safe_multiline_text("Description", description)
                 .map_err(ApiError::BadRequest)?;
         }
 
         if let Some(location) = &self.location {
             validate_length("Location", location, MAX_LOCATION_LENGTH)
                 .map_err(ApiError::BadRequest)?;
+            validate_no_control_chars("Location", location).map_err(ApiError::BadRequest)?;
         }
 
         if let Some(rrule) = &self.rrule {
@@ -327,8 +337,7 @@ async fn update_event(
 
     let event = db::events::update_event(
         &mut conn,
-        auth_user.id,
-        event_id,
+        current,
         req.summary,
         req.description,
         req.location,
@@ -480,6 +489,48 @@ mod tests {
             uid: "valid-uid".to_string(),
             summary: "a".repeat(MAX_SUMMARY_LENGTH + 1),
             description: None,
+            location: None,
+            start: Utc::now(),
+            end: Utc::now(),
+            is_all_day: false,
+            timezone: televent_core::models::Timezone::default(),
+            rrule: None,
+        };
+        assert!(req.validate().is_err());
+    }
+
+    #[test]
+    fn test_create_event_validation_control_chars() {
+        let req = CreateEventRequest {
+            uid: "valid-uid".to_string(),
+            summary: "Invalid\nSummary".to_string(),
+            description: None,
+            location: None,
+            start: Utc::now(),
+            end: Utc::now(),
+            is_all_day: false,
+            timezone: televent_core::models::Timezone::default(),
+            rrule: None,
+        };
+        assert!(req.validate().is_err());
+
+        let req = CreateEventRequest {
+            uid: "valid-uid".to_string(),
+            summary: "Valid Summary".to_string(),
+            description: Some("Valid\nDescription".to_string()),
+            location: None,
+            start: Utc::now(),
+            end: Utc::now(),
+            is_all_day: false,
+            timezone: televent_core::models::Timezone::default(),
+            rrule: None,
+        };
+        assert!(req.validate().is_ok());
+
+        let req = CreateEventRequest {
+            uid: "valid-uid".to_string(),
+            summary: "Valid Summary".to_string(),
+            description: Some("Invalid\x07Description".to_string()),
             location: None,
             start: Utc::now(),
             end: Utc::now(),
