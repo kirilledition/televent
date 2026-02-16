@@ -3,7 +3,7 @@
 use crate::error::ApiError;
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use sha2::{Digest, Sha256};
-use sqlx::{PgConnection, PgPool, Row};
+use sqlx::{PgConnection, PgPool, Postgres, QueryBuilder, Row};
 use televent_core::models::{
     Event, EventAttendee, EventStatus, ParticipationStatus, Timezone, UserId,
 };
@@ -396,6 +396,32 @@ pub async fn delete_event(pool: &PgPool, user_id: UserId, event_id: Uuid) -> Res
     Ok(())
 }
 
+/// Create multiple outbox messages in bulk
+pub async fn create_outbox_messages_bulk<'e, E>(
+    executor: E,
+    messages: Vec<(&str, serde_json::Value)>,
+) -> Result<(), ApiError>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    if messages.is_empty() {
+        return Ok(());
+    }
+
+    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+        "INSERT INTO outbox_messages (message_type, payload) "
+    );
+
+    query_builder.push_values(messages, |mut b, (message_type, payload)| {
+        b.push_bind(message_type)
+            .push_bind(payload);
+    });
+
+    query_builder.build().execute(executor).await?;
+
+    Ok(())
+}
+
 /// Upsert event attendee
 pub async fn upsert_event_attendee<'e, E>(
     executor: E,
@@ -433,6 +459,73 @@ where
     .await?;
 
     Ok(result.try_get::<bool, _>("is_new").unwrap_or(false))
+}
+
+/// Result of bulk attendee upsert
+#[derive(Debug, sqlx::FromRow)]
+pub struct UpsertAttendeeResult {
+    pub user_id: UserId,
+    pub is_new: bool,
+}
+
+/// Bulk upsert event attendees
+pub async fn upsert_event_attendees_bulk<'e, E>(
+    executor: E,
+    event_id: Uuid,
+    attendees: Vec<(UserId, String, ParticipationStatus)>,
+) -> Result<Vec<UpsertAttendeeResult>, ApiError>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    if attendees.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+        "INSERT INTO event_attendees (event_id, user_id, email, status) "
+    );
+
+    for (i, (user_id, email, status)) in attendees.into_iter().enumerate() {
+        if i == 0 {
+            query_builder.push("VALUES (");
+        } else {
+            query_builder.push(", (");
+        }
+
+        let status_str = match status {
+            ParticipationStatus::NeedsAction => "NEEDS-ACTION",
+            ParticipationStatus::Accepted => "ACCEPTED",
+            ParticipationStatus::Declined => "DECLINED",
+            ParticipationStatus::Tentative => "TENTATIVE",
+        };
+
+        query_builder.push_bind(event_id);
+        query_builder.push(", ");
+        query_builder.push_bind(user_id);
+        query_builder.push(", ");
+        query_builder.push_bind(email);
+        query_builder.push(", ");
+        query_builder.push_bind(status_str);
+        query_builder.push("::text::attendee_status)");
+    }
+
+    query_builder.push(
+        " ON CONFLICT (event_id, email) DO UPDATE \
+          SET status = EXCLUDED.status, updated_at = NOW() \
+          RETURNING user_id, (xmax = 0) AS is_new",
+    );
+
+    let rows = query_builder.build().fetch_all(executor).await?;
+
+    let results = rows
+        .into_iter()
+        .map(|row| UpsertAttendeeResult {
+            user_id: row.get("user_id"),
+            is_new: row.get("is_new"),
+        })
+        .collect();
+
+    Ok(results)
 }
 
 /// Create outbox message
