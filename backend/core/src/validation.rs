@@ -26,11 +26,27 @@ pub fn validate_length(field_name: &str, value: &str, max_len: usize) -> Result<
     }
 }
 
-/// Validate that a string contains no control characters (CR, LF)
+/// Validate that a string contains no control characters (except tab)
 ///
-/// Useful for preventing header injection or CRLF injection in protocols like iCalendar
+/// Useful for single-line fields (summary, location, UID) to prevent injection
+/// and garbage characters. Allows tab (\t).
 pub fn validate_no_control_chars(field_name: &str, value: &str) -> Result<(), String> {
-    if value.chars().any(|c| c == '\r' || c == '\n') {
+    if value.chars().any(|c| c.is_control() && c != '\t') {
+        Err(format!("{} cannot contain control characters", field_name))
+    } else {
+        Ok(())
+    }
+}
+
+/// Validate that a string contains no dangerous control characters
+///
+/// Allows newline (\n), carriage return (\r), and tab (\t), but bans others (null, bell, etc.).
+/// Useful for multiline fields (description).
+pub fn validate_safe_multiline_text(field_name: &str, value: &str) -> Result<(), String> {
+    if value
+        .chars()
+        .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t')
+    {
         Err(format!("{} cannot contain control characters", field_name))
     } else {
         Ok(())
@@ -51,8 +67,22 @@ mod tests {
     #[test]
     fn test_validate_no_control_chars() {
         assert!(validate_no_control_chars("Test", "clean string").is_ok());
+        assert!(validate_no_control_chars("Test", "string with\ttab").is_ok());
         assert!(validate_no_control_chars("Test", "dirty\rstring").is_err());
         assert!(validate_no_control_chars("Test", "dirty\nstring").is_err());
         assert!(validate_no_control_chars("Test", "dirty\r\nstring").is_err());
+        assert!(validate_no_control_chars("Test", "dirty\0string").is_err());
+        assert!(validate_no_control_chars("Test", "dirty\x07string").is_err());
+    }
+
+    #[test]
+    fn test_validate_safe_multiline_text() {
+        assert!(validate_safe_multiline_text("Test", "clean string").is_ok());
+        assert!(validate_safe_multiline_text("Test", "multiline\nstring").is_ok());
+        assert!(validate_safe_multiline_text("Test", "multiline\r\nstring").is_ok());
+        assert!(validate_safe_multiline_text("Test", "string with\ttab").is_ok());
+        assert!(validate_safe_multiline_text("Test", "dirty\0string").is_err());
+        assert!(validate_safe_multiline_text("Test", "dirty\x07string").is_err());
+        assert!(validate_safe_multiline_text("Test", "dirty\x1Fstring").is_err());
     }
 }
