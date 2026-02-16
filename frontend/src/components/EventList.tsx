@@ -48,13 +48,16 @@ export function EventList({
     )
   }, [sortedEvents])
 
+  // Optimization: Calculate reference dates once per render instead of per row.
+  // We avoid useMemo here to ensure dates update correctly if the component re-renders across midnight.
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
   const formatDateHeader = (dateStr: string) => {
     const date = new Date(dateStr + 'T00:00:00')
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
 
     if (date.getTime() === today.getTime()) {
       return 'Today'
