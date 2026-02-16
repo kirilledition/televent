@@ -19,6 +19,10 @@ use teloxide::Bot;
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
+use std::collections::HashMap;
+use std::sync::Arc;
+use uuid::Uuid;
+use televent_core::models::Event;
 
 /// Run the background worker service
 ///
@@ -80,6 +84,40 @@ async fn run_worker_loop(
             Ok(jobs) => {
                 info!("Processing {} jobs concurrently", jobs.len());
 
+                // Pre-fetch events for invite notifications to avoid N+1 queries
+                let mut events_map = HashMap::new();
+                let event_ids: Vec<Uuid> = jobs
+                    .iter()
+                    .filter(|j| j.message_type == "invite_notification")
+                    .filter_map(|j| {
+                        j.payload.get("event_id")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| Uuid::parse_str(s).ok())
+                    })
+                    .collect();
+
+                if !event_ids.is_empty() {
+                    // Fetch events in a single query
+                    match sqlx::query_as::<_, Event>("SELECT * FROM events WHERE id = ANY($1)")
+                        .bind(&event_ids)
+                        .fetch_all(&pool)
+                        .await
+                    {
+                        Ok(events) => {
+                            for event in events {
+                                events_map.insert(event.id, event);
+                            }
+                            info!("Pre-fetched {} events for batch processing", events_map.len());
+                        },
+                        Err(e) => {
+                            warn!("Failed to pre-fetch events: {}", e);
+                            // We continue without cache, individual processors will fetch events (and fail/retry if DB is down)
+                        }
+                    }
+                }
+
+                let events_cache = Arc::new(events_map);
+
                 // Process jobs concurrently using JoinSet
                 // This provides ~Nx throughput improvement where N = batch_size
                 let mut tasks = tokio::task::JoinSet::new();
@@ -89,8 +127,9 @@ async fn run_worker_loop(
                     let bot = bot.clone();
                     let config = config.clone();
                     let mailer = mailer.clone();
+                    let events_cache = events_cache.clone();
                     tasks.spawn(
-                        async move { process_job(&pool, &bot, &config, &mailer, job).await },
+                        async move { process_job(&pool, &bot, &config, &mailer, job, events_cache).await },
                     );
                 }
 
@@ -130,19 +169,20 @@ async fn run_worker_loop(
 }
 
 /// Process a single job
-async fn process_job(
+pub(crate) async fn process_job(
     pool: &PgPool,
     bot: &Bot,
     config: &Config,
     mailer: &Mailer,
     job: db::OutboxMessage,
+    events_cache: Arc<HashMap<Uuid, Event>>,
 ) -> db::JobResult {
     info!(
         "Processing job {} (type: {}, retry: {})",
         job.id, job.message_type, job.retry_count
     );
 
-    match processors::process_message(pool, &job, bot, mailer).await {
+    match processors::process_message(pool, &job, bot, mailer, &events_cache).await {
         Ok(()) => {
             // Job succeeded
             info!("Job {} completed successfully", job.id);
@@ -367,7 +407,8 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        let result = process_job(&pool, &bot, &config, &mailer, job).await;
+        let events_cache = Arc::new(HashMap::new());
+        let result = process_job(&pool, &bot, &config, &mailer, job, events_cache).await;
         db.bulk_update_jobs(vec![result]).await?;
 
         let status: OutboxStatus =
@@ -426,7 +467,8 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        let result = process_job(&pool, &bot, &config, &mailer, job).await;
+        let events_cache = Arc::new(HashMap::new());
+        let result = process_job(&pool, &bot, &config, &mailer, job, events_cache).await;
         db.bulk_update_jobs(vec![result]).await?;
 
         let (status, retry_count): (OutboxStatus, i32) =
@@ -485,7 +527,8 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
 
-        let result = process_job(&pool, &bot, &config, &mailer, job).await;
+        let events_cache = Arc::new(HashMap::new());
+        let result = process_job(&pool, &bot, &config, &mailer, job, events_cache).await;
         db.bulk_update_jobs(vec![result]).await?;
 
         let status: OutboxStatus =
