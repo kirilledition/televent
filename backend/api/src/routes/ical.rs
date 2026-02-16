@@ -3,6 +3,7 @@
 //! Converts between our Event model and iCalendar (RFC 5545) format
 
 use chrono::{DateTime, Utc};
+use ical::parser::ical::component::IcalEvent;
 use televent_core::models::{Event, EventAttendee, EventStatus, ParticipationStatus};
 
 use crate::error::ApiError;
@@ -250,12 +251,12 @@ impl<'a> FoldedWriter<'a> {
     }
 }
 
-/// Parse iCalendar format into event data (simple string-based parser)
+/// Parse iCalendar format into event data using ical crate
 ///
 /// Returns (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone)
 #[allow(clippy::type_complexity)]
 pub fn ical_to_event_data(
-    ical_str: &str,
+    event: &IcalEvent,
 ) -> Result<
     (
         String,
@@ -271,12 +272,6 @@ pub fn ical_to_event_data(
     ),
     ApiError,
 > {
-    // Simple line-by-line parser for iCalendar
-    // Note: Does not support full RFC 5545 unfolding (continuation lines) perfectly,
-    // but handles basic properties.
-    // For robust parsing, we should use a proper parser library if needed, but this suffices for our internal use.
-
-    let mut in_vevent = false;
     let mut uid = None;
     let mut summary = None;
     let mut description = None;
@@ -288,74 +283,55 @@ pub fn ical_to_event_data(
     let mut status = EventStatus::Confirmed;
     let mut timezone = "UTC".to_string();
 
-    // Naive unfolding: Join lines that start with space/tab to previous line
-    // Uses an iterator to avoid allocating a large buffer for the entire unfolded content
-    for line in UnfoldingIter::new(ical_str) {
-        let line = line.trim();
-
-        if line == "BEGIN:VEVENT" {
-            in_vevent = true;
+    for prop in &event.properties {
+        let value = if let Some(ref v) = prop.value {
+            v.as_str()
+        } else {
             continue;
-        }
+        };
 
-        if line == "END:VEVENT" {
-            break;
-        }
-
-        if !in_vevent {
-            continue;
-        }
-
-        // Parse property lines
-        if let Some((key, value)) = line.split_once(':') {
-            let (prop_name, params) = if let Some((name, params_str)) = key.split_once(';') {
-                (name, Some(params_str))
-            } else {
-                (key, None)
-            };
-
-            match prop_name {
-                "UID" => uid = Some(value.to_string()),
-                "SUMMARY" => summary = Some(unescape_text(value)),
-                "DESCRIPTION" => description = Some(unescape_text(value)),
-                "LOCATION" => location = Some(unescape_text(value)),
-                "DTSTART" => {
-                    // Check if this is an all-day event
-                    is_all_day = params
-                        .map(|p| p.contains("VALUE=DATE") && !p.contains("VALUE=DATE-TIME"))
-                        .unwrap_or(false);
-                    // Extract timezone from TZID parameter if present
-                    #[allow(clippy::collapsible_if)]
-                    if let Some(params_str) = params {
-                        if let Some(tzid_start) = params_str.find("TZID=") {
-                            let tz_part = &params_str[tzid_start + 5..];
-                            let tz_end = tz_part.find(';').unwrap_or(tz_part.len());
-                            timezone = tz_part[..tz_end].to_string();
+        match prop.name.as_str() {
+            "UID" => uid = Some(value.to_string()),
+            "SUMMARY" => summary = Some(unescape_text(value)),
+            "DESCRIPTION" => description = Some(unescape_text(value)),
+            "LOCATION" => location = Some(unescape_text(value)),
+            "DTSTART" => {
+                // Check if this is an all-day event
+                // params is Option<Vec<(String, Vec<String>)>>
+                if let Some(ref params) = prop.params {
+                    for (key, values) in params {
+                        if key == "VALUE" && values.contains(&"DATE".to_string()) {
+                            is_all_day = true;
+                        }
+                        if key == "TZID" {
+                            if let Some(tzid) = values.first() {
+                                timezone = tzid.clone();
+                            }
                         }
                     }
-                    dtstart = Some(value.to_string());
                 }
-                "DTEND" => {
-                    dtend = Some(value.to_string());
-                }
-                "RRULE" => {
-                    if value.contains('\r') || value.contains('\n') {
-                        return Err(ApiError::BadRequest(
-                            "RRULE cannot contain control characters".to_string(),
-                        ));
-                    }
-                    rrule = Some(value.to_string());
-                }
-                "STATUS" => {
-                    status = match value.to_uppercase().as_str() {
-                        "CONFIRMED" => EventStatus::Confirmed,
-                        "TENTATIVE" => EventStatus::Tentative,
-                        "CANCELLED" => EventStatus::Cancelled,
-                        _ => EventStatus::Confirmed,
-                    };
-                }
-                _ => {}
+                dtstart = Some(value.to_string());
             }
+            "DTEND" => {
+                dtend = Some(value.to_string());
+            }
+            "RRULE" => {
+                if value.contains('\r') || value.contains('\n') {
+                    return Err(ApiError::BadRequest(
+                        "RRULE cannot contain control characters".to_string(),
+                    ));
+                }
+                rrule = Some(value.to_string());
+            }
+            "STATUS" => {
+                status = match value.to_uppercase().as_str() {
+                    "CONFIRMED" => EventStatus::Confirmed,
+                    "TENTATIVE" => EventStatus::Tentative,
+                    "CANCELLED" => EventStatus::Cancelled,
+                    _ => EventStatus::Confirmed,
+                };
+            }
+            _ => {}
         }
     }
 
@@ -386,52 +362,6 @@ pub fn ical_to_event_data(
         status,
         timezone,
     ))
-}
-
-/// Iterator that unfolds iCalendar lines (handles continuation lines)
-///
-/// Yields `Cow<str>` to avoid allocation for non-folded lines.
-struct UnfoldingIter<'a> {
-    lines: std::iter::Peekable<std::str::Lines<'a>>,
-}
-
-impl<'a> UnfoldingIter<'a> {
-    fn new(input: &'a str) -> Self {
-        Self {
-            lines: input.lines().peekable(),
-        }
-    }
-}
-
-impl<'a> Iterator for UnfoldingIter<'a> {
-    type Item = std::borrow::Cow<'a, str>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let first = self.lines.next()?;
-
-        // Check if next line is a continuation (starts with space or tab)
-        let is_folded = self
-            .lines
-            .peek()
-            .is_some_and(|l| l.starts_with(' ') || l.starts_with('\t'));
-
-        if !is_folded {
-            return Some(std::borrow::Cow::Borrowed(first));
-        }
-
-        // If folded, we must allocate to join lines
-        let mut folded = String::from(first);
-        while let Some(next_line) = self.lines.peek() {
-            if next_line.starts_with(' ') || next_line.starts_with('\t') {
-                let line = self.lines.next().unwrap();
-                // RFC 5545: remove the CRLF (already gone via lines()) and the first whitespace char
-                folded.push_str(&line[1..]);
-            } else {
-                break;
-            }
-        }
-        Some(std::borrow::Cow::Owned(folded))
-    }
 }
 
 /// Unescape iCalendar text
@@ -513,6 +443,15 @@ mod tests {
     use super::*;
     use televent_core::models::UserId;
     use uuid::Uuid;
+    use ical::parser::ical::component::IcalEvent;
+    use ical::property::Property;
+
+    // Helper to parse ICS string to IcalEvent
+    fn parse_ics(ics: &str) -> IcalEvent {
+         let parser = ical::IcalParser::new(std::io::Cursor::new(ics));
+         let calendar = parser.into_iter().next().expect("No calendar").expect("Parse error");
+         calendar.events.into_iter().next().expect("No event")
+    }
 
     fn create_test_event() -> Event {
         use televent_core::models::Timezone;
@@ -648,7 +587,7 @@ mod tests {
 
     #[test]
     fn test_ical_to_event_data_basic() {
-        let ical = r#"BEGIN:VCALENDAR
+        let ical_str = r#"BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Test//Test//EN
 BEGIN:VEVENT
@@ -662,8 +601,9 @@ STATUS:CONFIRMED
 END:VEVENT
 END:VCALENDAR"#;
 
+        let event = parse_ics(ical_str);
         let (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone) =
-            ical_to_event_data(ical).unwrap();
+            ical_to_event_data(&event).unwrap();
 
         assert_eq!(uid, "test-123");
         assert_eq!(summary, "Test Event");
@@ -678,7 +618,7 @@ END:VCALENDAR"#;
 
     #[test]
     fn test_ical_to_event_data_minimal() {
-        let ical = r#"BEGIN:VCALENDAR
+        let ical_str = r#"BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:minimal-event
@@ -686,7 +626,8 @@ DTSTART:20240101T100000Z
 END:VEVENT
 END:VCALENDAR"#;
 
-        let (uid, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(ical).unwrap();
+        let event = parse_ics(ical_str);
+        let (uid, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(&event).unwrap();
 
         assert_eq!(uid, "minimal-event");
         assert_eq!(summary, "Untitled Event"); // Default summary
@@ -694,7 +635,7 @@ END:VCALENDAR"#;
 
     #[test]
     fn test_ical_to_event_data_all_day() {
-        let ical = r#"BEGIN:VCALENDAR
+        let ical_str = r#"BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:all-day-event
@@ -704,7 +645,8 @@ DTEND;VALUE=DATE:20240102
 END:VEVENT
 END:VCALENDAR"#;
 
-        let (_, _, _, _, start, end, is_all_day, _, _, _) = ical_to_event_data(ical).unwrap();
+        let event = parse_ics(ical_str);
+        let (_, _, _, _, start, end, is_all_day, _, _, _) = ical_to_event_data(&event).unwrap();
 
         assert!(is_all_day);
         assert_eq!(start.format("%Y%m%d").to_string(), "20240101");
@@ -713,7 +655,7 @@ END:VCALENDAR"#;
 
     #[test]
     fn test_ical_to_event_data_with_rrule() {
-        let ical = r#"BEGIN:VCALENDAR
+        let ical_str = r#"BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:recurring-event
@@ -724,7 +666,8 @@ RRULE:FREQ=WEEKLY;BYDAY=MO
 END:VEVENT
 END:VCALENDAR"#;
 
-        let (_, _, _, _, _, _, _, rrule, _, _) = ical_to_event_data(ical).unwrap();
+        let event = parse_ics(ical_str);
+        let (_, _, _, _, _, _, _, rrule, _, _) = ical_to_event_data(&event).unwrap();
 
         assert_eq!(rrule, Some("FREQ=WEEKLY;BYDAY=MO".to_string()));
     }
@@ -733,11 +676,12 @@ END:VCALENDAR"#;
     fn test_ical_roundtrip() {
         let event = create_test_event();
         let attendees = vec![];
-        let ical = event_to_ical(&event, &attendees).unwrap();
+        let ical_str = event_to_ical(&event, &attendees).unwrap();
 
         // Parse it back
+        let ical_event = parse_ics(&ical_str);
         let (uid, summary, description, location, _, _, _, _, status, _) =
-            ical_to_event_data(&ical).unwrap();
+            ical_to_event_data(&ical_event).unwrap();
 
         assert_eq!(uid, event.uid);
         assert_eq!(summary, event.summary);
@@ -748,7 +692,7 @@ END:VCALENDAR"#;
 
     #[test]
     fn test_ical_to_event_data_with_timezone() {
-        let ical = r#"BEGIN:VCALENDAR
+        let ical_str = r#"BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:tz-event
@@ -758,7 +702,8 @@ DTEND;TZID=America/New_York:20240101T110000
 END:VEVENT
 END:VCALENDAR"#;
 
-        let (_, _, _, _, _, _, _, _, _, timezone) = ical_to_event_data(ical).unwrap();
+        let event = parse_ics(ical_str);
+        let (_, _, _, _, _, _, _, _, _, timezone) = ical_to_event_data(&event).unwrap();
 
         assert_eq!(timezone, "America/New_York");
     }
@@ -780,13 +725,14 @@ END:VCALENDAR"#;
         event.summary = "This is a very long summary that should definitely be folded because it exceeds the seventy-five octet limit imposed by the iCalendar specification (RFC 5545).".to_string();
 
         let attendees = vec![];
-        let ical = event_to_ical(&event, &attendees).unwrap();
+        let ical_str = event_to_ical(&event, &attendees).unwrap();
 
         // Check if it contains CRLF + space
-        assert!(ical.contains("\r\n "));
+        assert!(ical_str.contains("\r\n "));
 
         // Parse it back
-        let (_, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(&ical).unwrap();
+        let ical_event = parse_ics(&ical_str);
+        let (_, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(&ical_event).unwrap();
 
         assert_eq!(summary, event.summary);
     }
@@ -818,16 +764,12 @@ END:VCALENDAR"#;
     fn test_event_to_ical_rrule_injection() {
         let mut event = create_test_event();
         // Inject a malicious property via RRULE
-        // Note: RRULE validation happens at API boundary, so this tests that the serializer itself is vulnerable
         event.rrule = Some("FREQ=DAILY\r\nATTENDEE:MAILTO:evil@example.com".to_string());
 
         let attendees = vec![];
         let ical = event_to_ical(&event, &attendees).unwrap();
 
-        // Check if the injected property appears on its own line
-        // The serializer does not escape RRULE, but we now strip CR to prevent CRLF injection
         assert!(!ical.contains("\r\nATTENDEE"));
-        // Since we strip CR, it becomes just LF, which is not a valid line break in ical
         assert!(ical.contains("RRULE:FREQ=DAILY\nATTENDEE:MAILTO:evil@example.com"));
     }
 
@@ -835,47 +777,79 @@ END:VCALENDAR"#;
     fn test_event_to_ical_cr_injection() {
         let mut event = create_test_event();
         // Inject a malicious property via SUMMARY with just \r (since \n is escaped)
-        // If the serializer passes \r through, it might form a newline in lenient parsers
         event.summary = "Hello\rATTENDEE:evil@example.com".to_string();
 
         let attendees = vec![];
         let ical = event_to_ical(&event, &attendees).unwrap();
 
-        // Assert that the output does NOT contain a raw CR followed by ATTENDEE
-        // We expect the CR to be stripped or escaped
         assert!(!ical.contains("\rATTENDEE"), "Output contained raw CR injection: {}", ical);
-
-        // Also ensure it didn't just escape it to \r (literal backslash r) which is not valid but safe
-        // Ideally it should be "HelloATTENDEE..." (stripped) or "Hello ATTENDEE..." (replaced)
-        // Note: valid ical contains \r\n as line endings, so we can't assert no \r at all.
-        // We verify that the injected property name is not preceded by a newline.
-
-        // The output should be "SUMMARY:HelloATTENDEE:..." (stripped)
         assert!(ical.contains("SUMMARY:HelloATTENDEE"), "CR should be stripped");
     }
 
-}
+    #[test]
+    fn test_ical_to_event_data_rrule_injection_prevention() {
+        // Construct IcalEvent manually with malicious RRULE
+        let event = IcalEvent {
+            properties: vec![
+                Property {
+                    name: "UID".to_string(),
+                    value: Some("repro".to_string()),
+                    params: None,
+                },
+                Property {
+                    name: "DTSTART".to_string(),
+                    value: Some("20240101T100000Z".to_string()),
+                    params: None,
+                },
+                Property {
+                    name: "RRULE".to_string(),
+                    value: Some("FREQ=DAILY\rATTENDEE:EVIL".to_string()),
+                    params: None,
+                },
+            ],
+            alarms: vec![],
+        };
 
-#[test]
-fn test_ical_to_event_data_rrule_injection_prevention() {
-    let ical = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:repro\r\nDTSTART:20240101T100000Z\r\nRRULE:FREQ=DAILY\rATTENDEE:EVIL\r\nEND:VEVENT\r\nEND:VCALENDAR";
-
-    let result = ical_to_event_data(ical);
-    assert!(result.is_err());
-    match result {
-        Err(ApiError::BadRequest(msg)) => {
-            assert_eq!(msg, "RRULE cannot contain control characters")
+        let result = ical_to_event_data(&event);
+        assert!(result.is_err());
+        match result {
+            Err(ApiError::BadRequest(msg)) => {
+                assert_eq!(msg, "RRULE cannot contain control characters")
+            }
+            _ => panic!("Expected BadRequest error"),
         }
-        _ => panic!("Expected BadRequest error"),
     }
-}
 
-#[test]
-fn test_ical_to_event_data_summary_sanitization() {
-    let ical = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:repro\r\nDTSTART:20240101T100000Z\r\nSUMMARY:Bad\rSummary\r\nEND:VEVENT\r\nEND:VCALENDAR";
+    #[test]
+    fn test_ical_to_event_data_summary_sanitization() {
+        // The ical crate generally doesn't escape text values in .value, but it might handle line unfolding.
+        // Our unescape_text function should also handle stripping CR if it ends up there.
+        // Let's manually construct an event with CR in summary to test our sanitization.
+        let event = IcalEvent {
+            properties: vec![
+                Property {
+                    name: "UID".to_string(),
+                    value: Some("repro".to_string()),
+                    params: None,
+                },
+                Property {
+                    name: "DTSTART".to_string(),
+                    value: Some("20240101T100000Z".to_string()),
+                    params: None,
+                },
+                Property {
+                    name: "SUMMARY".to_string(),
+                    value: Some("Bad\rSummary".to_string()),
+                    params: None,
+                },
+            ],
+            alarms: vec![],
+        };
 
-    let (_, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(ical).unwrap();
+        let (_, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(&event).unwrap();
 
-    // Should be sanitized (stripped CR)
-    assert_eq!(summary, "BadSummary");
+        // Should be sanitized (stripped CR)
+        assert_eq!(summary, "BadSummary");
+    }
+
 }
