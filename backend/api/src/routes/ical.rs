@@ -216,10 +216,10 @@ impl<'a> FoldedWriter<'a> {
             // Escape special characters: \ ; , \n
             let replacement = if escape {
                 match c {
-                    '\\' => Some("\\\\"),
-                    ';' => Some("\\;"),
-                    ',' => Some("\\,"),
-                    '\n' => Some("\\n"),
+                    '\\' => Some(r"\\"),
+                    ';' => Some(r"\;"),
+                    ',' => Some(r"\,"),
+                    '\n' => Some(r"\n"),
                     _ => None,
                 }
             } else {
@@ -441,16 +441,20 @@ fn parse_datetime(value: &str, is_all_day: bool) -> Result<DateTime<Utc>, ApiErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use televent_core::models::UserId;
-    use uuid::Uuid;
     use ical::parser::ical::component::IcalEvent;
     use ical::property::Property;
+    use televent_core::models::UserId;
+    use uuid::Uuid;
 
     // Helper to parse ICS string to IcalEvent
     fn parse_ics(ics: &str) -> IcalEvent {
-         let parser = ical::IcalParser::new(std::io::Cursor::new(ics));
-         let calendar = parser.into_iter().next().expect("No calendar").expect("Parse error");
-         calendar.events.into_iter().next().expect("No event")
+        let parser = ical::IcalParser::new(std::io::Cursor::new(ics));
+        let calendar = parser
+            .into_iter()
+            .next()
+            .expect("No calendar")
+            .expect("Parse error");
+        calendar.events.into_iter().next().expect("No event")
     }
 
     fn create_test_event() -> Event {
@@ -782,8 +786,15 @@ END:VCALENDAR"#;
         let attendees = vec![];
         let ical = event_to_ical(&event, &attendees).unwrap();
 
-        assert!(!ical.contains("\rATTENDEE"), "Output contained raw CR injection: {}", ical);
-        assert!(ical.contains("SUMMARY:HelloATTENDEE"), "CR should be stripped");
+        assert!(
+            !ical.contains("\rATTENDEE"),
+            "Output contained raw CR injection: {}",
+            ical
+        );
+        assert!(
+            ical.contains("SUMMARY:HelloATTENDEE"),
+            "CR should be stripped"
+        );
     }
 
     #[test]
@@ -851,5 +862,4 @@ END:VCALENDAR"#;
         // Should be sanitized (stripped CR)
         assert_eq!(summary, "BadSummary");
     }
-
 }

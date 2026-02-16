@@ -956,7 +956,10 @@ impl<'a> FoldedWriter<'a> {
         self.buf.push_str(name);
         self.buf.push(':');
         // YYYYMMDDTHHmmssZ
-        let _ = std::fmt::write(self.buf, format_args!("{}", datetime.format("%Y%m%dT%H%M%SZ")));
+        let _ = std::fmt::write(
+            self.buf,
+            format_args!("{}", datetime.format("%Y%m%dT%H%M%SZ")),
+        );
         self.buf.push_str("\r\n");
     }
 
@@ -974,7 +977,9 @@ impl<'a> FoldedWriter<'a> {
         let mut current_line_len = name.len() + 1;
 
         for c in value.chars() {
-            if c == '\r' { continue; } // Strip CR
+            if c == '\r' {
+                continue;
+            } // Strip CR
 
             let replacement = if escape {
                 match c {
@@ -1052,7 +1057,7 @@ fn generate_ics(events: &[crate::db::BotEvent]) -> String {
                 writer.write_date_property("DTSTART;VALUE=DATE", &start_date);
             }
         } else {
-             if let Some(start) = event.start {
+            if let Some(start) = event.start {
                 writer.write_datetime_property("DTSTART", &start);
             }
             if let Some(end) = event.end {
@@ -1067,7 +1072,6 @@ fn generate_ics(events: &[crate::db::BotEvent]) -> String {
 
     buf
 }
-
 
 #[cfg(test)]
 mod tests {

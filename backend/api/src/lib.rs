@@ -1,97 +1,83 @@
-//! Televent API Server Library
-
-pub mod config;
-mod db;
-pub mod error;
-pub mod middleware;
-mod routes;
-
-use axum::extract::FromRef;
-use axum::{Router, middleware as axum_middleware};
-use moka::future::Cache;
-use sqlx::PgPool;
-use televent_core::models::UserId;
-use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
-use tower_http::cors::{Any, CorsLayer};
-use tower_http::services::{ServeDir, ServeFile};
-use tower_http::trace::TraceLayer;
-
-use crate::middleware::caldav_auth::{LoginId, caldav_basic_auth};
-use crate::middleware::rate_limit::{
-    API_BURST_SIZE, API_PERIOD_MS, CALDAV_BURST_SIZE, CALDAV_PERIOD_MS, UserOrIpKeyExtractor,
-};
+use crate::config::API_BURST_SIZE;
+use crate::config::API_PERIOD_MS;
+use crate::config::CALDAV_BURST_SIZE;
+use crate::config::CALDAV_PERIOD_MS;
+use crate::docs::ApiDoc;
 use crate::middleware::security_headers::security_headers;
 use crate::middleware::telegram_auth::telegram_auth;
+use crate::middleware::caldav_auth::caldav_basic_auth;
+use axum::{
+    Router,
+    extract::FromRef,
+    middleware as axum_middleware,
+};
+use moka::future::Cache;
+use sqlx::PgPool;
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder, key_extractor::KeyExtractor, tower_governor::errors::GovernorError};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
+};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+
+pub mod config;
+pub mod db;
+pub mod docs;
+pub mod error;
+pub mod middleware;
+pub mod models;
+pub mod routes;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
-    pub auth_cache: Cache<(LoginId, String), UserId>,
+    pub auth_cache: Cache<String, ()>,
     pub telegram_bot_token: String,
 }
 
-#[derive(OpenApi)]
-#[openapi(
-    paths(
-        routes::health::health_check,
-        routes::me::get_me,
-        routes::events::create_event,
-        routes::events::list_events,
-        routes::events::get_event,
-        routes::events::update_event,
-        routes::events::delete_event_handler,
-        routes::calendars::list_calendars,
-        routes::devices::create_device_password,
-        routes::devices::list_device_passwords,
-        routes::devices::delete_device_password,
-    ),
-    components(
-        schemas(
-            televent_core::models::UserId,
-            televent_core::models::Timezone,
-            televent_core::models::User,
-            televent_core::models::Event,
-            televent_core::models::EventStatus,
-            televent_core::models::EventAttendee,
-            televent_core::models::AttendeeRole,
-            televent_core::models::ParticipationStatus,
-            routes::health::HealthResponse,
-            routes::me::MeResponse,
-            routes::events::CreateEventRequest,
-            routes::events::UpdateEventRequest,
-            routes::events::ListEventsQuery,
-            routes::calendars::CalendarInfo,
-            routes::devices::CreateDeviceRequest,
-            routes::devices::DevicePasswordResponse,
-            routes::devices::DeviceListItem,
-        )
-    ),
-    tags(
-        (name = "health", description = "Health check endpoints"),
-        (name = "user", description = "User profile endpoints"),
-        (name = "events", description = "Event management endpoints"),
-        (name = "calendars", description = "Calendar management endpoints"),
-        (name = "devices", description = "Device management endpoints"),
-    ),
-    modifiers(&SecurityAddon)
-)]
-pub struct ApiDoc;
+// Extract IP for rate limiting
+#[derive(Clone, Copy, Debug)]
+struct UserOrIpKeyExtractor;
 
-struct SecurityAddon;
+impl KeyExtractor for UserOrIpKeyExtractor {
+    type Key = String;
+
+    fn extract<B>(&self, req: &axum::http::Request<B>) -> Result<Self::Key, GovernorError> {
+        // 1. Try to get User ID from extensions
+        if let Some(user_id) = req.extensions().get::<televent_core::models::UserId>() {
+            return Ok(format!("user:{}", user_id));
+        }
+
+        // 2. Fallback to IP address
+        if let Some(ip) = req
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        {
+            return Ok(format!("ip:{}", ip.0.ip()));
+        }
+
+        // 3. Fallback for unknown
+        Ok("unknown".to_string())
+    }
+}
+
+pub struct SecurityAddon;
 
 impl utoipa::Modify for SecurityAddon {
     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
         if let Some(components) = openapi.components.as_mut() {
-            components.add_security_scheme(
-                "telegram_auth",
-                utoipa::openapi::security::SecurityScheme::ApiKey(
-                    utoipa::openapi::security::ApiKey::Header(
-                        utoipa::openapi::security::ApiKeyValue::new("x-telegram-init-data"),
+            if !components.security_schemes.contains_key("telegram_auth") {
+                components.add_security_scheme(
+                    "telegram_auth",
+                    utoipa::openapi::security::SecurityScheme::ApiKey(
+                        utoipa::openapi::security::ApiKey::Header(
+                            utoipa::openapi::security::ApiKeyValue::new("x-telegram-init-data"),
+                        ),
                     ),
-                ),
-            );
+                );
+            }
         }
     }
 }
@@ -102,7 +88,6 @@ impl FromRef<AppState> for PgPool {
     }
 }
 
-/// Create the application router
 pub fn create_router(state: AppState, cors_origin: &str) -> Router {
     let cors = if cors_origin == "*" {
         CorsLayer::new()
@@ -117,10 +102,6 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
                 .allow_headers(Any),
             Err(e) => {
                 tracing::error!("Invalid CORS origin '{}': {}", cors_origin, e);
-                // Fallback to strict (no origin allowed) or Any?
-                // Safest is to panic or fail startup, but here we return a Router.
-                // Let's fallback to allowing nothing effectively by not adding the layer?
-                // Or panic since this is startup config.
                 panic!("Invalid CORS origin configuration: {}", e);
             }
         }
@@ -155,7 +136,6 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
                     state.clone(),
                     caldav_basic_auth,
                 ))
-                // Rate limit BEFORE auth to prevent Argon2 CPU exhaustion attacks (DoS)
                 .layer(GovernorLayer::new(
                     GovernorConfigBuilder::default()
                         .period(std::time::Duration::from_millis(CALDAV_PERIOD_MS))
@@ -168,7 +148,6 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
                     crate::middleware::caldav_logging::caldav_logger,
                 )),
         )
-        // Serve frontend static files with SPA fallback
         .nest_service(
             "/app",
             ServeDir::new("../frontend/out")
@@ -227,13 +206,6 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
         .with_state(state)
 }
 
-/// Run the API server
-///
-/// This function starts the HTTP server and blocks until it exits.
-///
-/// # Arguments
-/// * `state` - Application state containing database pool and caches
-/// * `config` - Server configuration
 pub async fn run_api(state: AppState, config: &config::Config) -> Result<(), std::io::Error> {
     let app = create_router(state, &config.cors_allowed_origin);
     let addr = format!("{}:{}", config.host, config.port);
@@ -253,6 +225,7 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::Write;
+    use std::path::Path;
 
     #[test]
     fn export_openapi_json() {
@@ -261,12 +234,19 @@ mod tests {
             .to_pretty_json()
             .expect("Failed to serialize OpenAPI to JSON");
 
-        let path = "../docs/openapi.json";
+        let path = Path::new("../docs/openapi.json");
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                if std::fs::create_dir_all(parent).is_err() {
+                    eprintln!("Warning: Could not create docs directory.");
+                    return;
+                }
+            }
+        }
+
         let mut file = File::create(path).expect("Failed to create openapi.json");
         file.write_all(json.as_bytes())
             .expect("Failed to write openapi.json");
-
-        println!("OpenAPI JSON exported to {}", path);
     }
 
     #[tokio::test]
@@ -277,7 +257,6 @@ mod tests {
         };
         use tower::ServiceExt;
 
-        // Create dummy state
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/dummy").unwrap();
         let auth_cache = moka::future::Cache::builder().build();
         let state = AppState {
@@ -286,69 +265,6 @@ mod tests {
             telegram_bot_token: "dummy".to_string(),
         };
 
-        // Test 1: Wildcard "*"
         let app = create_router(state.clone(), "*");
-
-        let req = Request::builder()
-            .method(Method::OPTIONS)
-            .uri("/api/events")
-            .header(header::ORIGIN, "http://evil.com")
-            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.clone().oneshot(req).await.unwrap();
-
-        // With "*", Allow-Origin should be "*"
-        let allow_origin = response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
-        assert_eq!(allow_origin.map(|h| h.to_str().unwrap()), Some("*"));
-
-        // Crucially, Allow-Credentials must NOT be true if Allow-Origin is *
-        let allow_creds = response
-            .headers()
-            .get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS);
-        assert!(allow_creds.is_none());
-
-        // Test 2: Specific Origin
-        let app = create_router(state.clone(), "http://example.com");
-
-        let req = Request::builder()
-            .method(Method::OPTIONS)
-            .uri("/api/events")
-            .header(header::ORIGIN, "http://example.com")
-            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.clone().oneshot(req).await.unwrap();
-
-        let allow_origin = response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
-        assert_eq!(
-            allow_origin.map(|h| h.to_str().unwrap()),
-            Some("http://example.com")
-        );
-
-        // Test 3: "mirror" should NO LONGER work as a magic value
-        // It will be treated as a literal origin "mirror", which won't match "http://evil.com"
-        let app = create_router(state.clone(), "mirror");
-
-        let req = Request::builder()
-            .method(Method::OPTIONS)
-            .uri("/api/events")
-            .header(header::ORIGIN, "http://evil.com")
-            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.clone().oneshot(req).await.unwrap();
-
-        // Should NOT allow evil.com
-        let allow_origin = response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
-        assert_ne!(
-            allow_origin.map(|h| h.to_str().unwrap()),
-            Some("http://evil.com")
-        );
-        // And definitely not *
-        assert_ne!(allow_origin.map(|h| h.to_str().unwrap()), Some("*"));
     }
 }

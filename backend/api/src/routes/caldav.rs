@@ -322,12 +322,9 @@ async fn caldav_put_event(
             .map(|(email, (uid, status))| (uid, email, status))
             .collect();
 
-        let upsert_results = db::events::upsert_event_attendees_bulk(
-            &mut *tx,
-            event_id,
-            attendees_to_upsert,
-        )
-        .await?;
+        let upsert_results =
+            db::events::upsert_event_attendees_bulk(&mut *tx, event_id, attendees_to_upsert)
+                .await?;
 
         let mut notifications = Vec::new();
         for res in upsert_results {

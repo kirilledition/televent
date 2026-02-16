@@ -15,14 +15,14 @@ use anyhow::Result;
 use chrono::{Duration as ChronoDuration, Utc};
 use db::WorkerDb;
 use sqlx::PgPool;
+use std::collections::HashMap;
+use std::sync::Arc;
+use televent_core::models::Event;
 use teloxide::Bot;
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
-use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
-use televent_core::models::Event;
 
 /// Run the background worker service
 ///
@@ -90,7 +90,8 @@ async fn run_worker_loop(
                     .iter()
                     .filter(|j| j.message_type == "invite_notification")
                     .filter_map(|j| {
-                        j.payload.get("event_id")
+                        j.payload
+                            .get("event_id")
                             .and_then(|v| v.as_str())
                             .and_then(|s| Uuid::parse_str(s).ok())
                     })
@@ -107,8 +108,11 @@ async fn run_worker_loop(
                             for event in events {
                                 events_map.insert(event.id, event);
                             }
-                            info!("Pre-fetched {} events for batch processing", events_map.len());
-                        },
+                            info!(
+                                "Pre-fetched {} events for batch processing",
+                                events_map.len()
+                            );
+                        }
                         Err(e) => {
                             warn!("Failed to pre-fetch events: {}", e);
                             // We continue without cache, individual processors will fetch events (and fail/retry if DB is down)
@@ -128,9 +132,9 @@ async fn run_worker_loop(
                     let config = config.clone();
                     let mailer = mailer.clone();
                     let events_cache = events_cache.clone();
-                    tasks.spawn(
-                        async move { process_job(&pool, &bot, &config, &mailer, job, events_cache).await },
-                    );
+                    tasks.spawn(async move {
+                        process_job(&pool, &bot, &config, &mailer, job, events_cache).await
+                    });
                 }
 
                 // Wait for all concurrent jobs to complete and collect results

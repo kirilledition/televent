@@ -1,16 +1,16 @@
 #[cfg(test)]
 mod tests {
     use crate::{Config, Mailer, WorkerDb, process_job};
+    use serde_json::json;
     use sqlx::postgres::PgPoolOptions;
+    use std::collections::HashMap;
+    use std::sync::Arc;
     use std::time::Instant;
     use televent_core::config::CoreConfig;
     use televent_core::models::{Event, EventStatus, UserId};
     use teloxide::Bot;
     use tokio::task::JoinSet;
     use uuid::Uuid;
-    use serde_json::json;
-    use std::collections::HashMap;
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn bench_worker_invite_processing() -> anyhow::Result<()> {
@@ -98,7 +98,7 @@ mod tests {
         }
 
         for (i, job_id) in job_ids.iter().enumerate() {
-             sqlx::query(
+            sqlx::query(
                 r#"
                 INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
                 VALUES ($1, 'invite_notification', $2, 'pending', 0, NOW(), NOW())
@@ -110,7 +110,10 @@ mod tests {
             .await?;
         }
 
-        println!("Inserted {} jobs and events. Starting processing...", job_count);
+        println!(
+            "Inserted {} jobs and events. Starting processing...",
+            job_count
+        );
 
         let start_time = Instant::now();
 
@@ -130,7 +133,8 @@ mod tests {
                 .iter()
                 .filter(|j| j.message_type == "invite_notification")
                 .filter_map(|j| {
-                    j.payload.get("event_id")
+                    j.payload
+                        .get("event_id")
                         .and_then(|v| v.as_str())
                         .and_then(|s| Uuid::parse_str(s).ok())
                 })
@@ -154,7 +158,9 @@ mod tests {
                 let config = config.clone();
                 let mailer = mailer.clone();
                 let events_cache = events_cache.clone();
-                tasks.spawn(async move { process_job(&pool, &bot, &config, &mailer, job, events_cache).await });
+                tasks.spawn(async move {
+                    process_job(&pool, &bot, &config, &mailer, job, events_cache).await
+                });
             }
 
             let mut results = Vec::new();
@@ -174,10 +180,7 @@ mod tests {
         }
 
         let duration = start_time.elapsed();
-        println!(
-            "Processed {} jobs in {:?}",
-            processed_count, duration
-        );
+        println!("Processed {} jobs in {:?}", processed_count, duration);
 
         sqlx::query("DELETE FROM outbox_messages WHERE payload->>'run_id' = $1")
             .bind(run_id.to_string())

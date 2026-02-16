@@ -17,9 +17,11 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+thiserror.workspace = true
 
 # Web framework
 axum.workspace = true
+axum-client-ip = "0.6.0"
 tower.workspace = true
 tower-http.workspace = true
 tower_governor.workspace = true

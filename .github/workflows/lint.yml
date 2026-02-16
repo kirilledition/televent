@@ -1,0 +1,37 @@
+name: Lint
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Check Formatting
+        working-directory: backend
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        working-directory: backend
+        run: cargo clippy --workspace -- -D warnings
