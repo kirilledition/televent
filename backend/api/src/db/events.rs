@@ -265,8 +265,7 @@ pub async fn list_events_since_sync(
 #[allow(clippy::too_many_arguments)]
 pub async fn update_event(
     executor: &mut PgConnection,
-    user_id: UserId,
-    event_id: Uuid,
+    current: Event,
     summary: Option<String>,
     description: Option<String>,
     location: Option<String>,
@@ -278,12 +277,9 @@ pub async fn update_event(
     status: Option<EventStatus>,
     rrule: Option<String>,
 ) -> Result<Event, ApiError> {
-    // Get current event to compute new ETag with merged fields
-    let current = get_event(&mut *executor, user_id, event_id).await?;
-
-    let new_summary = summary.clone().unwrap_or_else(|| current.summary.clone());
-    let new_description = description.clone().or_else(|| current.description.clone());
-    let new_location = location.clone().or_else(|| current.location.clone());
+    let new_summary = summary.unwrap_or(current.summary);
+    let new_description = description.or(current.description);
+    let new_location = location.or(current.location);
 
     let new_is_all_day = is_all_day.unwrap_or(current.is_all_day);
 
@@ -321,11 +317,7 @@ pub async fn update_event(
     };
 
     let new_status = status.unwrap_or(current.status);
-    let new_rrule = if rrule.is_some() {
-        rrule.clone()
-    } else {
-        current.rrule.clone()
-    };
+    let new_rrule = rrule.or(current.rrule);
 
     // Generate new ETag with all fields
     let new_etag = generate_etag(
@@ -361,8 +353,8 @@ pub async fn update_event(
         RETURNING *
         "#,
     )
-    .bind(event_id)
-    .bind(user_id)
+    .bind(current.id)
+    .bind(current.user_id)
     .bind(new_summary)
     .bind(new_description)
     .bind(new_location)
@@ -376,7 +368,7 @@ pub async fn update_event(
     .bind(new_etag)
     .fetch_optional(&mut *executor)
     .await?
-    .ok_or_else(|| ApiError::NotFound(format!("Event not found: {}", event_id)))?;
+    .ok_or_else(|| ApiError::NotFound(format!("Event not found: {}", current.id)))?;
 
     Ok(event)
 }
