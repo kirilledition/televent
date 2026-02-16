@@ -14,6 +14,7 @@ use televent_core::attendee::is_internal_email;
 use televent_core::models::Event;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 use uuid::Uuid;
+use std::collections::HashMap;
 
 /// Process a single outbox message
 pub async fn process_message(
@@ -21,9 +22,10 @@ pub async fn process_message(
     message: &OutboxMessage,
     bot: &Bot,
     mailer: &Mailer,
+    events_cache: &HashMap<Uuid, Event>,
 ) -> Result<()> {
     match message.message_type.as_str() {
-        "invite_notification" => process_invite_notification(pool, message, bot).await,
+        "invite_notification" => process_invite_notification(pool, message, bot, events_cache).await,
         "telegram_notification" => process_telegram_notification(message, bot).await,
         "email" => process_email(message, mailer).await,
         "calendar_invite" => process_calendar_invite(message, bot).await,
@@ -61,6 +63,7 @@ async fn process_invite_notification(
     pool: &PgPool,
     message: &OutboxMessage,
     bot: &Bot,
+    events_cache: &HashMap<Uuid, Event>,
 ) -> Result<()> {
     let event_id_str = message.payload["event_id"]
         .as_str()
@@ -72,11 +75,17 @@ async fn process_invite_notification(
         .context("Missing target_user_id in payload")?;
 
     // Fetch event details
-    let event: Event = sqlx::query_as("SELECT * FROM events WHERE id = $1")
-        .bind(event_id)
-        .fetch_one(pool)
-        .await
-        .context("Failed to fetch event")?;
+    // Check cache first
+    let event = if let Some(event) = events_cache.get(&event_id) {
+        event.clone()
+    } else {
+        // Fallback to DB
+        sqlx::query_as("SELECT * FROM events WHERE id = ")
+            .bind(event_id)
+            .fetch_one(pool)
+            .await
+            .context("Failed to fetch event")?
+    };
 
     let time_str = if let Some(start) = event.start {
         start.format("%Y-%m-%d %H:%M UTC").to_string()
@@ -176,10 +185,7 @@ async fn process_calendar_invite(message: &OutboxMessage, bot: &Bot) -> Result<(
             .unwrap_or_default();
 
         let invite_text = format!(
-            "📅 <b>Calendar Invite</b>\n\n\
-             <b>Event:</b> {}\n\
-             🕒 <b>Time:</b> {}{}\n\n\
-             You've been invited to this event. Use /rsvp to respond.",
+            "📅 <b>Calendar Invite</b>\n\n             <b>Event:</b> {}\n             🕒 <b>Time:</b> {}{}\n\n             You've been invited to this event. Use /rsvp to respond.",
             event_summary, event_start, location_text
         );
 
@@ -396,7 +402,7 @@ mod tests {
         // Give server time to bind
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        process_message(&pool, &tx_msg, &bot, &mailer)
+        process_message(&pool, &tx_msg, &bot, &mailer, &HashMap::new())
             .await
             .expect("Failed to process email");
 
@@ -415,7 +421,7 @@ mod tests {
         let user_id = UserId::new(123456789);
         sqlx::query(
             "INSERT INTO users (telegram_id, timezone, sync_token, ctag, created_at, updated_at) 
-             VALUES ($1, 'UTC', '0', '0', NOW(), NOW())",
+             VALUES (, 'UTC', '0', '0', NOW(), NOW())",
         )
         .bind(user_id)
         .execute(&pool)
@@ -425,7 +431,7 @@ mod tests {
         let event_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO events (id, user_id, uid, summary, start, \"end\", status, timezone, version, etag, created_at, updated_at)
-             VALUES ($1, $2, 'uid', 'Test Event', NOW(), NOW() + interval '1 hour', $3, 'UTC', 1, 'etag', NOW(), NOW())"
+             VALUES (, , 'uid', 'Test Event', NOW(), NOW() + interval '1 hour', , 'UTC', 1, 'etag', NOW(), NOW())"
         )
         .bind(event_id)
         .bind(user_id)
@@ -453,7 +459,7 @@ mod tests {
         // Attempt to process
         // This will likely fail due to network error (Bot API),
         // but we verify it reaches that point (authenticating the ID fetching logic)
-        let result = process_message(&pool, &message, &bot, &mailer).await;
+        let result = process_message(&pool, &message, &bot, &mailer, &HashMap::new()).await;
 
         // Assert error is present and related to Telegram API failure
         assert!(result.is_err());
