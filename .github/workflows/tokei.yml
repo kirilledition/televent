@@ -17,10 +17,12 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
 
-      - name: Download tokei
+      - name: Install tokei via cargo
         run: |
-          curl -L https://github.com/XAMPPRocky/tokei/releases/download/v12.1.2/tokei-x86_64-unknown-linux-gnu.tar.gz | tar xz
-          sudo mv tokei /usr/local/bin/
+          sudo apt-get update
+          sudo apt-get install -y cargo
+          cargo install --locked --version 12.1.2 tokei
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Run tokei
         run: |
