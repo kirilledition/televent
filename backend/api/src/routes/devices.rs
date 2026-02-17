@@ -21,6 +21,8 @@ use crate::{error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUse
 // Input validation constants
 const MAX_DEVICE_NAME_LENGTH: usize = 128;
 const MIN_DEVICE_NAME_LENGTH: usize = 1;
+// Limit device count to prevent DoS via CPU exhaustion during CalDAV auth
+const MAX_DEVICES_PER_USER: i64 = 10;
 
 /// Request to create a new device password
 #[typeshare]
@@ -109,6 +111,20 @@ async fn create_device_password(
 ) -> Result<impl IntoResponse, ApiError> {
     // Validate input
     request.validate()?;
+
+    // Check device limit
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM device_passwords WHERE user_id = $1")
+        .bind(auth_user.id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?;
+
+    if count >= MAX_DEVICES_PER_USER {
+        return Err(ApiError::BadRequest(format!(
+            "Maximum number of devices ({}) reached. Please delete an old device password.",
+            MAX_DEVICES_PER_USER
+        )));
+    }
 
     // Generate random password
     let password = generate_password(24);
