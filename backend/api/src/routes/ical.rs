@@ -356,7 +356,9 @@ pub fn ical_to_event_data(
                         "DTEND" => dtend = Some(value.to_string()),
                         "RRULE" => {
                             if value.contains('\r') || value.contains('\n') {
-                                return Err(ApiError::BadRequest("Invalid RRULE".to_string()));
+                                return Err(ApiError::BadRequest(
+                                    "RRULE cannot contain control characters".to_string(),
+                                ));
                             }
                             rrule = Some(Cow::Borrowed(value));
                         }
