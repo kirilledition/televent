@@ -1,0 +1,51 @@
+name: Update Tokei Stats
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+
+      - name: Install tokei via cargo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cargo
+          cargo install --locked --version 12.1.2 tokei
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Run tokei
+        run: |
+          OUTPUT_FILE="$RUNNER_TEMP/tokei_output.txt"
+          echo '```' > "$OUTPUT_FILE"
+          tokei . >> "$OUTPUT_FILE"
+          echo '```' >> "$OUTPUT_FILE"
+
+      - name: Update README.md
+        run: |
+          OUTPUT_FILE="$RUNNER_TEMP/tokei_output.txt"
+          awk -v output_file="$OUTPUT_FILE" '
+            /<!-- TOKEI START -->/ { print; system("cat " output_file); print "<!-- TOKEI END -->"; skip=1; next }
+            /<!-- TOKEI END -->/ { skip=0; next }
+            !skip { print }
+          ' README.md > README.md.tmp && mv README.md.tmp README.md
+
+      - name: Commit and push changes
+        run: |
+          if [[ -n $(git status -s) ]]; then
+            git config --global user.name 'github-actions[bot]'
+            git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+            git add README.md
+            git commit -m "docs: Update Tokei stats"
+            git push origin HEAD:${{ github.head_ref || github.ref_name }}
+          fi
