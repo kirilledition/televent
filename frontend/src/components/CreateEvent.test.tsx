@@ -115,9 +115,7 @@ describe('CreateEvent', () => {
     fireEvent.change(titleInput, { target: { value: 'Future Event' } })
     fireEvent.click(screen.getByText('Add'))
 
-    // Note: The component sends YYYY-MM-DD string.
-    // If we are in UTC, 2023-10-20.
-    // But verify the property name. Component sets Mon Feb 16 16:58:53 UTC 2026 state.
+    // The component sends a YYYY-MM-DD string; ensure the selected date is passed as 2023-10-20.
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         date: expect.stringContaining('2023-10-20'),
