@@ -299,13 +299,13 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
         <button
           type="button"
           onClick={() => router.back()}
-          className="btn-secondary flex-1"
+          className="flex-1 rounded-lg bg-[var(--ctp-surface0)] px-4 py-2 font-medium text-[var(--ctp-text)] transition-colors hover:bg-[var(--ctp-surface1)] focus-visible:ring-2 focus-visible:ring-[var(--ctp-overlay1)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         >
           Cancel
         </button>
         <button
           type="submit"
-          className="btn-primary flex flex-1 items-center justify-center gap-2"
+          className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--ctp-mauve)] px-4 py-2 font-medium text-[var(--ctp-crust)] shadow-sm transition-all hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           disabled={createMutation.isPending || updateMutation.isPending}
         >
           {createMutation.isPending || updateMutation.isPending ? (

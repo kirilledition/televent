@@ -43,7 +43,10 @@ function EditEventContent() {
     return (
       <div className="p-8 text-center">
         <p className="text-red mb-4">Error loading event</p>
-        <button onClick={() => router.push('/')} className="btn-secondary">
+        <button
+          onClick={() => router.push('/')}
+          className="rounded-lg bg-[var(--ctp-surface0)] px-4 py-2 font-medium text-[var(--ctp-text)] transition-colors hover:bg-[var(--ctp-surface1)] focus-visible:ring-2 focus-visible:ring-[var(--ctp-overlay1)] focus-visible:outline-none"
+        >
           Go Back
         </button>
       </div>
@@ -54,7 +57,7 @@ function EditEventContent() {
       <header className="mb-6 flex items-center gap-3">
         <button
           onClick={() => router.back()}
-          className="text-sapphire hover:text-sky -ml-1 p-1 transition-colors"
+          className="text-sapphire hover:text-sky -ml-1 rounded-md p-1 transition-colors focus-visible:ring-2 focus-visible:ring-[var(--ctp-sapphire)] focus-visible:outline-none"
           aria-label="Go back"
         >
           <svg

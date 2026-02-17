@@ -13,7 +13,11 @@ export default function CalendarPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
 
-  const { data: eventsData, isLoading, error } = useQuery({
+  const {
+    data: eventsData,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['events'],
     queryFn: () => api.getEvents(),
   })
@@ -88,7 +92,7 @@ export default function CalendarPage() {
         {/* New Event Button */}
         <button
           onClick={() => router.push('/create')}
-          className="mb-6 flex w-full items-center justify-center gap-2 rounded-lg px-5 py-3 font-medium shadow-sm transition-opacity hover:opacity-90"
+          className="mb-6 flex w-full items-center justify-center gap-2 rounded-lg px-5 py-3 font-medium shadow-sm transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none"
           style={{
             backgroundColor: 'var(--ctp-mauve)',
             color: 'var(--ctp-crust)',
