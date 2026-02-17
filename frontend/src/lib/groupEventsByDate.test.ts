@@ -42,7 +42,7 @@ describe('groupEventsByDate', () => {
         summary: 'Event 2',
         start: '2023-10-01T10:00:00Z',
       }),
-      createEvent({ id: '1', summary: 'Event 1', start_date: '2023-10-01' }), // Midnight (00:00)
+      createEvent({ id: '1', summary: 'Event 1', start: '2023-10-01T00:00:00Z' }), // Midnight (00:00)
       createEvent({
         id: '3',
         summary: 'Event 3',
