@@ -290,7 +290,6 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
  Nix                     1           51           47            0            4
  SQL                     4          388          196          127           65
  SVG                     4            4            4            0            0
- Plain Text              1            1            0            1            0
  TOML                    8          734          383          244          107
  TSX                    60         7042         6341           62          639
  TypeScript             10          444          325           67           52
@@ -304,7 +303,7 @@ The system uses the **Transactional Outbox** pattern to ensure that side effects
  |- Markdown            46          618            0          519           99
  (Total)                          15532        12248         1306         1978
 ===============================================================================
- Total                 157        33564        27455         1880         4229
+ Total                 156        33563        27455         1879         4229
 ===============================================================================
 ```
 <!-- TOKEI END -->
