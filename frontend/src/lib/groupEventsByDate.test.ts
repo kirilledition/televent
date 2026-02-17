@@ -27,7 +27,7 @@ describe('groupEventsByDate', () => {
   it('groups events by date', () => {
     const events = [
       createEvent({ id: '1', start_date: '2023-10-01' }),
-      createEvent({ id: '2', start: '2023-10-01T10:00:00Z' }),
+      createEvent({ id: '2', start_date: '2023-10-01' }),
       createEvent({ id: '3', start_date: '2023-10-02' }),
     ]
 
