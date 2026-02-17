@@ -19,7 +19,7 @@ export default defineConfig({
         'src/**/page.tsx',
         'src/lib/dummy-data.ts',
         'src/components/ui/**/*', // Exclude shadcn ui components
-        'src/components/TelegramProvider.tsx', // Telegram SDK integration - requires Telegram Mini App environment
+        'src/components/TelegramProvider.tsx', // Exclude 3rd party provider wrapper if hard to test
         'src/components/QueryProvider.tsx', // Exclude provider
       ],
     },

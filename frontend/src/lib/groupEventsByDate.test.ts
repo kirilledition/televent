@@ -3,10 +3,10 @@ import {
   groupEventsByDate,
   groupEventsByDateEntries,
 } from './groupEventsByDate'
-import type { EventResponse } from './api'
+import type { Event } from './api'
 
 // Mock event helper
-const createEvent = (partial: Partial<EventResponse>): EventResponse => ({
+const createEvent = (partial: Partial<Event>): Event => ({
   id: '1',
   uid: '1',
   user_id: 'u1',
@@ -27,7 +27,7 @@ describe('groupEventsByDate', () => {
   it('groups events by date', () => {
     const events = [
       createEvent({ id: '1', start_date: '2023-10-01' }),
-      createEvent({ id: '2', start_date: '2023-10-01' }),
+      createEvent({ id: '2', start: '2023-10-01T10:00:00Z' }),
       createEvent({ id: '3', start_date: '2023-10-02' }),
     ]
 
@@ -42,7 +42,7 @@ describe('groupEventsByDate', () => {
         summary: 'Event 2',
         start: '2023-10-01T10:00:00Z',
       }),
-      createEvent({ id: '1', summary: 'Event 1', start: '2023-10-01T00:00:00Z' }), // Midnight (00:00)
+      createEvent({ id: '1', summary: 'Event 1', start_date: '2023-10-01' }), // Midnight (00:00)
       createEvent({
         id: '3',
         summary: 'Event 3',
