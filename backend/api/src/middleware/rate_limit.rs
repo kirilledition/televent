@@ -36,15 +36,9 @@ impl KeyExtractor for UserOrIpKeyExtractor {
 
         let headers = req.headers();
 
-        // 1. Try X-Real-IP (trusted proxy set header)
-        if let Some(header) = headers.get("x-real-ip")
-            && let Ok(val) = header.to_str()
-            && let Ok(ip) = val.trim().parse::<IpAddr>()
-        {
-            return Ok(RateLimitKey::Ip(ip));
-        }
-
-        // 2. Try X-Forwarded-For (standard for proxies like Nginx/Railway)
+        // 1. Try X-Forwarded-For (standard for proxies like Nginx/Railway)
+        // We prioritize this because it's an append-only list where the last entry is reliably added by the proxy.
+        // X-Real-IP might be spoofed if the proxy passes it through without overwriting.
         if let Some(header) = headers.get("x-forwarded-for")
             && let Ok(val) = header.to_str()
         {
@@ -59,6 +53,15 @@ impl KeyExtractor for UserOrIpKeyExtractor {
             {
                 return Ok(RateLimitKey::Ip(ip));
             }
+        }
+
+        // 2. Try X-Real-IP (trusted proxy set header)
+        // Used as a fallback if X-Forwarded-For is missing or invalid.
+        if let Some(header) = headers.get("x-real-ip")
+            && let Ok(val) = header.to_str()
+            && let Ok(ip) = val.trim().parse::<IpAddr>()
+        {
+            return Ok(RateLimitKey::Ip(ip));
         }
 
         // 3. Fallback to direct connection IP
@@ -167,7 +170,8 @@ mod tests {
     async fn test_rate_limit_key_extraction_priority() {
         let extractor = UserOrIpKeyExtractor;
 
-        // Test priority: X-Real-IP > X-Forwarded-For
+        // Test priority: X-Forwarded-For > X-Real-IP
+        // We prefer X-Forwarded-For because it's harder to spoof (append-only) behind a proxy
         let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
         let mut req = Request::new(Body::empty());
         req.extensions_mut().insert(ConnectInfo(addr));
@@ -179,8 +183,8 @@ mod tests {
 
         let key = extractor.extract(&req).unwrap();
 
-        // Should return X-Real-IP
-        assert_eq!(key, RateLimitKey::Ip("5.6.7.8".parse().unwrap()));
+        // Should return X-Forwarded-For (1.2.3.4)
+        assert_eq!(key, RateLimitKey::Ip("1.2.3.4".parse().unwrap()));
     }
 }
 
@@ -210,5 +214,50 @@ mod spoofing_test {
 
         // Should return the LAST IP (5.6.7.8), not the first (1.2.3.4)
         assert_eq!(key, RateLimitKey::Ip("5.6.7.8".parse().unwrap()));
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::extract::ConnectInfo;
+    use tower_governor::key_extractor::KeyExtractor;
+
+    #[tokio::test]
+    async fn test_x_real_ip_bypass_prevention() {
+        let extractor = UserOrIpKeyExtractor;
+
+        // Simulate an attacker sending a spoofed X-Real-IP
+        // The trusted proxy (e.g. Railway) appends the real IP to X-Forwarded-For
+        // but might pass through the X-Real-IP header if not configured to strip/overwrite it.
+        let spoofed_ip: IpAddr = "1.2.3.4".parse().unwrap();
+        let real_ip: IpAddr = "5.6.7.8".parse().unwrap();
+
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut().insert(ConnectInfo(addr));
+
+        // Attacker sends this:
+        req.headers_mut()
+            .insert("x-real-ip", spoofed_ip.to_string().parse().unwrap());
+
+        // Proxy appends real IP to this:
+        // (Assuming attacker also sent X-Forwarded-For: 1.2.3.4 to try to confuse things)
+        req.headers_mut().insert(
+            "x-forwarded-for",
+            format!("{}, {}", spoofed_ip, real_ip).parse().unwrap(),
+        );
+
+        let key = extractor.extract(&req).unwrap();
+
+        // Security check: We must extract the REAL IP (5.6.7.8), not the spoofed one (1.2.3.4)
+        // If this assertion fails, it means X-Real-IP took precedence over X-Forwarded-For,
+        // allowing the attacker to bypass rate limits by rotating X-Real-IP.
+        assert_eq!(
+            key,
+            RateLimitKey::Ip(real_ip),
+            "Vulnerability: X-Real-IP took precedence over X-Forwarded-For"
+        );
     }
 }

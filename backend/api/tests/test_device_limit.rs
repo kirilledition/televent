@@ -14,7 +14,10 @@ use urlencoding::encode;
 
 // Helper to generate valid init data (same as in telegram_auth.rs tests)
 fn generate_init_data(user_id: i64, bot_token: &str) -> String {
-    let user_json = format!(r#"{{"id":{},"first_name":"Test","last_name":"User"}}"#, user_id);
+    let user_json = format!(
+        r#"{{"id":{},"first_name":"Test","last_name":"User"}}"#,
+        user_id
+    );
     let auth_date = chrono::Utc::now().timestamp().to_string();
 
     let params = vec![
@@ -97,7 +100,8 @@ async fn test_device_limit_enforcement(pool: PgPool) {
         let req_body = format!(r#"{{"name": "Device {}"}}"#, i);
 
         // We must clone app for each request because oneshot consumes it
-        let response = app.clone()
+        let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -111,10 +115,19 @@ async fn test_device_limit_enforcement(pool: PgPool) {
             .unwrap();
 
         if i < 10 {
-            assert_eq!(response.status(), StatusCode::CREATED, "Failed to create device {}", i);
+            assert_eq!(
+                response.status(),
+                StatusCode::CREATED,
+                "Failed to create device {}",
+                i
+            );
         } else {
             // The 11th device creation (i=10) MUST fail with 400 Bad Request
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "Should fail on 11th device creation");
+            assert_eq!(
+                response.status(),
+                StatusCode::BAD_REQUEST,
+                "Should fail on 11th device creation"
+            );
         }
     }
 }

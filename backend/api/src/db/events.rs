@@ -400,13 +400,11 @@ where
         return Ok(());
     }
 
-    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-        "INSERT INTO outbox_messages (message_type, payload) "
-    );
+    let mut query_builder: QueryBuilder<Postgres> =
+        QueryBuilder::new("INSERT INTO outbox_messages (message_type, payload) ");
 
     query_builder.push_values(messages, |mut b, (message_type, payload)| {
-        b.push_bind(message_type)
-            .push_bind(payload);
+        b.push_bind(message_type).push_bind(payload);
     });
 
     query_builder.build().execute(executor).await?;
@@ -473,9 +471,8 @@ where
         return Ok(vec![]);
     }
 
-    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-        "INSERT INTO event_attendees (event_id, user_id, email, status) "
-    );
+    let mut query_builder: QueryBuilder<Postgres> =
+        QueryBuilder::new("INSERT INTO event_attendees (event_id, user_id, email, status) ");
 
     for (i, (user_id, email, status)) in attendees.into_iter().enumerate() {
         if i == 0 {

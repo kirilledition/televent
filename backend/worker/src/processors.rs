@@ -10,11 +10,11 @@ use tracing::{error, info};
 use crate::db::OutboxMessage;
 use crate::mailer::Mailer;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use televent_core::attendee::is_internal_email;
 use televent_core::models::Event;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 use uuid::Uuid;
-use std::collections::HashMap;
 
 /// Process a single outbox message
 pub async fn process_message(
@@ -25,7 +25,9 @@ pub async fn process_message(
     events_cache: &HashMap<Uuid, Event>,
 ) -> Result<()> {
     match message.message_type.as_str() {
-        "invite_notification" => process_invite_notification(pool, message, bot, events_cache).await,
+        "invite_notification" => {
+            process_invite_notification(pool, message, bot, events_cache).await
+        }
         "telegram_notification" => process_telegram_notification(message, bot).await,
         "email" => process_email(message, mailer).await,
         "calendar_invite" => process_calendar_invite(message, bot).await,
