@@ -349,7 +349,7 @@ pub fn ical_to_event_data(
                             {
                                 let tz_part = &params_str[tzid_start + 5..];
                                 let tz_end = tz_part.find(';').unwrap_or(tz_part.len());
-                                timezone = Cow::Borrowed(&params_str[tzid_start + 5..][..tz_end]); // Explicit slice reborrow
+                                timezone = Cow::Borrowed(&params_str[tzid_start + 5..tzid_start + 5 + tz_end]); // Explicit slice reborrow
                             }
                             dtstart = Some(value.to_string());
                         }
