@@ -27,9 +27,7 @@ export default function CalendarPage() {
 
   const handleDeleteEvent = useCallback(
     (id: string) => {
-      if (window.confirm('Are you sure you want to delete this event?')) {
-        deleteMutation.mutate(id)
-      }
+      deleteMutation.mutate(id)
     },
     [deleteMutation]
   )
