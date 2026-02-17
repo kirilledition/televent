@@ -26,14 +26,16 @@ jobs:
 
       - name: Run tokei
         run: |
-          echo '```' > tokei_output.txt
-          tokei . >> tokei_output.txt
-          echo '```' >> tokei_output.txt
+          OUTPUT_FILE="$RUNNER_TEMP/tokei_output.txt"
+          echo '```' > "$OUTPUT_FILE"
+          tokei . >> "$OUTPUT_FILE"
+          echo '```' >> "$OUTPUT_FILE"
 
       - name: Update README.md
         run: |
-          awk '
-            /<!-- TOKEI START -->/ { print; system("cat tokei_output.txt"); print "<!-- TOKEI END -->"; skip=1; next }
+          OUTPUT_FILE="$RUNNER_TEMP/tokei_output.txt"
+          awk -v output_file="$OUTPUT_FILE" '
+            /<!-- TOKEI START -->/ { print; system("cat " output_file); print "<!-- TOKEI END -->"; skip=1; next }
             /<!-- TOKEI END -->/ { skip=0; next }
             !skip { print }
           ' README.md > README.md.tmp && mv README.md.tmp README.md
