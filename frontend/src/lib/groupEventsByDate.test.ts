@@ -3,10 +3,10 @@ import {
   groupEventsByDate,
   groupEventsByDateEntries,
 } from './groupEventsByDate'
-import type { Event } from './api'
+import type { EventResponse } from './api'
 
 // Mock event helper
-const createEvent = (partial: Partial<Event>): Event => ({
+const createEvent = (partial: Partial<EventResponse>): EventResponse => ({
   id: '1',
   uid: '1',
   user_id: 'u1',
