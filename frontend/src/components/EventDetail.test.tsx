@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { EventDetail } from './EventDetail'
 import { describe, it, expect, vi } from 'vitest'
 import { Event } from '@/types/event'
@@ -9,6 +10,13 @@ vi.mock('next/navigation', () => ({
     back: mockBack,
   }),
 }))
+
+// Mock ResizeObserver for Radix UI
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 
 const mockEvent: Event = {
   id: '1',
@@ -35,32 +43,49 @@ describe('EventDetail', () => {
     expect(screen.getByText('1h 30m duration')).toBeInTheDocument()
   })
 
-  it('calls onDelete', () => {
+  it('calls onDelete via confirmation dialog', async () => {
+    const user = userEvent.setup()
     const onDelete = vi.fn()
     render(
       <EventDetail event={mockEvent} onDelete={onDelete} onEdit={vi.fn()} />
     )
-    fireEvent.click(screen.getByText('Delete Event'))
+
+    // Click the initial delete button
+    await user.click(screen.getByText('Delete Event'))
+
+    // Check that dialog opens
+    const dialogTitle = await screen.findByRole('heading', {
+      name: 'Delete Event',
+    })
+    expect(dialogTitle).toBeInTheDocument()
+
+    // Click the confirmation button inside the dialog
+    // We target the "Delete" button specifically. Since there might be multiple "Delete" texts
+    // (e.g. if the main button is still visible to screen reader but aria-hidden),
+    // we should be careful. But "Delete Event" != "Delete".
+    // "Delete" is the text of the action button.
+    const deleteButton = screen.getByRole('button', { name: 'Delete' })
+    await user.click(deleteButton)
+
     expect(onDelete).toHaveBeenCalledWith(mockEvent.id)
   })
 
-  it('calls onEdit', () => {
+  it('calls onEdit', async () => {
+    const user = userEvent.setup()
     const onEdit = vi.fn()
     render(<EventDetail event={mockEvent} onDelete={vi.fn()} onEdit={onEdit} />)
-    fireEvent.click(screen.getByText('Edit'))
+    await user.click(screen.getByText('Edit'))
     expect(onEdit).toHaveBeenCalledWith(mockEvent)
   })
 
-  it('navigates back', () => {
+  it('navigates back', async () => {
+    const user = userEvent.setup()
     render(
       <EventDetail event={mockEvent} onDelete={vi.fn()} onEdit={vi.fn()} />
     )
-    // Find back button (it has no text, so maybe by role or test id, but it renders an icon)
-    // The button is the first button in the header.
-    // Let's use getByRole('button') logic or finding the one calling router.back()
-    // It has className "-ml-2 rounded-full..."
-    const buttons = screen.getAllByRole('button')
-    fireEvent.click(buttons[0]) // First button is usually back in the header
+    // Find back button by aria-label
+    const backButton = screen.getByLabelText('Go back')
+    await user.click(backButton)
     expect(mockBack).toHaveBeenCalled()
   })
 })

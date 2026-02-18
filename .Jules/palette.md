@@ -28,3 +28,7 @@ This journal tracks unique UX and accessibility patterns, challenges, and soluti
 ## 2024-05-26 - Missing Utility Classes
 **Learning:** Some components referenced `btn-primary` and `btn-secondary` classes which were not defined in the CSS, leading to unstyled buttons. This highlights the risk of relying on utility classes without verifying their existence.
 **Action:** Always verify custom utility classes exist or use standard Tailwind classes directly in the component to ensure styles are applied correctly.
+
+## 2024-05-24 - Testing Radix UI Dialogs with Dynamic Content
+**Learning:** `screen.findByText` can fail when matching text inside a Dialog if the text is split across multiple elements or lines by React rendering (e.g., mixing string literals and variables).
+**Action:** Use `screen.findByRole` with accessible names (e.g., `heading` for titles) or flexible text matchers (functions or regex) to reliably find elements in complex component structures.

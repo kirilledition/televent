@@ -2,6 +2,17 @@
 import { Event } from '@/types/event'
 import { Trash2, MapPin, Clock, ArrowLeft, AlignLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 
 interface EventDetailProps {
   event: Event
@@ -42,6 +53,8 @@ export function EventDetail({ event, onDelete, onEdit }: EventDetailProps) {
           onClick={() => router.back()}
           className="-ml-2 rounded-full p-2 transition-colors hover:bg-[var(--ctp-surface0)]"
           style={{ color: 'var(--ctp-text)' }}
+          aria-label="Go back"
+          title="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
@@ -120,17 +133,58 @@ export function EventDetail({ event, onDelete, onEdit }: EventDetailProps) {
         )}
 
         {/* Delete Button */}
-        <button
-          onClick={() => onDelete(event.id)}
-          className="mt-8 flex w-full items-center justify-center gap-2 rounded-lg py-3 font-medium transition-opacity hover:opacity-90"
-          style={{
-            backgroundColor: 'var(--ctp-surface0)',
-            color: 'var(--ctp-red)',
-          }}
-        >
-          <Trash2 className="h-5 w-5" />
-          <span>Delete Event</span>
-        </button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <button
+              className="mt-8 flex w-full items-center justify-center gap-2 rounded-lg py-3 font-medium transition-opacity hover:opacity-90"
+              style={{
+                backgroundColor: 'var(--ctp-surface0)',
+                color: 'var(--ctp-red)',
+              }}
+            >
+              <Trash2 className="h-5 w-5" />
+              <span>Delete Event</span>
+            </button>
+          </AlertDialogTrigger>
+          <AlertDialogContent
+            onClick={(e) => e.stopPropagation()}
+            className="border-none shadow-xl"
+            style={{
+              backgroundColor: 'var(--ctp-base)',
+              color: 'var(--ctp-text)',
+            }}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle style={{ color: 'var(--ctp-text)' }}>
+                Delete Event
+              </AlertDialogTitle>
+              <AlertDialogDescription style={{ color: 'var(--ctp-subtext0)' }}>
+                Are you sure you want to delete &quot;{event.title}&quot;? This
+                action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                style={{
+                  backgroundColor: 'var(--ctp-surface0)',
+                  color: 'var(--ctp-text)',
+                  borderColor: 'transparent',
+                }}
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => onDelete(event.id)}
+                style={{
+                  backgroundColor: 'var(--ctp-red)',
+                  color: 'var(--ctp-base)',
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   )
