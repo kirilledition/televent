@@ -16,7 +16,9 @@ export function mapApiEventToUiEvent(apiEvent: EventResponse): UiEvent {
   const hasStart = apiEvent.start != null
   const hasEnd = apiEvent.end != null
 
-  const startDate = hasStart ? new Date(apiEvent.start as unknown as string) : null
+  const startDate = hasStart
+    ? new Date(apiEvent.start as unknown as string)
+    : null
   const endDate = hasEnd ? new Date(apiEvent.end as unknown as string) : null
 
   const date = startDate ? format(startDate, 'yyyy-MM-dd') : ''

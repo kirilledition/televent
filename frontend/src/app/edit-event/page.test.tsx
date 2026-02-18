@@ -93,7 +93,6 @@ describe('EditEventPage', () => {
     ;(useSearchParams as any).mockReturnValue({
       get: (key: string) => (key === 'id' ? '1' : null),
     }) // Added semicolon
-
     ;(api.getEvent as any).mockRejectedValue(new Error('Failed to fetch'))
 
     render(

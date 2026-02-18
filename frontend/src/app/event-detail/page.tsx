@@ -13,7 +13,11 @@ function EventDetailContent() {
   const id = searchParams.get('id')
   const router = useRouter()
 
-  const { data: eventData, isLoading, error } = useQuery({
+  const {
+    data: eventData,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['events', id],
     queryFn: () => (id ? api.getEvent(id) : Promise.reject('No ID')),
     enabled: !!id,

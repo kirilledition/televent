@@ -24,3 +24,7 @@ This journal tracks unique UX and accessibility patterns, challenges, and soluti
 ## 2024-05-25 - React Portals Event Bubbling
 **Learning:** Events from elements inside a React Portal (like `AlertDialogContent`) bubble up to their *React* parent (the component that rendered the Portal), not just their DOM parent. This means clicking inside a modal could trigger click handlers on the component that opened it (e.g. an `EventItem` row).
 **Action:** Always add `e.stopPropagation()` to the content container of a Portal-based component if it's rendered inside another interactive element.
+
+## 2024-05-26 - Missing Utility Classes
+**Learning:** Some components referenced `btn-primary` and `btn-secondary` classes which were not defined in the CSS, leading to unstyled buttons. This highlights the risk of relying on utility classes without verifying their existence.
+**Action:** Always verify custom utility classes exist or use standard Tailwind classes directly in the component to ensure styles are applied correctly.
