@@ -305,7 +305,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
         </button>
         <button
           type="submit"
-          className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--ctp-mauve)] px-4 py-2 font-medium text-[var(--ctp-crust)] shadow-sm transition-all hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--ctp-mauve)] px-4 py-2 font-medium text-[var(--ctp-crust)] shadow-sm transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           disabled={createMutation.isPending || updateMutation.isPending}
         >
           {createMutation.isPending || updateMutation.isPending ? (
