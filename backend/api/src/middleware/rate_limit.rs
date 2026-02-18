@@ -36,15 +36,7 @@ impl KeyExtractor for UserOrIpKeyExtractor {
 
         let headers = req.headers();
 
-        // 1. Try X-Real-IP (trusted proxy set header)
-        if let Some(header) = headers.get("x-real-ip")
-            && let Ok(val) = header.to_str()
-            && let Ok(ip) = val.trim().parse::<IpAddr>()
-        {
-            return Ok(RateLimitKey::Ip(ip));
-        }
-
-        // 2. Try X-Forwarded-For (standard for proxies like Nginx/Railway)
+        // 1. Try X-Forwarded-For (standard for proxies like Nginx/Railway)
         if let Some(header) = headers.get("x-forwarded-for")
             && let Ok(val) = header.to_str()
         {
@@ -59,6 +51,14 @@ impl KeyExtractor for UserOrIpKeyExtractor {
             {
                 return Ok(RateLimitKey::Ip(ip));
             }
+        }
+
+        // 2. Try X-Real-IP (trusted proxy set header)
+        if let Some(header) = headers.get("x-real-ip")
+            && let Ok(val) = header.to_str()
+            && let Ok(ip) = val.trim().parse::<IpAddr>()
+        {
+            return Ok(RateLimitKey::Ip(ip));
         }
 
         // 3. Fallback to direct connection IP
@@ -167,7 +167,7 @@ mod tests {
     async fn test_rate_limit_key_extraction_priority() {
         let extractor = UserOrIpKeyExtractor;
 
-        // Test priority: X-Real-IP > X-Forwarded-For
+        // Test priority: X-Forwarded-For > X-Real-IP
         let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
         let mut req = Request::new(Body::empty());
         req.extensions_mut().insert(ConnectInfo(addr));
@@ -179,8 +179,8 @@ mod tests {
 
         let key = extractor.extract(&req).unwrap();
 
-        // Should return X-Real-IP
-        assert_eq!(key, RateLimitKey::Ip("5.6.7.8".parse().unwrap()));
+        // Should return X-Forwarded-For
+        assert_eq!(key, RateLimitKey::Ip("1.2.3.4".parse().unwrap()));
     }
 }
 
