@@ -152,5 +152,5 @@ async fn test_api_events_flow() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::CREATED);
 }
