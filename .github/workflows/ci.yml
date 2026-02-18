@@ -49,6 +49,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -70,6 +73,13 @@ jobs:
         working-directory: backend
         run: sqlx migrate run
 
-      - name: Run Tests
+      - name: Generate code coverage
         working-directory: backend
-        run: cargo test --workspace
+        run: cargo llvm-cov --workspace --codecov --output-path codecov.json
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: backend/codecov.json
+          fail_ci_if_error: true
