@@ -49,6 +49,13 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
         HeaderValue::from_static("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-ancestors https://web.telegram.org https://*.telegram.org; img-src 'self' data: https:; connect-src 'self';"),
     );
 
+    // Permissions Policy
+    // Disables powerful browser features that are not needed
+    headers.insert(
+        "Permissions-Policy",
+        HeaderValue::from_static("accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"),
+    );
+
     response
 }
 
@@ -84,6 +91,10 @@ mod tests {
         assert_eq!(
             headers.get("Content-Security-Policy").unwrap(),
             "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-ancestors https://web.telegram.org https://*.telegram.org; img-src 'self' data: https:; connect-src 'self';"
+        );
+        assert_eq!(
+            headers.get("Permissions-Policy").unwrap(),
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
         );
     }
 }
