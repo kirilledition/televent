@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { EventItem } from './EventItem'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Event } from '@/types/event'
@@ -12,13 +13,20 @@ const mockEvent: Event = {
   location: 'Office',
 }
 
+// Mock ResizeObserver for Radix UI
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 describe('EventItem', () => {
   const onDelete = vi.fn()
   const onEdit = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.spyOn(window, 'confirm').mockImplementation(() => true)
+    // window.confirm is no longer used, but if mocked, it shouldn't be called.
   })
 
   it('renders event details', () => {
@@ -29,33 +37,47 @@ describe('EventItem', () => {
     expect(screen.getByText('Office')).toBeInTheDocument()
   })
 
-  it('calls onEdit when clicked', () => {
+  it('calls onEdit when clicked', async () => {
+    const user = userEvent.setup()
     render(<EventItem event={mockEvent} onDelete={onDelete} onEdit={onEdit} />)
-    fireEvent.click(screen.getByText('Test Event'))
+    await user.click(screen.getByText('Test Event'))
     expect(onEdit).toHaveBeenCalledWith(mockEvent)
   })
 
-  it('calls onEdit when Enter key is pressed', () => {
+  it('calls onEdit when Enter key is pressed', async () => {
+    const user = userEvent.setup()
     render(<EventItem event={mockEvent} onDelete={onDelete} onEdit={onEdit} />)
     const element = screen.getByRole('button', { name: /Edit event/i })
-    fireEvent.keyDown(element, { key: 'Enter' })
+    element.focus()
+    await user.keyboard('{Enter}')
     expect(onEdit).toHaveBeenCalledWith(mockEvent)
   })
 
-  it('calls onDelete when delete button is clicked and confirmed', () => {
+  it('calls onDelete when delete button is clicked and confirmed via dialog', async () => {
+    const user = userEvent.setup()
     render(<EventItem event={mockEvent} onDelete={onDelete} onEdit={onEdit} />)
+
     const deleteBtn = screen.getByRole('button', { name: /Delete event/i })
-    fireEvent.click(deleteBtn)
-    expect(window.confirm).toHaveBeenCalled()
+    await user.click(deleteBtn)
+
+    // Dialog should open
+    const confirmBtn = await screen.findByRole('button', { name: 'Delete' })
+    await user.click(confirmBtn)
+
     expect(onDelete).toHaveBeenCalledWith(mockEvent.id)
   })
 
-  it('does not call onDelete when delete is cancelled', () => {
-    vi.spyOn(window, 'confirm').mockImplementation(() => false)
+  it('does not call onDelete when delete is cancelled via dialog', async () => {
+    const user = userEvent.setup()
     render(<EventItem event={mockEvent} onDelete={onDelete} onEdit={onEdit} />)
+
     const deleteBtn = screen.getByRole('button', { name: /Delete event/i })
-    fireEvent.click(deleteBtn)
-    expect(window.confirm).toHaveBeenCalled()
+    await user.click(deleteBtn)
+
+    // Dialog should open
+    const cancelBtn = await screen.findByRole('button', { name: 'Cancel' })
+    await user.click(cancelBtn)
+
     expect(onDelete).not.toHaveBeenCalled()
   })
 })

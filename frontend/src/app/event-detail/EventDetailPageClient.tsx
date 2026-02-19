@@ -19,9 +19,7 @@ export default function EventDetailPageClient({ event }: { event: Event }) {
   })
 
   const handleDelete = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this event?')) {
-      deleteMutation.mutate(id)
-    }
+    deleteMutation.mutate(id)
   }
 
   const handleEdit = (event: Event) => {
