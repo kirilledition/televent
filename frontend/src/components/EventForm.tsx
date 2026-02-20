@@ -129,10 +129,25 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
     }
   }
 
+  const inputStyles = {
+    backgroundColor: 'var(--ctp-surface0)',
+    color: 'var(--ctp-text)',
+    borderColor: 'var(--ctp-surface1)',
+  }
+
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       {error && (
-        <div className="bg-red/20 text-red border-red rounded-lg border p-3 text-sm">
+        <div
+          className="rounded-lg border p-3 text-sm"
+          role="alert"
+          aria-live="polite"
+          style={{
+            backgroundColor: 'rgba(210, 15, 57, 0.1)',
+            color: 'var(--ctp-red)',
+            borderColor: 'var(--ctp-red)',
+          }}
+        >
           {error}
         </div>
       )}
@@ -140,9 +155,10 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
       <div>
         <label
           htmlFor="summary"
-          className="text-muted mb-1.5 block text-sm font-medium"
+          className="mb-1.5 block text-sm font-medium"
+          style={{ color: 'var(--ctp-subtext0)' }}
         >
-          Title <span className="text-red">*</span>
+          Title <span style={{ color: 'var(--ctp-red)' }}>*</span>
         </label>
         <input
           id="summary"
@@ -153,7 +169,8 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           }
           placeholder="Event title"
           required
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="w-full rounded-lg border p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)]"
+          style={inputStyles}
         />
       </div>
 
@@ -161,9 +178,10 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
         <div>
           <label
             htmlFor="start"
-            className="text-muted mb-1.5 block text-sm font-medium"
+            className="mb-1.5 block text-sm font-medium"
+            style={{ color: 'var(--ctp-subtext0)' }}
           >
-            Start <span className="text-red">*</span>
+            Start <span style={{ color: 'var(--ctp-red)' }}>*</span>
           </label>
           <input
             id="start"
@@ -173,14 +191,16 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
               setFormData({ ...formData, start: e.target.value })
             }
             required
-            className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+            className="w-full rounded-lg border p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)]"
+            style={inputStyles}
           />
         </div>
 
         <div>
           <label
             htmlFor="duration"
-            className="text-muted mb-1.5 block text-sm font-medium"
+            className="mb-1.5 block text-sm font-medium"
+            style={{ color: 'var(--ctp-subtext0)' }}
           >
             Duration (min)
           </label>
@@ -190,7 +210,8 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
             onChange={(e) =>
               setFormData({ ...formData, duration: Number(e.target.value) })
             }
-            className="bg-surface text-text border-border focus:border-primary w-full appearance-none rounded-lg p-3 transition-colors outline-none"
+            className="w-full appearance-none rounded-lg border p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)]"
+            style={inputStyles}
           >
             <optgroup label="Minutes">
               {durationOptions
@@ -242,7 +263,8 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
       <div>
         <label
           htmlFor="description"
-          className="text-muted mb-1.5 block text-sm font-medium"
+          className="mb-1.5 block text-sm font-medium"
+          style={{ color: 'var(--ctp-subtext0)' }}
         >
           Description
         </label>
@@ -254,14 +276,16 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           }
           placeholder="Details..."
           rows={3}
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="w-full rounded-lg border p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)]"
+          style={inputStyles}
         />
       </div>
 
       <div>
         <label
           htmlFor="location"
-          className="text-muted mb-1.5 block text-sm font-medium"
+          className="mb-1.5 block text-sm font-medium"
+          style={{ color: 'var(--ctp-subtext0)' }}
         >
           Location
         </label>
@@ -273,7 +297,8 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
             setFormData({ ...formData, location: e.target.value })
           }
           placeholder="Where?"
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="w-full rounded-lg border p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)]"
+          style={inputStyles}
         />
       </div>
 
@@ -285,11 +310,17 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           onChange={(e) =>
             setFormData({ ...formData, is_all_day: e.target.checked })
           }
-          className="border-border text-primary focus:ring-primary bg-surface h-5 w-5 rounded"
+          className="h-5 w-5 rounded outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)]"
+          style={{
+            accentColor: 'var(--ctp-mauve)',
+            backgroundColor: 'var(--ctp-surface0)',
+            borderColor: 'var(--ctp-surface1)',
+          }}
         />
         <label
           htmlFor="all_day"
-          className="text-text text-sm font-medium select-none"
+          className="text-sm font-medium select-none"
+          style={{ color: 'var(--ctp-text)' }}
         >
           All Day Event
         </label>
