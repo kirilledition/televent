@@ -206,44 +206,92 @@ impl<'a> FoldedWriter<'a> {
 
         // Length of property name + separator
         let mut current_line_len = name.len() + 1;
+        let mut remaining = value;
 
-        for c in value.chars() {
-            // Strip CR to prevent CRLF injection in all cases
-            if c == '\r' {
+        while !remaining.is_empty() {
+            // Calculate how much we can fit on this line
+            let space_left = 75usize.saturating_sub(current_line_len);
+
+            if space_left == 0 {
+                // Line full, fold
+                self.buf.push_str("\r\n ");
+                current_line_len = 1;
                 continue;
             }
 
-            // Escape special characters: \ ; , \n
-            let replacement = if escape {
-                match c {
-                    '\\' => Some("\\\\"),
-                    ';' => Some("\\;"),
-                    ',' => Some("\\,"),
-                    '\n' => Some("\\n"),
-                    _ => None,
+            // Find candidate slice that fits in space_left respecting char boundaries
+            let limit = if remaining.len() > space_left {
+                let mut l = space_left;
+                while !remaining.is_char_boundary(l) {
+                    l -= 1;
                 }
+                l
             } else {
-                None
+                remaining.len()
             };
 
-            if let Some(s) = replacement {
-                for rc in s.chars() {
-                    let len = rc.len_utf8();
-                    if current_line_len + len > 75 {
-                        self.buf.push_str("\r\n "); // Fold: CRLF + space
-                        current_line_len = 1;
-                    }
-                    self.buf.push(rc);
-                    current_line_len += len;
+            // If limit is 0 (can happen if space_left is small and next char is multi-byte),
+            // we must fold.
+            if limit == 0 {
+                self.buf.push_str("\r\n ");
+                current_line_len = 1;
+                continue;
+            }
+
+            let candidate = &remaining[..limit];
+
+            // Search for special chars in candidate
+            // Use bytes search for speed (valid because special chars are ASCII)
+            let special_pos = if escape {
+                candidate
+                    .as_bytes()
+                    .iter()
+                    .position(|&b| matches!(b, b'\\' | b';' | b',' | b'\n' | b'\r'))
+            } else {
+                candidate.as_bytes().iter().position(|&b| b == b'\r')
+            };
+
+            if let Some(pos) = special_pos {
+                // We found a special char at `pos`
+                // Write everything before it
+                self.buf.push_str(&candidate[..pos]);
+                current_line_len += pos;
+
+                // Handle the special char
+                let special_byte = candidate.as_bytes()[pos];
+
+                // Advance remaining past the special char (1 byte)
+                remaining = &remaining[pos + 1..];
+
+                if special_byte == b'\r' {
+                    // Skip CR
+                    continue;
+                }
+
+                // Get replacement
+                let replacement = match special_byte {
+                    b'\\' => "\\\\",
+                    b';' => "\\;",
+                    b',' => "\\,",
+                    b'\n' => "\\n",
+                    _ => unreachable!(),
+                };
+
+                // Check if replacement fits
+                if current_line_len + replacement.len() <= 75 {
+                    self.buf.push_str(replacement);
+                    current_line_len += replacement.len();
+                } else {
+                    // Won't fit. Fold first.
+                    self.buf.push_str("\r\n ");
+                    self.buf.push_str(replacement);
+                    current_line_len = 1 + replacement.len();
                 }
             } else {
-                let len = c.len_utf8();
-                if current_line_len + len > 75 {
-                    self.buf.push_str("\r\n "); // Fold: CRLF + space
-                    current_line_len = 1;
-                }
-                self.buf.push(c);
-                current_line_len += len;
+                // No special chars in candidate.
+                self.buf.push_str(candidate);
+                current_line_len += limit;
+                remaining = &remaining[limit..];
             }
         }
         self.buf.push_str("\r\n");
@@ -852,4 +900,31 @@ END:VCALENDAR"#;
         assert_eq!(summary, "BadSummary");
     }
 
+    #[test]
+    #[ignore]
+    fn test_benchmark_event_to_ical() {
+        let count = 10_000;
+        let mut event = create_test_event();
+        // Make summary long to trigger folding and escaping
+        event.summary = "This is a very long summary with some special characters like backslash \\, semicolon ;, and comma , which should be escaped and folded appropriately.".repeat(5);
+        // Add description with newlines
+        event.description = Some("Line 1\nLine 2\nLine 3".repeat(10));
+
+        let attendees = vec![];
+        let mut buf = String::with_capacity(1024 * count);
+
+        let start = std::time::Instant::now();
+        for _ in 0..count {
+            buf.clear();
+            event_to_ical_into(&event, &attendees, &mut buf).unwrap();
+        }
+        let duration = start.elapsed();
+
+        println!(
+            "Benchmark event_to_ical (N={}): {:?} ({:.2} µs/op)",
+            count,
+            duration,
+            duration.as_micros() as f64 / count as f64
+        );
+    }
 }
