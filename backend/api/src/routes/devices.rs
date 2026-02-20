@@ -12,6 +12,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use televent_core::models::UserId;
+use televent_core::validation::validate_no_control_chars;
 use typeshare::typeshare;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -48,6 +49,9 @@ impl CreateDeviceRequest {
                 MAX_DEVICE_NAME_LENGTH
             )));
         }
+
+        validate_no_control_chars("Device name", &self.name).map_err(ApiError::BadRequest)?;
+
         Ok(())
     }
 }
@@ -327,5 +331,26 @@ mod tests {
             name: "a".repeat(MAX_DEVICE_NAME_LENGTH),
         };
         assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn test_create_device_request_validation_control_chars() {
+        // Newline not allowed
+        let req = CreateDeviceRequest {
+            name: "My\nDevice".to_string(),
+        };
+        assert!(req.validate().is_err());
+
+        // Tab allowed
+        let req = CreateDeviceRequest {
+            name: "My\tDevice".to_string(),
+        };
+        assert!(req.validate().is_ok());
+
+        // Null char not allowed
+        let req = CreateDeviceRequest {
+            name: "My\0Device".to_string(),
+        };
+        assert!(req.validate().is_err());
     }
 }
