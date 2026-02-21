@@ -242,21 +242,39 @@ pub async fn list_events_since_sync(
     pool: &PgPool,
     user_id: UserId,
     sync_token: i64,
+    limit: Option<i64>,
 ) -> Result<Vec<Event>, ApiError> {
     // We use the user's sync_token as a version number
     // Events with version > sync_token have been modified since
-    let events = sqlx::query_as::<_, Event>(
-        r#"
-        SELECT * FROM events
-        WHERE user_id = $1
-        AND version > $2
-        ORDER BY version ASC
-        "#,
-    )
-    .bind(user_id)
-    .bind(sync_token as i32)
-    .fetch_all(pool)
-    .await?;
+    let events = if let Some(limit_val) = limit {
+        sqlx::query_as::<_, Event>(
+            r#"
+            SELECT * FROM events
+            WHERE user_id = $1
+            AND version > $2
+            ORDER BY version ASC
+            LIMIT $3
+            "#,
+        )
+        .bind(user_id)
+        .bind(sync_token as i32)
+        .bind(limit_val)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, Event>(
+            r#"
+            SELECT * FROM events
+            WHERE user_id = $1
+            AND version > $2
+            ORDER BY version ASC
+            "#,
+        )
+        .bind(user_id)
+        .bind(sync_token as i32)
+        .fetch_all(pool)
+        .await?
+    };
 
     Ok(events)
 }
