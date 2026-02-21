@@ -14,3 +14,7 @@
 ## 2025-02-24 - [Avoid Intermediate String Allocations for Date Formatting]
 **Learning:** `chrono::DateTime::format(...).to_string()` allocates a new String. In hot loops (like iCalendar generation), this adds significant overhead.
 **Action:** Use `write!(buf, "{}", date.format(...))` to write directly to the destination buffer, bypassing the intermediate allocation. For known safe fields (short, no escaping needed), skipping general-purpose folding logic also yields gains (~22% speedup).
+
+## 2025-02-25 - [Unstable React Query Mutation Objects]
+**Learning:** TanStack Query v5 `useMutation` returns an object that is not referentially stable across renders. Using the full mutation object in `useCallback` or `useMemo` dependency arrays causes unnecessary re-renders of dependent components.
+**Action:** Always destructure the stable `mutate` function from the hook result and use that as the dependency instead of the entire mutation object.
