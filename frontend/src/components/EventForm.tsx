@@ -9,7 +9,7 @@ import {
   UpdateEventRequest,
   EventResponse,
 } from '@/lib/api'
-import { Loader2 } from 'lucide-react'
+import { Loader2, ChevronDown } from 'lucide-react'
 import {
   addMinutes,
   format,
@@ -153,7 +153,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           }
           placeholder="Event title"
           required
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="w-full rounded-lg border border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] p-3 text-[var(--ctp-text)] transition-colors placeholder:text-[var(--ctp-overlay1)] focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none"
         />
       </div>
 
@@ -173,7 +173,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
               setFormData({ ...formData, start: e.target.value })
             }
             required
-            className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+            className="w-full rounded-lg border border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] p-3 text-[var(--ctp-text)] transition-colors focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none"
           />
         </div>
 
@@ -184,34 +184,37 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           >
             Duration (min)
           </label>
-          <select
-            id="duration"
-            value={formData.duration}
-            onChange={(e) =>
-              setFormData({ ...formData, duration: Number(e.target.value) })
-            }
-            className="bg-surface text-text border-border focus:border-primary w-full appearance-none rounded-lg p-3 transition-colors outline-none"
-          >
-            <optgroup label="Minutes">
-              {durationOptions
-                .filter((m) => m < 60)
-                .map((mins) => (
-                  <option key={mins} value={mins}>
-                    {mins} min
-                  </option>
-                ))}
-            </optgroup>
-            <optgroup label="Hours">
-              {durationOptions
-                .filter((m) => m >= 60)
-                .map((mins) => (
-                  <option key={mins} value={mins}>
-                    {mins} min ({Math.floor(mins / 60)}h
-                    {mins % 60 > 0 ? ` ${mins % 60}m` : ''})
-                  </option>
-                ))}
-            </optgroup>
-          </select>
+          <div className="relative">
+            <select
+              id="duration"
+              value={formData.duration}
+              onChange={(e) =>
+                setFormData({ ...formData, duration: Number(e.target.value) })
+              }
+              className="w-full appearance-none rounded-lg border border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] p-3 text-[var(--ctp-text)] transition-colors focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none"
+            >
+              <optgroup label="Minutes">
+                {durationOptions
+                  .filter((m) => m < 60)
+                  .map((mins) => (
+                    <option key={mins} value={mins}>
+                      {mins} min
+                    </option>
+                  ))}
+              </optgroup>
+              <optgroup label="Hours">
+                {durationOptions
+                  .filter((m) => m >= 60)
+                  .map((mins) => (
+                    <option key={mins} value={mins}>
+                      {mins} min ({Math.floor(mins / 60)}h
+                      {mins % 60 > 0 ? ` ${mins % 60}m` : ''})
+                    </option>
+                  ))}
+              </optgroup>
+            </select>
+            <ChevronDown className="pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-[var(--ctp-subtext0)]" />
+          </div>
           <div className="mt-2 flex gap-2">
             {[15, 30, 45, 60].map((mins) => (
               <button
@@ -254,7 +257,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           }
           placeholder="Details..."
           rows={3}
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="w-full rounded-lg border border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] p-3 text-[var(--ctp-text)] transition-colors placeholder:text-[var(--ctp-overlay1)] focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none"
         />
       </div>
 
@@ -273,7 +276,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
             setFormData({ ...formData, location: e.target.value })
           }
           placeholder="Where?"
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="w-full rounded-lg border border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] p-3 text-[var(--ctp-text)] transition-colors placeholder:text-[var(--ctp-overlay1)] focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none"
         />
       </div>
 
@@ -285,7 +288,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           onChange={(e) =>
             setFormData({ ...formData, is_all_day: e.target.checked })
           }
-          className="border-border text-primary focus:ring-primary bg-surface h-5 w-5 rounded"
+          className="h-5 w-5 rounded border border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] text-[var(--ctp-mauve)] focus:ring-[var(--ctp-mauve)]"
         />
         <label
           htmlFor="all_day"
