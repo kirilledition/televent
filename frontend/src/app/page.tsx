@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { EventList } from '../components/EventList'
 import { api } from '@/lib/api'
@@ -22,7 +22,7 @@ export default function CalendarPage() {
     queryFn: () => api.getEvents(),
   })
 
-  const deleteMutation = useMutation({
+  const { mutate: deleteEvent } = useMutation({
     mutationFn: (id: string) => api.deleteEvent(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -31,9 +31,10 @@ export default function CalendarPage() {
 
   const handleDeleteEvent = useCallback(
     (id: string) => {
-      deleteMutation.mutate(id)
+      deleteEvent(id)
     },
-    [deleteMutation]
+    // optimization: use destructured mutate function (stable) to prevent unnecessary re-renders
+    [deleteEvent]
   )
 
   const handleEditEvent = useCallback(
@@ -43,7 +44,10 @@ export default function CalendarPage() {
     [router]
   )
 
-  const events = eventsData ? eventsData.map(mapApiEventToUiEvent) : []
+  // optimization: memoize mapped events to prevent re-renders when data hasn't changed
+  const events = useMemo(() => {
+    return eventsData ? eventsData.map(mapApiEventToUiEvent) : []
+  }, [eventsData])
 
   if (isLoading) {
     return (
