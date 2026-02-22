@@ -99,8 +99,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
     onError: (err: Error) => setError(err.message),
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const submitForm = () => {
     if (!formData.summary) {
       setError('Summary is required')
       return
@@ -129,8 +128,25 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
     }
   }
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    submitForm()
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Submit on Ctrl+Enter or Cmd+Enter
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault()
+      submitForm()
+    }
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+    <form
+      onSubmit={handleSubmit}
+      onKeyDown={handleKeyDown}
+      className="flex flex-col gap-5"
+    >
       {error && (
         <div className="bg-red/20 text-red border-red rounded-lg border p-3 text-sm">
           {error}
@@ -153,6 +169,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           }
           placeholder="Event title"
           required
+          autoFocus
           className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
         />
       </div>
@@ -307,6 +324,8 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           type="submit"
           className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--ctp-mauve)] px-4 py-2 font-medium text-[var(--ctp-crust)] shadow-sm transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           disabled={createMutation.isPending || updateMutation.isPending}
+          title="Save (Ctrl+Enter)"
+          aria-keyshortcuts="Control+Enter"
         >
           {createMutation.isPending || updateMutation.isPending ? (
             <>

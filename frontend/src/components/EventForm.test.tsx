@@ -59,6 +59,8 @@ describe('EventForm', () => {
 
     expect(screen.getByLabelText(/Title/i)).toBeInTheDocument()
     expect(screen.getByText('Create Event')).toBeInTheDocument()
+    // Verify autoFocus
+    expect(screen.getByLabelText(/Title/i)).toHaveFocus()
   })
 
   it('submits new event', async () => {
@@ -124,6 +126,32 @@ describe('EventForm', () => {
         '1',
         expect.objectContaining({
           summary: 'Updated Event',
+        })
+      )
+    })
+  })
+
+  it('submits on Ctrl+Enter', async () => {
+    ;(api.createEvent as any).mockResolvedValue({})
+
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <EventForm />
+      </QueryClientProvider>
+    )
+
+    fireEvent.change(screen.getByLabelText(/Title/i), {
+      target: { value: 'Keyboard Shortcut Event' },
+    })
+
+    // Simulate Ctrl+Enter on the form
+    const form = screen.getByLabelText(/Title/i).closest('form')!
+    fireEvent.keyDown(form, { key: 'Enter', ctrlKey: true })
+
+    await waitFor(() => {
+      expect(api.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          summary: 'Keyboard Shortcut Event',
         })
       )
     })
