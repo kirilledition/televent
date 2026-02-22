@@ -138,6 +138,9 @@ async fn caldav_get_event(
 /// Maximum allowed body size for CalDAV requests (1 MB)
 const MAX_CALDAV_BODY_SIZE: usize = 1024 * 1024;
 
+/// Maximum number of events to return in a REPORT
+const MAX_CALDAV_EVENTS_LIMIT: i64 = 1000;
+
 /// Maximum number of hrefs allowed in a calendar-multiget report
 const MAX_MULTIGET_HREFS: usize = 200;
 
@@ -398,7 +401,15 @@ async fn caldav_report(
     match report_type {
         caldav_xml::ReportType::CalendarQuery { start, end } => {
             // Query events with optional time range
-            let events = db::events::list_events(&pool, user.id, start, end, None, None).await?;
+            let events = db::events::list_events(
+                &pool,
+                user.id,
+                start,
+                end,
+                Some(MAX_CALDAV_EVENTS_LIMIT),
+                None,
+            )
+            .await?;
 
             tracing::info!(
                 "CalendarQuery: returning {} events (range: {:?} to {:?})",
@@ -437,22 +448,42 @@ async fn caldav_report(
             );
 
             // Get events modified since last sync
-            // For now, if sync_token is 0 or missing, return all events
-            let events = if last_sync_token == 0 {
-                db::events::list_events(&pool, user.id, None, None, None, None).await?
+            // We always use list_events_since_sync (even for initial sync) to ensure
+            // consistent ordering by version, which is required for pagination.
+            let events = db::events::list_events_since_sync(
+                &pool,
+                user.id,
+                last_sync_token,
+                Some(MAX_CALDAV_EVENTS_LIMIT),
+            )
+            .await?;
+
+            // Determine if we truncated the results
+            let current_sync_token = if events.len() as i64 == MAX_CALDAV_EVENTS_LIMIT {
+                // Truncated: use the last event's version as the new token
+                // This allows the client to fetch the next page in the next request
+                if let Some(last) = events.last() {
+                    last.version.to_string()
+                } else {
+                    user.sync_token.clone()
+                }
             } else {
-                db::events::list_events_since_sync(&pool, user.id, last_sync_token).await?
+                // Complete: use the user's global sync token
+                user.sync_token.clone()
             };
 
             tracing::info!(
-                "SyncCollection: returning {} events, user sync_token={}",
+                "SyncCollection: returning {} events, response_token={}",
                 events.len(),
-                user.sync_token
+                current_sync_token
             );
 
-            // Fetch deleted events
-            let response_xml =
-                caldav_xml::generate_sync_collection_response(&user_identifier, &user, &events)?;
+            // Generate XML response
+            let response_xml = caldav_xml::generate_sync_collection_response(
+                &user_identifier,
+                &events,
+                &current_sync_token,
+            )?;
 
             // Log the actual XML response for debugging
             if !events.is_empty() {

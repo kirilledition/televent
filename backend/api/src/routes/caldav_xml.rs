@@ -215,8 +215,8 @@ pub fn generate_calendar_query_response(
 /// Generate CalDAV multistatus response for REPORT sync-collection
 pub fn generate_sync_collection_response(
     user_identifier: &str,
-    user: &User,
     events: &[CalEvent],
+    sync_token: &str,
 ) -> Result<String, ApiError> {
     // Pre-allocate buffer: ~512 bytes per event to minimize reallocations
     let capacity = events.len() * 512 + 1024;
@@ -253,7 +253,7 @@ pub fn generate_sync_collection_response(
         write!(
             sync_token_buf,
             "http://televent.app/sync/{}",
-            user.sync_token
+            sync_token
         )
         .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
         writer
@@ -864,7 +864,7 @@ mod tests {
         event.etag = "new-etag".to_string();
         event.summary = "Updated Event".to_string();
 
-        let xml = generate_sync_collection_response("testuser", &user, &[event]).unwrap();
+        let xml = generate_sync_collection_response("testuser", &[event], "55").unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -878,10 +878,10 @@ mod tests {
 
     #[test]
     fn test_generate_sync_collection_response_empty() {
-        let mut user = test_user();
-        user.sync_token = "100".to_string();
+        let mut _user = test_user();
+        _user.sync_token = "100".to_string();
 
-        let xml = generate_sync_collection_response("testuser", &user, &[]).unwrap();
+        let xml = generate_sync_collection_response("testuser", &[], "100").unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
