@@ -15,6 +15,17 @@ import {
 import { backButton, hapticFeedback } from '@tma.js/sdk-react'
 import useSWR, { mutate } from 'swr'
 import { api, User, DeviceListItem, DevicePasswordResponse } from '@/lib/api'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 
 export default function DevicesPage() {
   const router = useRouter()
@@ -98,7 +109,6 @@ export default function DevicesPage() {
 
   const handleDelete = async (deviceId: string) => {
     if (!user) return
-    if (!confirm('Revoke this device password?')) return
 
     try {
       await api.deleteDevice(deviceId)
@@ -140,20 +150,60 @@ export default function DevicesPage() {
               key={device.id}
               subhead={new Date(device.created_at).toLocaleDateString()}
               after={
-                <Button
-                  mode="plain"
-                  size="s"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    handleDelete(device.id)
-                  }}
-                  style={{
-                    color: 'var(--ctp-red)',
-                    fontWeight: 600,
-                  }}
-                >
-                  Revoke
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      mode="plain"
+                      size="s"
+                      style={{
+                        color: 'var(--ctp-red)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Revoke
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent
+                    className="border-none shadow-xl"
+                    style={{
+                      backgroundColor: 'var(--ctp-base)',
+                      color: 'var(--ctp-text)',
+                    }}
+                  >
+                    <AlertDialogHeader>
+                      <AlertDialogTitle style={{ color: 'var(--ctp-text)' }}>
+                        Revoke Device Password
+                      </AlertDialogTitle>
+                      <AlertDialogDescription
+                        style={{ color: 'var(--ctp-subtext0)' }}
+                      >
+                        Are you sure you want to revoke the password for &quot;
+                        {device.name}&quot;? This action cannot be undone and
+                        will disconnect any apps using this password.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel
+                        style={{
+                          backgroundColor: 'var(--ctp-surface0)',
+                          color: 'var(--ctp-text)',
+                          borderColor: 'transparent',
+                        }}
+                      >
+                        Cancel
+                      </AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => handleDelete(device.id)}
+                        style={{
+                          backgroundColor: 'var(--ctp-red)',
+                          color: 'var(--ctp-base)',
+                        }}
+                      >
+                        Revoke
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               }
             >
               <Text style={{ color: 'var(--ctp-text)' }}>{device.name}</Text>
