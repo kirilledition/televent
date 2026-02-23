@@ -174,10 +174,20 @@ async fn caldav_put_event(
         .ok_or_else(|| ApiError::BadRequest("Empty calendar".to_string()))?
         .map_err(|e| ApiError::BadRequest(format!("Failed to parse calendar: {}", e)))?;
 
-    let event = calendar
+    let mut event = calendar
         .events
-        .first()
+        .into_iter()
+        .next()
         .ok_or_else(|| ApiError::BadRequest("No event found in calendar".to_string()))?;
+
+    // Separate ATTENDEE properties from the rest because ical_to_event_data consumes the event,
+    // and we need to process attendees separately.
+    let (attendee_props, other_props): (Vec<_>, Vec<_>) = event
+        .properties
+        .into_iter()
+        .partition(|p| p.name == "ATTENDEE");
+
+    event.properties = other_props;
 
     // Extract basic properties using the parsed event
     let (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone) =
@@ -297,10 +307,8 @@ async fn caldav_put_event(
 
     // Process Attendees in bulk
     let mut internal_attendees = std::collections::HashMap::new();
-    for property in &event.properties {
-        if property.name == "ATTENDEE"
-            && let Some(value) = &property.value
-        {
+    for property in attendee_props {
+        if let Some(value) = &property.value {
             // value is usually "mailto:email@example.com"
             let email = value.trim_start_matches("mailto:");
             if let Some(internal_user_id) = attendee::parse_internal_email(email) {

@@ -256,7 +256,7 @@ impl<'a> FoldedWriter<'a> {
 /// Returns (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone)
 #[allow(clippy::type_complexity)]
 pub fn ical_to_event_data(
-    event: &IcalEvent,
+    event: IcalEvent,
 ) -> Result<
     (
         String,
@@ -283,15 +283,15 @@ pub fn ical_to_event_data(
     let mut status = EventStatus::Confirmed;
     let mut timezone = "UTC".to_string();
 
-    for prop in &event.properties {
-        let value = if let Some(ref v) = prop.value {
-            v.as_str()
+    for prop in event.properties {
+        let value = if let Some(v) = prop.value {
+            v
         } else {
             continue;
         };
 
         match prop.name.as_str() {
-            "UID" => uid = Some(value.to_string()),
+            "UID" => uid = Some(value),
             "SUMMARY" => summary = Some(unescape_text(value)),
             "DESCRIPTION" => description = Some(unescape_text(value)),
             "LOCATION" => location = Some(unescape_text(value)),
@@ -310,10 +310,10 @@ pub fn ical_to_event_data(
                         }
                     }
                 }
-                dtstart = Some(value.to_string());
+                dtstart = Some(value);
             }
             "DTEND" => {
-                dtend = Some(value.to_string());
+                dtend = Some(value);
             }
             "RRULE" => {
                 if value.contains('\r') || value.contains('\n') {
@@ -321,7 +321,7 @@ pub fn ical_to_event_data(
                         "RRULE cannot contain control characters".to_string(),
                     ));
                 }
-                rrule = Some(value.to_string());
+                rrule = Some(value);
             }
             "STATUS" => {
                 status = match value.to_uppercase().as_str() {
@@ -365,7 +365,7 @@ pub fn ical_to_event_data(
 }
 
 /// Unescape iCalendar text
-fn unescape_text(s: &str) -> String {
+fn unescape_text(s: String) -> String {
     let bytes = s.as_bytes();
 
     // Fast path: Find first character that needs escaping (\ or \r)
@@ -379,7 +379,7 @@ fn unescape_text(s: &str) -> String {
     }
 
     match first_special {
-        None => s.to_string(),
+        None => s,
         Some(i) => {
             let mut result = String::with_capacity(s.len());
             // Bulk copy safe prefix
@@ -603,7 +603,7 @@ END:VCALENDAR"#;
 
         let event = parse_ics(ical_str);
         let (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone) =
-            ical_to_event_data(&event).unwrap();
+            ical_to_event_data(event).unwrap();
 
         assert_eq!(uid, "test-123");
         assert_eq!(summary, "Test Event");
@@ -627,7 +627,7 @@ END:VEVENT
 END:VCALENDAR"#;
 
         let event = parse_ics(ical_str);
-        let (uid, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(&event).unwrap();
+        let (uid, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(event).unwrap();
 
         assert_eq!(uid, "minimal-event");
         assert_eq!(summary, "Untitled Event"); // Default summary
@@ -646,7 +646,7 @@ END:VEVENT
 END:VCALENDAR"#;
 
         let event = parse_ics(ical_str);
-        let (_, _, _, _, start, end, is_all_day, _, _, _) = ical_to_event_data(&event).unwrap();
+        let (_, _, _, _, start, end, is_all_day, _, _, _) = ical_to_event_data(event).unwrap();
 
         assert!(is_all_day);
         assert_eq!(start.format("%Y%m%d").to_string(), "20240101");
@@ -667,7 +667,7 @@ END:VEVENT
 END:VCALENDAR"#;
 
         let event = parse_ics(ical_str);
-        let (_, _, _, _, _, _, _, rrule, _, _) = ical_to_event_data(&event).unwrap();
+        let (_, _, _, _, _, _, _, rrule, _, _) = ical_to_event_data(event).unwrap();
 
         assert_eq!(rrule, Some("FREQ=WEEKLY;BYDAY=MO".to_string()));
     }
@@ -681,7 +681,7 @@ END:VCALENDAR"#;
         // Parse it back
         let ical_event = parse_ics(&ical_str);
         let (uid, summary, description, location, _, _, _, _, status, _) =
-            ical_to_event_data(&ical_event).unwrap();
+            ical_to_event_data(ical_event).unwrap();
 
         assert_eq!(uid, event.uid);
         assert_eq!(summary, event.summary);
@@ -703,7 +703,7 @@ END:VEVENT
 END:VCALENDAR"#;
 
         let event = parse_ics(ical_str);
-        let (_, _, _, _, _, _, _, _, _, timezone) = ical_to_event_data(&event).unwrap();
+        let (_, _, _, _, _, _, _, _, _, timezone) = ical_to_event_data(event).unwrap();
 
         assert_eq!(timezone, "America/New_York");
     }
@@ -732,7 +732,7 @@ END:VCALENDAR"#;
 
         // Parse it back
         let ical_event = parse_ics(&ical_str);
-        let (_, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(&ical_event).unwrap();
+        let (_, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(ical_event).unwrap();
 
         assert_eq!(summary, event.summary);
     }
@@ -740,24 +740,24 @@ END:VCALENDAR"#;
     #[test]
     fn test_unescape_text_edge_cases() {
         // Simple case
-        assert_eq!(unescape_text("test"), "test");
+        assert_eq!(unescape_text("test".to_string()), "test");
         // Escaped chars
-        assert_eq!(unescape_text("foo\\;bar"), "foo;bar");
-        assert_eq!(unescape_text("foo\\,bar"), "foo,bar");
-        assert_eq!(unescape_text("foo\\nbar"), "foo\nbar");
-        assert_eq!(unescape_text("foo\\\\bar"), "foo\\bar");
+        assert_eq!(unescape_text("foo\\;bar".to_string()), "foo;bar");
+        assert_eq!(unescape_text("foo\\,bar".to_string()), "foo,bar");
+        assert_eq!(unescape_text("foo\\nbar".to_string()), "foo\nbar");
+        assert_eq!(unescape_text("foo\\\\bar".to_string()), "foo\\bar");
         // Mixed
-        assert_eq!(unescape_text("a\\;b\\,c\\nd\\\\e"), "a;b,c\nd\\e");
+        assert_eq!(unescape_text("a\\;b\\,c\\nd\\\\e".to_string()), "a;b,c\nd\\e");
         // Malformed escape (trailing backslash)
-        assert_eq!(unescape_text("foo\\"), "foo\\");
+        assert_eq!(unescape_text("foo\\".to_string()), "foo\\");
         // Unknown escape
-        assert_eq!(unescape_text("foo\\x"), "foo\\x");
+        assert_eq!(unescape_text("foo\\x".to_string()), "foo\\x");
         // Tricky case: escaped backslash followed by n (should be literal \n, not newline)
         // Input string literal for testing needs careful escaping.
         // "foo\\\\nbar" in source code is string "foo\\nbar".
         // unescape_text("foo\\nbar") -> "foo\nbar" (newline)
         // unescape_text("foo\\\\nbar") -> "foo\\nbar" (literal \ followed by n)
-        assert_eq!(unescape_text("foo\\\\nbar"), "foo\\nbar");
+        assert_eq!(unescape_text("foo\\\\nbar".to_string()), "foo\\nbar");
     }
 
     #[test]
@@ -810,7 +810,7 @@ END:VCALENDAR"#;
             alarms: vec![],
         };
 
-        let result = ical_to_event_data(&event);
+        let result = ical_to_event_data(event);
         assert!(result.is_err());
         match result {
             Err(ApiError::BadRequest(msg)) => {
@@ -846,7 +846,7 @@ END:VCALENDAR"#;
             alarms: vec![],
         };
 
-        let (_, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(&event).unwrap();
+        let (_, summary, _, _, _, _, _, _, _, _) = ical_to_event_data(event).unwrap();
 
         // Should be sanitized (stripped CR)
         assert_eq!(summary, "BadSummary");
