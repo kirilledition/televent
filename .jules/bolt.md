@@ -14,3 +14,7 @@
 ## 2025-02-24 - [Avoid Intermediate String Allocations for Date Formatting]
 **Learning:** `chrono::DateTime::format(...).to_string()` allocates a new String. In hot loops (like iCalendar generation), this adds significant overhead.
 **Action:** Use `write!(buf, "{}", date.format(...))` to write directly to the destination buffer, bypassing the intermediate allocation. For known safe fields (short, no escaping needed), skipping general-purpose folding logic also yields gains (~22% speedup).
+
+## 2025-03-03 - [Consuming Parsed Structs to Reduce Allocations]
+**Learning:** `ical` crate parser produces owned `String` fields. Converting these to our internal model by iterating `&IcalEvent` forces cloning every string. By consuming `IcalEvent` (passed by value), we can move the strings directly or return them without allocation in the common case (no escaping needed).
+**Action:** When mapping from a parsed owned structure to another, consume the source structure if possible. If some fields need special handling (like `ATTENDEE` properties processed separately), partition or extract them before consumption to avoid cloning.
