@@ -107,6 +107,7 @@ export default function CalendarPage() {
           events={events}
           onDeleteEvent={handleDeleteEvent}
           onEditEvent={handleEditEvent}
+          onCreateEvent={() => router.push('/create')}
         />
       </div>
     </div>

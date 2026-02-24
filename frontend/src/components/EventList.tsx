@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Event } from '@/types/event'
 import { EventItem } from './EventItem'
+import { Calendar, Plus } from 'lucide-react'
 
 // Optimization: Define formatters outside component to reuse instances (expensive to create)
 const dateFormatterCurrentYear = new Intl.DateTimeFormat('en-US', {
@@ -20,12 +21,14 @@ interface EventListProps {
   events: Event[]
   onDeleteEvent: (id: string) => void
   onEditEvent: (event: Event) => void
+  onCreateEvent?: () => void
 }
 
 export function EventList({
   events,
   onDeleteEvent,
   onEditEvent,
+  onCreateEvent,
 }: EventListProps) {
   // Sort events by date and time
   // Optimization: useMemo to prevent re-sorting on every render
@@ -95,12 +98,35 @@ export function EventList({
   if (sortedEvents.length === 0) {
     return (
       <div
-        className="py-16 text-center"
+        className="flex flex-col items-center justify-center py-16 text-center"
         style={{ color: 'var(--ctp-overlay0)' }}
       >
-        <p className="text-sm">
-          No events yet. Create your first event to get started.
-        </p>
+        <div
+          className="mb-4 rounded-full p-4"
+          style={{ backgroundColor: 'var(--ctp-surface0)' }}
+        >
+          <Calendar className="h-8 w-8" style={{ color: 'var(--ctp-mauve)' }} />
+        </div>
+        <h3
+          className="mb-1 text-lg font-medium"
+          style={{ color: 'var(--ctp-text)' }}
+        >
+          No events yet
+        </h3>
+        <p className="mb-6 text-sm">Create your first event to get started.</p>
+        {onCreateEvent && (
+          <button
+            onClick={onCreateEvent}
+            className="flex items-center gap-2 rounded-lg px-5 py-2.5 font-medium transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none"
+            style={{
+              backgroundColor: 'var(--ctp-mauve)',
+              color: 'var(--ctp-crust)',
+            }}
+          >
+            <Plus className="h-5 w-5" />
+            <span>Create Event</span>
+          </button>
+        )}
       </div>
     )
   }
