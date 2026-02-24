@@ -32,3 +32,7 @@ This journal tracks unique UX and accessibility patterns, challenges, and soluti
 ## 2024-05-24 - Testing Radix UI Dialogs with Dynamic Content
 **Learning:** `screen.findByText` can fail when matching text inside a Dialog if the text is split across multiple elements or lines by React rendering (e.g., mixing string literals and variables).
 **Action:** Use `screen.findByRole` with accessible names (e.g., `heading` for titles) or flexible text matchers (functions or regex) to reliably find elements in complex component structures.
+
+## 2024-05-26 - Actionable Empty States
+**Learning:** Simple text-based empty states are functionally correct but missed opportunities for engagement. Users are more likely to take the desired action (e.g., creating an event) if the empty state includes a clear Call-to-Action button and visual reinforcement (icon).
+**Action:** Always include a primary action button and relevant iconography in empty states to guide users towards the "happy path" immediately.

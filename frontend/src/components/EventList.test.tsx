@@ -42,6 +42,25 @@ describe('EventList', () => {
       <EventList events={[]} onDeleteEvent={vi.fn()} onEditEvent={vi.fn()} />
     )
     expect(screen.getByText(/No events yet/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Create your first event to get started/i)
+    ).toBeInTheDocument()
+  })
+
+  it('renders create button in empty state when onCreateEvent is provided', () => {
+    const onCreate = vi.fn()
+    render(
+      <EventList
+        events={[]}
+        onDeleteEvent={vi.fn()}
+        onEditEvent={vi.fn()}
+        onCreateEvent={onCreate}
+      />
+    )
+    const createBtn = screen.getByRole('button', { name: /Create Event/i })
+    expect(createBtn).toBeInTheDocument()
+    fireEvent.click(createBtn)
+    expect(onCreate).toHaveBeenCalled()
   })
 
   it('calls onEditEvent when event is clicked', () => {
