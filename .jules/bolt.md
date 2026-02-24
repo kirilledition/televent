@@ -14,3 +14,7 @@
 ## 2025-02-24 - [Avoid Intermediate String Allocations for Date Formatting]
 **Learning:** `chrono::DateTime::format(...).to_string()` allocates a new String. In hot loops (like iCalendar generation), this adds significant overhead.
 **Action:** Use `write!(buf, "{}", date.format(...))` to write directly to the destination buffer, bypassing the intermediate allocation. For known safe fields (short, no escaping needed), skipping general-purpose folding logic also yields gains (~22% speedup).
+
+## 2025-02-25 - [Buffer Reuse Revisited]
+**Learning:** Re-evaluated the "Buffer Reuse Anti-Pattern" (2025-02-21). Found that passing a reused `&mut String` buffer to helper functions in `caldav_xml.rs` actually IMPROVED performance by ~5% (16.7ms -> 15.9ms) in the current environment.
+**Action:** Always re-verify assumptions and past learnings with current measurements. Context matters.
