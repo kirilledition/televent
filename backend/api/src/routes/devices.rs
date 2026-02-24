@@ -12,6 +12,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use televent_core::models::UserId;
+use televent_core::validation::validate_no_control_chars;
 use typeshare::typeshare;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -48,6 +49,9 @@ impl CreateDeviceRequest {
                 MAX_DEVICE_NAME_LENGTH
             )));
         }
+
+        validate_no_control_chars("Device Name", &self.name).map_err(ApiError::BadRequest)?;
+
         Ok(())
     }
 }
@@ -142,19 +146,32 @@ async fn create_device_password(
     .map_err(|e| ApiError::Internal(format!("Task join error: {}", e)))?
     .map_err(|e| ApiError::Internal(format!("Password hashing failed: {}", e)))?;
 
-    // Insert into database
+    // Insert into database with atomic limit check (prevents race condition)
     let device = sqlx::query_as::<_, DevicePassword>(
         r#"
         INSERT INTO device_passwords (user_id, device_name, password_hash)
-        VALUES ($1, $2, $3)
+        SELECT $1, $2, $3
+        WHERE (SELECT COUNT(*) FROM device_passwords WHERE user_id = $1) < $4
         RETURNING *
         "#,
     )
     .bind(auth_user.id)
     .bind(&request.name)
     .bind(&hashed)
-    .fetch_one(&pool)
-    .await?;
+    .bind(MAX_DEVICES_PER_USER)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?;
+
+    let device = match device {
+        Some(d) => d,
+        None => {
+            return Err(ApiError::BadRequest(format!(
+                "Maximum number of devices ({}) reached. Please delete an old device password.",
+                MAX_DEVICES_PER_USER
+            )));
+        }
+    };
 
     Ok((
         StatusCode::CREATED,
@@ -325,6 +342,19 @@ mod tests {
     fn test_create_device_request_validation_max_length() {
         let req = CreateDeviceRequest {
             name: "a".repeat(MAX_DEVICE_NAME_LENGTH),
+        };
+        assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn test_create_device_request_validation_control_chars() {
+        let req = CreateDeviceRequest {
+            name: "Device\nName".to_string(),
+        };
+        assert!(req.validate().is_err());
+
+        let req = CreateDeviceRequest {
+            name: "Device\tName".to_string(), // Tab is allowed
         };
         assert!(req.validate().is_ok());
     }
