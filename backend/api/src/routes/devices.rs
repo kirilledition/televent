@@ -17,6 +17,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
+use televent_core::validation::validate_no_control_chars;
 
 // Input validation constants
 const MAX_DEVICE_NAME_LENGTH: usize = 128;
@@ -48,6 +49,7 @@ impl CreateDeviceRequest {
                 MAX_DEVICE_NAME_LENGTH
             )));
         }
+        validate_no_control_chars("Device name", &self.name).map_err(ApiError::BadRequest)?;
         Ok(())
     }
 }
@@ -112,20 +114,6 @@ async fn create_device_password(
     // Validate input
     request.validate()?;
 
-    // Check device limit
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM device_passwords WHERE user_id = $1")
-        .bind(auth_user.id)
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?;
-
-    if count >= MAX_DEVICES_PER_USER {
-        return Err(ApiError::BadRequest(format!(
-            "Maximum number of devices ({}) reached. Please delete an old device password.",
-            MAX_DEVICES_PER_USER
-        )));
-    }
-
     // Generate random password
     let password = generate_password(24);
 
@@ -142,19 +130,34 @@ async fn create_device_password(
     .map_err(|e| ApiError::Internal(format!("Task join error: {}", e)))?
     .map_err(|e| ApiError::Internal(format!("Password hashing failed: {}", e)))?;
 
-    // Insert into database
+    // Insert into database with atomic limit check
+    // We use INSERT ... SELECT ... WHERE (SELECT COUNT(*) ...) < LIMIT
+    // This prevents race conditions where concurrent requests could exceed the limit
     let device = sqlx::query_as::<_, DevicePassword>(
         r#"
         INSERT INTO device_passwords (user_id, device_name, password_hash)
-        VALUES ($1, $2, $3)
+        SELECT $1, $2, $3
+        WHERE (SELECT COUNT(*) FROM device_passwords WHERE user_id = $1) < $4
         RETURNING *
         "#,
     )
     .bind(auth_user.id)
     .bind(&request.name)
     .bind(&hashed)
-    .fetch_one(&pool)
-    .await?;
+    .bind(MAX_DEVICES_PER_USER)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?;
+
+    let device = match device {
+        Some(d) => d,
+        None => {
+            return Err(ApiError::BadRequest(format!(
+                "Maximum number of devices ({}) reached. Please delete an old device password.",
+                MAX_DEVICES_PER_USER
+            )));
+        }
+    };
 
     Ok((
         StatusCode::CREATED,
@@ -327,5 +330,18 @@ mod tests {
             name: "a".repeat(MAX_DEVICE_NAME_LENGTH),
         };
         assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn test_create_device_request_validation_control_chars() {
+        let req = CreateDeviceRequest {
+            name: "Device\nName".to_string(),
+        };
+        assert!(req.validate().is_err());
+
+        let req = CreateDeviceRequest {
+            name: "Device\rName".to_string(),
+        };
+        assert!(req.validate().is_err());
     }
 }

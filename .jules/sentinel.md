@@ -32,3 +32,8 @@
 **Vulnerability:** Rate limiter extracted the *first* IP from `X-Forwarded-For` (`Client, Proxy`), allowing attackers to bypass limits by spoofing the header (sending `SpoofedIP`).
 **Learning:** `X-Forwarded-For` is a list where the *leftmost* entries are client-controlled and untrusted. Only the entry added by the trusted immediate peer (the *rightmost* one) is reliable.
 **Prevention:** Use the last IP in the list (or iterate from the right) when extracting the client IP behind a trusted proxy.
+
+## 2025-05-26 - [Race Condition in Resource Limits]
+**Vulnerability:** Device creation endpoint checked limit with `SELECT COUNT(*)` then `INSERT`, allowing concurrent requests to exceed `MAX_DEVICES_PER_USER` via race condition (TOCTOU).
+**Learning:** Application-level checks for database constraints are vulnerable to concurrency issues.
+**Prevention:** Enforce limits atomically within the database transaction using `INSERT ... SELECT ... WHERE (SELECT COUNT(*)...) < limit` or explicit locking.
