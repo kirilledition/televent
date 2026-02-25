@@ -207,43 +207,106 @@ impl<'a> FoldedWriter<'a> {
         // Length of property name + separator
         let mut current_line_len = name.len() + 1;
 
-        for c in value.chars() {
-            // Strip CR to prevent CRLF injection in all cases
-            if c == '\r' {
-                continue;
+        let bytes = value.as_bytes();
+        let len = bytes.len();
+        let mut idx = 0;
+
+        while idx < len {
+            // If the line is already full (or somehow overfull), fold immediately
+            if current_line_len >= 75 {
+                self.buf.push_str("\r\n "); // Fold: CRLF + space
+                current_line_len = 1;
             }
 
-            // Escape special characters: \ ; , \n
-            let replacement = if escape {
-                match c {
-                    '\\' => Some("\\\\"),
-                    ';' => Some("\\;"),
-                    ',' => Some("\\,"),
-                    '\n' => Some("\\n"),
-                    _ => None,
-                }
-            } else {
-                None
-            };
+            // Calculate space remaining on current line
+            let limit = 75 - current_line_len;
+            let remainder_len = len - idx;
 
-            if let Some(s) = replacement {
-                for rc in s.chars() {
-                    let len = rc.len_utf8();
-                    if current_line_len + len > 75 {
-                        self.buf.push_str("\r\n "); // Fold: CRLF + space
-                        current_line_len = 1;
-                    }
-                    self.buf.push(rc);
-                    current_line_len += len;
+            // Determine the maximum chunk size we can process
+            // We can't process more than `limit` bytes without checking for split
+            // But we also stop if we find a special char.
+            // Let's just scan up to `limit` or end of string.
+            let chunk_len = std::cmp::min(limit, remainder_len);
+            let chunk_end = idx + chunk_len;
+
+            // Search for special characters or line break opportunities
+            let mut special_pos = None;
+
+            // Check for special characters in the chunk
+            // We always treat \r as special (to skip it)
+            // If escape=true, we also treat \ ; , \n as special
+            for i in idx..chunk_end {
+                let b = bytes[i];
+                if b == b'\r' {
+                    special_pos = Some(i);
+                    break;
                 }
-            } else {
-                let len = c.len_utf8();
-                if current_line_len + len > 75 {
-                    self.buf.push_str("\r\n "); // Fold: CRLF + space
+                if escape && matches!(b, b'\\' | b';' | b',' | b'\n') {
+                    special_pos = Some(i);
+                    break;
+                }
+            }
+
+            if let Some(s_idx) = special_pos {
+                // Found a special character at s_idx
+                // 1. Push everything before it
+                if s_idx > idx {
+                    self.buf.push_str(&value[idx..s_idx]);
+                    current_line_len += s_idx - idx;
+                }
+
+                // 2. Handle the special character
+                let b = bytes[s_idx];
+                idx = s_idx + 1; // Advance past the special char
+
+                if b == b'\r' {
+                    // Just skip CR
+                    continue;
+                }
+
+                // It must be one of the escapable chars
+                let replacement = match b {
+                    b'\\' => "\\\\",
+                    b';' => "\\;",
+                    b',' => "\\,",
+                    b'\n' => "\\n",
+                    _ => unreachable!(),
+                };
+
+                // Check if replacement fits on current line
+                if current_line_len + replacement.len() > 75 {
+                    self.buf.push_str("\r\n ");
                     current_line_len = 1;
                 }
-                self.buf.push(c);
-                current_line_len += len;
+
+                self.buf.push_str(replacement);
+                current_line_len += replacement.len();
+
+            } else {
+                // No special character found in [idx..chunk_end]
+
+                // If we reached the end of the string, push and done
+                if chunk_end == len {
+                    self.buf.push_str(&value[idx..len]);
+                    break;
+                }
+
+                // We reached the line limit (`chunk_end` == `idx + limit`)
+                // We must fold. But we must ensure we split at a char boundary.
+                let mut split_idx = chunk_end;
+                while !value.is_char_boundary(split_idx) {
+                    split_idx -= 1;
+                }
+
+                // Push up to split_idx
+                if split_idx > idx {
+                    self.buf.push_str(&value[idx..split_idx]);
+                }
+
+                // Fold
+                self.buf.push_str("\r\n ");
+                current_line_len = 1;
+                idx = split_idx;
             }
         }
         self.buf.push_str("\r\n");
