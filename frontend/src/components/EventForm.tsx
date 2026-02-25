@@ -99,8 +99,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
     onError: (err: Error) => setError(err.message),
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const submitForm = () => {
     if (!formData.summary) {
       setError('Summary is required')
       return
@@ -129,10 +128,30 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
     }
   }
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    submitForm()
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault()
+      submitForm()
+    }
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+    <form
+      onSubmit={handleSubmit}
+      onKeyDown={handleKeyDown}
+      className="flex flex-col gap-5"
+    >
       {error && (
-        <div className="bg-red/20 text-red border-red rounded-lg border p-3 text-sm">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="bg-red/20 text-red border-red rounded-lg border p-3 text-sm"
+        >
           {error}
         </div>
       )}
@@ -146,6 +165,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
         </label>
         <input
           id="summary"
+          autoFocus
           type="text"
           value={formData.summary}
           onChange={(e) =>
@@ -305,6 +325,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
         </button>
         <button
           type="submit"
+          aria-keyshortcuts="Control+Enter"
           className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--ctp-mauve)] px-4 py-2 font-medium text-[var(--ctp-crust)] shadow-sm transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           disabled={createMutation.isPending || updateMutation.isPending}
         >
