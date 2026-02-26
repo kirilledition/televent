@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { EventList } from '../components/EventList'
 import { api } from '@/lib/api'
@@ -43,7 +43,13 @@ export default function CalendarPage() {
     [router]
   )
 
-  const events = eventsData ? eventsData.map(mapApiEventToUiEvent) : []
+  // Optimization: Memoize the events array to prevent creating a new array reference on every render.
+  // This is critical because EventList wraps its sorting and grouping logic in useMemo,
+  // which depends on the `events` prop reference stability.
+  const events = useMemo(
+    () => (eventsData ? eventsData.map(mapApiEventToUiEvent) : []),
+    [eventsData]
+  )
 
   if (isLoading) {
     return (
