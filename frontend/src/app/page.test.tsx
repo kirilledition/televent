@@ -1,6 +1,8 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import CalendarPage from './page'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 
 // Mock useRouter
 const mockPush = vi.fn()
@@ -10,44 +12,116 @@ vi.mock('next/navigation', () => ({
   }),
 }))
 
+// Mock API
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    api: {
+      getEvents: vi.fn(),
+      deleteEvent: vi.fn(),
+    },
+  }
+})
+
+const createQueryClient = () =>
+  new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  })
+
+const mockEvents = [
+  {
+    id: '1',
+    summary: 'Team Meeting',
+    start: '2023-10-27T10:00:00Z',
+    end: '2023-10-27T11:00:00Z',
+    location: 'Office',
+  },
+]
+
 describe('CalendarPage', () => {
-  it('renders correctly with dummy events', () => {
-    render(<CalendarPage />)
-    expect(screen.getByText('Calendar')).toBeInTheDocument()
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(api.getEvents as any).mockResolvedValue(mockEvents)
+  })
+
+  it('renders correctly with dummy events', async () => {
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <CalendarPage />
+      </QueryClientProvider>
+    )
+
+    // Wait for loading to finish first
+    await waitFor(() => {
+      expect(screen.getByText('Calendar')).toBeInTheDocument()
+    })
+
     expect(screen.getByText('New event')).toBeInTheDocument()
-    // Check if dummy events are rendered
+
+    // Check for event
     expect(screen.getByText('Team Meeting')).toBeInTheDocument()
   })
 
-  it('navigates to create page on button click', () => {
-    render(<CalendarPage />)
+  it('navigates to create page on button click', async () => {
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <CalendarPage />
+      </QueryClientProvider>
+    )
+
+    // Wait for loading to finish
+    await waitFor(() => {
+      expect(screen.getByText('New event')).toBeInTheDocument()
+    })
+
     fireEvent.click(screen.getByText('New event'))
     expect(mockPush).toHaveBeenCalledWith('/create')
   })
 
-  it('deletes an event locally', () => {
-    render(<CalendarPage />)
+  it('deletes an event locally', async () => {
+    ;(api.deleteEvent as any).mockResolvedValue({})
 
-    // Mock window.confirm
-    vi.spyOn(window, 'confirm').mockImplementation(() => true)
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <CalendarPage />
+      </QueryClientProvider>
+    )
 
-    const deleteBtns = screen.getAllByRole('button', { name: /Delete event/i })
-    const initialCount = deleteBtns.length
-
-    fireEvent.click(deleteBtns[0])
-
-    // Should be one less delete button
-    const newDeleteBtns = screen.getAllByRole('button', {
-      name: /Delete event/i,
+    await waitFor(() => {
+      expect(screen.getByText('Team Meeting')).toBeInTheDocument()
     })
-    expect(newDeleteBtns.length).toBe(initialCount - 1)
+
+    const deleteBtn = screen.getByRole('button', { name: /Delete event/i })
+    fireEvent.click(deleteBtn)
+
+    // Confirm deletion in dialog
+    const confirmBtn = screen.getByText('Delete')
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(api.deleteEvent).toHaveBeenCalledWith('1')
+    })
   })
 
-  it('navigates to edit page when event is clicked', () => {
-    render(<CalendarPage />)
-    const eventItems = screen.getAllByRole('button', { name: /Edit event/i })
-    fireEvent.click(eventItems[0])
-    // The dummy event ID is '1'
-    expect(mockPush).toHaveBeenCalledWith('/event/1')
+  it('navigates to edit page when event is clicked', async () => {
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <CalendarPage />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Team Meeting')).toBeInTheDocument()
+    })
+
+    const eventItem = screen.getByRole('button', { name: /Edit event/i })
+    fireEvent.click(eventItem)
+
+    expect(mockPush).toHaveBeenCalledWith('/event-detail?id=1')
   })
 })
