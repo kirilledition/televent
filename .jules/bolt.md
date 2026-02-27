@@ -14,3 +14,8 @@
 ## 2025-02-24 - [Avoid Intermediate String Allocations for Date Formatting]
 **Learning:** `chrono::DateTime::format(...).to_string()` allocates a new String. In hot loops (like iCalendar generation), this adds significant overhead.
 **Action:** Use `write!(buf, "{}", date.format(...))` to write directly to the destination buffer, bypassing the intermediate allocation. For known safe fields (short, no escaping needed), skipping general-purpose folding logic also yields gains (~22% speedup).
+
+## 2025-02-25 - [Bulk String Writing vs Character Iteration]
+**Learning:** Iterating over a string `char` by `char` to handle escaping and line folding is significantly slower (~145ms) than searching for special characters and writing safe chunks in bulk (~84ms).
+**Insight:** `push_str` (using `memcpy`) is much faster than repeated `push` calls. Using `str::find` to locate the next special character allows us to skip processing for the majority of text.
+**Action:** When implementing escaping or folding logic, process text in chunks. Find the next "interesting" character index, write the prefix in one go, handle the special case, and repeat.

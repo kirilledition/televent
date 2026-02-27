@@ -206,44 +206,88 @@ impl<'a> FoldedWriter<'a> {
 
         // Length of property name + separator
         let mut current_line_len = name.len() + 1;
+        let mut pos = 0;
+        let len = value.len();
 
-        for c in value.chars() {
-            // Strip CR to prevent CRLF injection in all cases
-            if c == '\r' {
+        while pos < len {
+            // Check if we need to fold immediately (e.g. line full)
+            if current_line_len >= 75 {
+                self.buf.push_str("\r\n ");
+                current_line_len = 1;
+            }
+
+            let remaining_space = 75 - current_line_len;
+
+            // Determine the maximum slice we can take without folding
+            // Ensure we don't split multi-byte characters
+            let mut end_candidate = pos + remaining_space;
+            if end_candidate > len {
+                end_candidate = len;
+            } else {
+                while !value.is_char_boundary(end_candidate) {
+                    end_candidate -= 1;
+                }
+            }
+
+            // If we can't fit even one char (end_candidate == pos), we must fold
+            if end_candidate == pos {
+                self.buf.push_str("\r\n ");
+                current_line_len = 1;
                 continue;
             }
 
-            // Escape special characters: \ ; , \n
-            let replacement = if escape {
-                match c {
-                    '\\' => Some("\\\\"),
-                    ';' => Some("\\;"),
-                    ',' => Some("\\,"),
-                    '\n' => Some("\\n"),
-                    _ => None,
-                }
+            let chunk = &value[pos..end_candidate];
+
+            // Search for characters that need special handling
+            // If escape=true: \ ; , \n \r
+            // If escape=false: \r
+            // Note: find() returns byte index relative to chunk start
+            let special_pos = if escape {
+                chunk.find(|c| c == '\\' || c == ';' || c == ',' || c == '\n' || c == '\r')
             } else {
-                None
+                chunk.find('\r')
             };
 
-            if let Some(s) = replacement {
-                for rc in s.chars() {
-                    let len = rc.len_utf8();
-                    if current_line_len + len > 75 {
-                        self.buf.push_str("\r\n "); // Fold: CRLF + space
+            if let Some(idx) = special_pos {
+                // We found a special character at chunk[idx]
+
+                // 1. Write everything before it
+                // This part is safe to write directly as it fits in the line and has no special chars
+                let prefix = &chunk[..idx];
+                self.buf.push_str(prefix);
+                current_line_len += prefix.len();
+
+                // 2. Handle the special char
+                let special_char_bytes = &chunk[idx..];
+                let special_char = special_char_bytes.chars().next().unwrap();
+                let char_len = special_char.len_utf8();
+
+                // Move position past this char
+                pos += idx + char_len;
+
+                if special_char == '\r' {
+                    // Strip CR, do nothing
+                } else {
+                    // Must be escaped (escape=true is implied if we found \ ; , \n)
+                    // Check if we have space for 2 chars: \ and the char
+                    if current_line_len + 2 > 75 {
+                        self.buf.push_str("\r\n ");
                         current_line_len = 1;
                     }
-                    self.buf.push(rc);
-                    current_line_len += len;
+
+                    self.buf.push('\\');
+                    match special_char {
+                        '\n' => self.buf.push('n'),
+                        c => self.buf.push(c),
+                    }
+                    current_line_len += 2;
                 }
             } else {
-                let len = c.len_utf8();
-                if current_line_len + len > 75 {
-                    self.buf.push_str("\r\n "); // Fold: CRLF + space
-                    current_line_len = 1;
-                }
-                self.buf.push(c);
-                current_line_len += len;
+                // No special characters in this chunk
+                // We can write the whole chunk
+                self.buf.push_str(chunk);
+                current_line_len += chunk.len();
+                pos += chunk.len();
             }
         }
         self.buf.push_str("\r\n");
