@@ -7,6 +7,7 @@
 //! - X-XSS-Protection: 1; mode=block
 //! - Strict-Transport-Security: max-age=31536000; includeSubDomains
 //! - Referrer-Policy: strict-origin-when-cross-origin
+//! - Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
 
 use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 
@@ -39,6 +40,13 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
     headers.insert(
         "Referrer-Policy",
         HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+
+    // Permissions Policy
+    // Disable powerful features that are not needed
+    headers.insert(
+        "Permissions-Policy",
+        HeaderValue::from_static("accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"),
     );
 
     // Content Security Policy
@@ -80,6 +88,10 @@ mod tests {
         assert_eq!(
             headers.get("Referrer-Policy").unwrap(),
             "strict-origin-when-cross-origin"
+        );
+        assert_eq!(
+            headers.get("Permissions-Policy").unwrap(),
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
         );
         assert_eq!(
             headers.get("Content-Security-Policy").unwrap(),
