@@ -14,3 +14,7 @@
 ## 2025-02-24 - [Avoid Intermediate String Allocations for Date Formatting]
 **Learning:** `chrono::DateTime::format(...).to_string()` allocates a new String. In hot loops (like iCalendar generation), this adds significant overhead.
 **Action:** Use `write!(buf, "{}", date.format(...))` to write directly to the destination buffer, bypassing the intermediate allocation. For known safe fields (short, no escaping needed), skipping general-purpose folding logic also yields gains (~22% speedup).
+
+## 2025-02-24 - [Avoid date-fns for mass formatting]
+**Learning:** `date-fns` `format()` and calculation methods are extremely slow compared to native `Date` functions. Formatting 100k objects took ~790ms with `date-fns`, but only ~50ms using manual `getFullYear().toString().padStart(2, '0')` property accesses.
+**Action:** When mapping or formatting large arrays of date strings on the client (like in `mapApiEventToUiEvent`), use native `Date` properties and simple math instead of relying on heavy utility library features.
