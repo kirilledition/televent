@@ -142,19 +142,28 @@ async fn create_device_password(
     .map_err(|e| ApiError::Internal(format!("Task join error: {}", e)))?
     .map_err(|e| ApiError::Internal(format!("Password hashing failed: {}", e)))?;
 
-    // Insert into database
+    // Insert into database with atomic limit check
     let device = sqlx::query_as::<_, DevicePassword>(
         r#"
         INSERT INTO device_passwords (user_id, device_name, password_hash)
-        VALUES ($1, $2, $3)
+        SELECT $1, $2, $3
+        WHERE (SELECT COUNT(*) FROM device_passwords WHERE user_id = $1) < $4
         RETURNING *
         "#,
     )
     .bind(auth_user.id)
     .bind(&request.name)
     .bind(&hashed)
+    .bind(MAX_DEVICES_PER_USER)
     .fetch_one(&pool)
-    .await?;
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => ApiError::BadRequest(format!(
+            "Maximum number of devices ({}) reached. Please delete an old device password.",
+            MAX_DEVICES_PER_USER
+        )),
+        _ => ApiError::Internal(format!("Database error: {}", e)),
+    })?;
 
     Ok((
         StatusCode::CREATED,
