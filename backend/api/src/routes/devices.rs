@@ -112,7 +112,7 @@ async fn create_device_password(
     // Validate input
     request.validate()?;
 
-    // Check device limit
+    // Check device limit beforehand (fast path, actual enforcement is atomic in INSERT)
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM device_passwords WHERE user_id = $1")
         .bind(auth_user.id)
         .fetch_one(&pool)
@@ -142,19 +142,27 @@ async fn create_device_password(
     .map_err(|e| ApiError::Internal(format!("Task join error: {}", e)))?
     .map_err(|e| ApiError::Internal(format!("Password hashing failed: {}", e)))?;
 
-    // Insert into database
+    // Insert into database, atomically enforcing the limit
     let device = sqlx::query_as::<_, DevicePassword>(
         r#"
         INSERT INTO device_passwords (user_id, device_name, password_hash)
-        VALUES ($1, $2, $3)
+        SELECT $1, $2, $3
+        WHERE (SELECT COUNT(*) FROM device_passwords WHERE user_id = $1) < $4
         RETURNING *
         "#,
     )
     .bind(auth_user.id)
     .bind(&request.name)
     .bind(&hashed)
-    .fetch_one(&pool)
-    .await?;
+    .bind(MAX_DEVICES_PER_USER)
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| {
+        ApiError::BadRequest(format!(
+            "Maximum number of devices ({}) reached. Please delete an old device password.",
+            MAX_DEVICES_PER_USER
+        ))
+    })?;
 
     Ok((
         StatusCode::CREATED,
