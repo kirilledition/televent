@@ -153,7 +153,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           }
           placeholder="Event title"
           required
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="w-full rounded-lg border border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] p-3 text-[var(--ctp-text)] transition-colors focus:border-[var(--ctp-mauve)] focus:outline-none focus:ring-1 focus:ring-[var(--ctp-mauve)]"
         />
       </div>
 
@@ -173,7 +173,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
               setFormData({ ...formData, start: e.target.value })
             }
             required
-            className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+            className="w-full rounded-lg border border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] p-3 text-[var(--ctp-text)] transition-colors focus:border-[var(--ctp-mauve)] focus:outline-none focus:ring-1 focus:ring-[var(--ctp-mauve)]"
           />
         </div>
 
@@ -190,7 +190,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
             onChange={(e) =>
               setFormData({ ...formData, duration: Number(e.target.value) })
             }
-            className="bg-surface text-text border-border focus:border-primary w-full appearance-none rounded-lg p-3 transition-colors outline-none"
+            className="w-full appearance-none rounded-lg border border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] p-3 text-[var(--ctp-text)] transition-colors focus:border-[var(--ctp-mauve)] focus:outline-none focus:ring-1 focus:ring-[var(--ctp-mauve)]"
           >
             <optgroup label="Minutes">
               {durationOptions
@@ -254,7 +254,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           }
           placeholder="Details..."
           rows={3}
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="w-full rounded-lg border border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] p-3 text-[var(--ctp-text)] transition-colors focus:border-[var(--ctp-mauve)] focus:outline-none focus:ring-1 focus:ring-[var(--ctp-mauve)]"
         />
       </div>
 
@@ -273,7 +273,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
             setFormData({ ...formData, location: e.target.value })
           }
           placeholder="Where?"
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="w-full rounded-lg border border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] p-3 text-[var(--ctp-text)] transition-colors focus:border-[var(--ctp-mauve)] focus:outline-none focus:ring-1 focus:ring-[var(--ctp-mauve)]"
         />
       </div>
 
@@ -285,7 +285,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           onChange={(e) =>
             setFormData({ ...formData, is_all_day: e.target.checked })
           }
-          className="border-border text-primary focus:ring-primary bg-surface h-5 w-5 rounded"
+          className="h-5 w-5 rounded border-[var(--ctp-surface1)] bg-[var(--ctp-surface0)] text-[var(--ctp-mauve)] transition-colors focus:ring-2 focus:ring-[var(--ctp-mauve)] focus:ring-offset-2 focus:ring-offset-[var(--ctp-base)]"
         />
         <label
           htmlFor="all_day"

@@ -32,3 +32,7 @@ This journal tracks unique UX and accessibility patterns, challenges, and soluti
 ## 2024-05-24 - Testing Radix UI Dialogs with Dynamic Content
 **Learning:** `screen.findByText` can fail when matching text inside a Dialog if the text is split across multiple elements or lines by React rendering (e.g., mixing string literals and variables).
 **Action:** Use `screen.findByRole` with accessible names (e.g., `heading` for titles) or flexible text matchers (functions or regex) to reliably find elements in complex component structures.
+
+## 2024-05-27 - Unstyled Form Inputs Without Theming
+**Learning:** Using simple utility classes like `bg-surface` and `text-text` in form components can result in unstyled (inaccessible/invisible) inputs if those semantic utilities aren't defined in the Tailwind config. This strips essential focus states and color contrast, hurting UX.
+**Action:** Replace undefined semantic utility classes on form elements (`input`, `select`, `textarea`) with explicit arbitrary CSS variable values (e.g. `bg-[var(--ctp-surface0)]`) and explicitly apply `focus:ring` states to ensure keyboard accessibility.
