@@ -169,10 +169,21 @@ impl<'a> FoldedWriter<'a> {
         self.buf.push_str(name);
         self.buf.push(':');
 
+        use chrono::{Datelike, Timelike};
         use std::fmt::Write;
-        // DelayedFormat implements Display
-        write!(self.buf, "{}", datetime.format("%Y%m%dT%H%M%SZ"))
-            .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+        // Optimization: Avoid .format("%Y%m%dT%H%M%SZ") as it causes extra formatting overhead.
+        // Extracting components and writing them directly is faster.
+        write!(
+            self.buf,
+            "{:04}{:02}{:02}T{:02}{:02}{:02}Z",
+            datetime.year(),
+            datetime.month(),
+            datetime.day(),
+            datetime.hour(),
+            datetime.minute(),
+            datetime.second()
+        )
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
 
         self.buf.push_str("\r\n");
         Ok(())
@@ -187,9 +198,17 @@ impl<'a> FoldedWriter<'a> {
         self.buf.push_str(name);
         self.buf.push(':');
 
+        use chrono::Datelike;
         use std::fmt::Write;
-        write!(self.buf, "{}", date.format("%Y%m%d"))
-            .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+        // Optimization: Avoid .format("%Y%m%d") as it causes extra formatting overhead.
+        write!(
+            self.buf,
+            "{:04}{:02}{:02}",
+            date.year(),
+            date.month(),
+            date.day()
+        )
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
 
         self.buf.push_str("\r\n");
         Ok(())

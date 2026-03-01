@@ -956,7 +956,19 @@ impl<'a> FoldedWriter<'a> {
         self.buf.push_str(name);
         self.buf.push(':');
         // YYYYMMDDTHHmmssZ
-        let _ = std::fmt::write(self.buf, format_args!("{}", datetime.format("%Y%m%dT%H%M%SZ")));
+        use chrono::{Datelike, Timelike};
+        let _ = std::fmt::write(
+            self.buf,
+            format_args!(
+                "{:04}{:02}{:02}T{:02}{:02}{:02}Z",
+                datetime.year(),
+                datetime.month(),
+                datetime.day(),
+                datetime.hour(),
+                datetime.minute(),
+                datetime.second()
+            ),
+        );
         self.buf.push_str("\r\n");
     }
 
