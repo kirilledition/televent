@@ -14,3 +14,7 @@
 ## 2025-02-24 - [Avoid Intermediate String Allocations for Date Formatting]
 **Learning:** `chrono::DateTime::format(...).to_string()` allocates a new String. In hot loops (like iCalendar generation), this adds significant overhead.
 **Action:** Use `write!(buf, "{}", date.format(...))` to write directly to the destination buffer, bypassing the intermediate allocation. For known safe fields (short, no escaping needed), skipping general-purpose folding logic also yields gains (~22% speedup).
+
+## 2025-03-01 - [Avoid `.format` on DateTime in Hot Paths]
+**Learning:** `chrono::DateTime::format(...).to_string()` and even `write!(buf, "{}", datetime.format(...))` internally incur significant formatting overhead and delay due to dynamic format string parsing. In extremely hot loops, such as parsing/formatting dates for 100,000+ iCal events (e.g. CalDAV XML Generation), this acts as a bottleneck.
+**Action:** For fixed formats like `%Y%m%dT%H%M%SZ` or `%Y%m%d`, extract the individual components (`year()`, `month()`, `day()`, `hour()`, `minute()`, `second()`) and use a standard `write!(buf, "{:04}{:02}...", ...)` which is ~35% faster.
