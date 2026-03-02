@@ -32,3 +32,8 @@
 **Vulnerability:** Rate limiter extracted the *first* IP from `X-Forwarded-For` (`Client, Proxy`), allowing attackers to bypass limits by spoofing the header (sending `SpoofedIP`).
 **Learning:** `X-Forwarded-For` is a list where the *leftmost* entries are client-controlled and untrusted. Only the entry added by the trusted immediate peer (the *rightmost* one) is reliable.
 **Prevention:** Use the last IP in the list (or iterate from the right) when extracting the client IP behind a trusted proxy.
+
+## 2025-05-26 - [Missing Permissions-Policy Header]
+**Vulnerability:** The `security_headers` middleware did not include a `Permissions-Policy` header, leaving the application potentially exposed to abuse of sensitive browser features (e.g., camera, microphone, geolocation) by malicious actors or compromised dependencies.
+**Learning:** Security headers must explicitly disable access to powerful browser features that the application does not intend to use to follow the principle of least privilege.
+**Prevention:** Include a comprehensive `Permissions-Policy` header in standard security middleware configurations, explicitly opting out of features like `accelerometer`, `camera`, `geolocation`, `microphone`, etc.
