@@ -32,3 +32,8 @@
 **Vulnerability:** Rate limiter extracted the *first* IP from `X-Forwarded-For` (`Client, Proxy`), allowing attackers to bypass limits by spoofing the header (sending `SpoofedIP`).
 **Learning:** `X-Forwarded-For` is a list where the *leftmost* entries are client-controlled and untrusted. Only the entry added by the trusted immediate peer (the *rightmost* one) is reliable.
 **Prevention:** Use the last IP in the list (or iterate from the right) when extracting the client IP behind a trusted proxy.
+
+## 2025-05-26 - [TOCTOU Race Condition in Device Limit]
+**Vulnerability:** A Time-of-Check to Time-of-Use (TOCTOU) race condition allowed users to bypass the `MAX_DEVICES_PER_USER` limit by sending concurrent creation requests. The check (`SELECT COUNT(*)`) and creation (`INSERT`) were separate operations.
+**Learning:** Checking a limit and then performing an action that affects the limit must be done atomically in a concurrent environment.
+**Prevention:** Use atomic database operations like `INSERT ... SELECT ... WHERE` or row-level locking (`FOR UPDATE`) when checking limits that could be violated by concurrent requests.
