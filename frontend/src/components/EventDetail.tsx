@@ -51,7 +51,7 @@ export function EventDetail({ event, onDelete, onEdit }: EventDetailProps) {
       >
         <button
           onClick={() => router.back()}
-          className="-ml-2 rounded-full p-2 transition-colors hover:bg-[var(--ctp-surface0)]"
+          className="-ml-2 rounded-full p-2 transition-colors hover:bg-[var(--ctp-surface0)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)]"
           style={{ color: 'var(--ctp-text)' }}
           aria-label="Go back"
           title="Go back"
@@ -60,7 +60,7 @@ export function EventDetail({ event, onDelete, onEdit }: EventDetailProps) {
         </button>
         <button
           onClick={() => onEdit(event)}
-          className="rounded px-2 py-1 font-medium transition-colors hover:bg-[var(--ctp-surface0)]"
+          className="rounded px-2 py-1 font-medium transition-colors hover:bg-[var(--ctp-surface0)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)]"
           style={{ color: 'var(--ctp-sapphire)' }}
         >
           Edit

@@ -153,7 +153,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           }
           placeholder="Event title"
           required
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="bg-surface text-text border-border focus-visible:ring-[var(--ctp-mauve)] focus-visible:border-transparent w-full rounded-lg p-3 transition-colors outline-none focus-visible:ring-2"
         />
       </div>
 
@@ -173,7 +173,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
               setFormData({ ...formData, start: e.target.value })
             }
             required
-            className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+            className="bg-surface text-text border-border focus-visible:ring-[var(--ctp-mauve)] focus-visible:border-transparent w-full rounded-lg p-3 transition-colors outline-none focus-visible:ring-2"
           />
         </div>
 
@@ -190,7 +190,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
             onChange={(e) =>
               setFormData({ ...formData, duration: Number(e.target.value) })
             }
-            className="bg-surface text-text border-border focus:border-primary w-full appearance-none rounded-lg p-3 transition-colors outline-none"
+            className="bg-surface text-text border-border focus-visible:ring-[var(--ctp-mauve)] focus-visible:border-transparent w-full appearance-none rounded-lg p-3 transition-colors outline-none focus-visible:ring-2"
           >
             <optgroup label="Minutes">
               {durationOptions
@@ -220,7 +220,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
                 onClick={() => setFormData({ ...formData, duration: mins })}
                 aria-label={`Set duration to ${mins} minutes`}
                 aria-pressed={formData.duration === mins}
-                className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                className={`focus-visible:ring-[var(--ctp-mauve)] rounded-full px-3 py-1 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none ${
                   formData.duration === mins
                     ? 'text-[var(--ctp-crust)]'
                     : 'text-[var(--ctp-text)] hover:opacity-80'
@@ -254,7 +254,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           }
           placeholder="Details..."
           rows={3}
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="bg-surface text-text border-border focus-visible:ring-[var(--ctp-mauve)] focus-visible:border-transparent w-full rounded-lg p-3 transition-colors outline-none focus-visible:ring-2"
         />
       </div>
 
@@ -273,7 +273,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
             setFormData({ ...formData, location: e.target.value })
           }
           placeholder="Where?"
-          className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
+          className="bg-surface text-text border-border focus-visible:ring-[var(--ctp-mauve)] focus-visible:border-transparent w-full rounded-lg p-3 transition-colors outline-none focus-visible:ring-2"
         />
       </div>
 
@@ -285,7 +285,7 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           onChange={(e) =>
             setFormData({ ...formData, is_all_day: e.target.checked })
           }
-          className="border-border text-primary focus:ring-primary bg-surface h-5 w-5 rounded"
+          className="border-border text-primary bg-surface h-5 w-5 rounded focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-[var(--ctp-mauve)] focus-visible:outline-none"
         />
         <label
           htmlFor="all_day"
