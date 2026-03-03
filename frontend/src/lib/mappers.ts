@@ -1,6 +1,5 @@
 import { EventResponse } from '@/types/schema'
 import { Event as UiEvent } from '@/types/event'
-import { format, differenceInMinutes } from 'date-fns'
 
 /**
  * Maps API EventResponse to UI Event model
@@ -11,7 +10,7 @@ import { format, differenceInMinutes } from 'date-fns'
 export function mapApiEventToUiEvent(apiEvent: EventResponse): UiEvent {
   // Some all-day events may have null start/end in the API response.
   // We defensively handle that here and treat all-day events specially.
-  const isAllDay: boolean = (apiEvent as any).is_all_day ?? false
+  const isAllDay: boolean = (apiEvent as unknown as { is_all_day?: boolean }).is_all_day ?? false
 
   const hasStart = apiEvent.start != null
   const hasEnd = apiEvent.end != null
@@ -21,11 +20,15 @@ export function mapApiEventToUiEvent(apiEvent: EventResponse): UiEvent {
     : null
   const endDate = hasEnd ? new Date(apiEvent.end as unknown as string) : null
 
-  const date = startDate ? format(startDate, 'yyyy-MM-dd') : ''
+  const date = startDate
+    ? `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
+    : ''
   // For all-day events (or missing start), we omit the specific time.
-  const time = !startDate || isAllDay ? '' : format(startDate, 'HH:mm')
+  const time = !startDate || isAllDay
+    ? ''
+    : `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}`
   const duration =
-    startDate && endDate ? differenceInMinutes(endDate, startDate) : 0
+    startDate && endDate ? Math.round((endDate.getTime() - startDate.getTime()) / 60000) : 0
 
   return {
     id: apiEvent.id,

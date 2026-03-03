@@ -14,3 +14,7 @@
 ## 2025-02-24 - [Avoid Intermediate String Allocations for Date Formatting]
 **Learning:** `chrono::DateTime::format(...).to_string()` allocates a new String. In hot loops (like iCalendar generation), this adds significant overhead.
 **Action:** Use `write!(buf, "{}", date.format(...))` to write directly to the destination buffer, bypassing the intermediate allocation. For known safe fields (short, no escaping needed), skipping general-purpose folding logic also yields gains (~22% speedup).
+
+## 2025-03-03 - [Native Date Formatting Performance]
+**Learning:** Using `date-fns` `format` and `differenceInMinutes` functions inside the `mapApiEventToUiEvent` function (a hot loop when mapping over large arrays of API event data) created a performance bottleneck.
+**Action:** Replace `date-fns` utility functions with native `Date` methods (`getFullYear`, `getMonth`, manual string padding, and simple arithmetic for durations). This provides a ~15x performance improvement during array-mapping hot loops.
