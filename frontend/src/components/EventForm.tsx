@@ -132,7 +132,12 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       {error && (
-        <div className="bg-red/20 text-red border-red rounded-lg border p-3 text-sm">
+        <div
+          id="form-error"
+          role="alert"
+          aria-live="assertive"
+          className="bg-red/20 text-red border-red rounded-lg border p-3 text-sm"
+        >
           {error}
         </div>
       )}
@@ -148,11 +153,14 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
           id="summary"
           type="text"
           value={formData.summary}
-          onChange={(e) =>
+          onChange={(e) => {
             setFormData({ ...formData, summary: e.target.value })
-          }
+            if (error === 'Summary is required') setError(null)
+          }}
           placeholder="Event title"
           required
+          aria-invalid={error === 'Summary is required' ? 'true' : 'false'}
+          aria-describedby={error === 'Summary is required' ? "form-error" : undefined}
           className="bg-surface text-text border-border focus:border-primary w-full rounded-lg p-3 transition-colors outline-none"
         />
       </div>
