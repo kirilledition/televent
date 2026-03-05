@@ -352,7 +352,7 @@ fn write_http_date(buf: &mut String, dt: DateTime<Utc>) -> Result<(), std::fmt::
         10 => "Oct",
         11 => "Nov",
         12 => "Dec",
-        _ => "Jan",
+        other => unreachable!("invalid month from chrono::Datelike::month(): {}", other),
     };
     write!(
         buf,
