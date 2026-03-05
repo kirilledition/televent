@@ -620,10 +620,7 @@ fn write_event_response(
     // <getcontenttype>
     write_string_tag(writer, "d:getcontenttype", "text/calendar; charset=utf-8")?;
 
-    // <getlastmodified> (RFC 2616 HTTP-date format) - reuse buffer
-    // Optimization: Avoid chrono's `format` method which allocates intermediate formatting structures.
-    // Instead, extract components directly and use `write!` to write into our pre-allocated buffer.
-    // This reduces the time to generate large CalDAV responses by ~10-15%.
+    // <getlastmodified> (RFC 2616 HTTP-date format) - reuse buffer and specialized HTTP-date formatter
     buf.clear();
     write_http_date(&mut buf, event.updated_at)
         .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
