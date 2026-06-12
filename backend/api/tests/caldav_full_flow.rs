@@ -108,7 +108,15 @@ async fn test_caldav_full_flow(pool: PgPool) {
         .build();
 
     let state = AppState {
-        pool: pool.clone(),
+        calendar_service: televent_application::CalendarService::new(
+            televent_storage::calendar::CalendarRepository::new(pool.clone()),
+        ),
+        device_service: televent_application::DeviceService::new(
+            televent_storage::device::DeviceRepository::new(pool.clone()),
+        ),
+        health_service: televent_application::HealthService::new(
+            televent_storage::health::HealthRepository::new(pool.clone()),
+        ),
         auth_cache,
         telegram_bot_token: "dummy_token".to_string(),
     };

@@ -1,6 +1,7 @@
 {
   "name": "frontend",
   "version": "0.1.0",
+  "packageManager": "pnpm@10.28.1",
   "private": true,
   "scripts": {
     "test": "vitest",
@@ -10,7 +11,9 @@
     "start": "next start",
     "lint": "eslint",
     "format": "prettier --write .",
-    "check-format": "prettier --check ."
+    "check-format": "prettier --check .",
+    "gen:schema": "node scripts/generate-schema.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

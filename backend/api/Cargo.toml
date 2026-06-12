@@ -5,11 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
+autobins = false
 
 [dependencies]
 # Internal
-televent-core = { path = "../core" }
-televent-shared = { path = "../shared" }
+televent-application = { path = "../application" }
+televent-domain = { path = "../domain" }
 
 # Core
 tokio.workspace = true
@@ -24,9 +25,6 @@ tower.workspace = true
 tower-http.workspace = true
 tower_governor.workspace = true
 
-# Database
-sqlx = { workspace = true, features = ["migrate"] }
-
 # Date/Time
 chrono.workspace = true
 
@@ -34,7 +32,6 @@ chrono.workspace = true
 argon2.workspace = true
 hmac.workspace = true
 sha2.workspace = true
-rand.workspace = true
 
 # Logging
 tracing.workspace = true
@@ -49,11 +46,13 @@ hex.workspace = true
 urlencoding.workspace = true
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
-typeshare.workspace = true
 ical = "0.11.0"
 
 [dev-dependencies]
+televent-storage = { path = "../storage" }
 hmac.workspace = true
+rand.workspace = true
 reqwest.workspace = true
 sha2.workspace = true
+sqlx.workspace = true
 tempfile.workspace = true

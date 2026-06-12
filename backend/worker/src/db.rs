@@ -3,10 +3,71 @@
 //! Handles fetching and updating outbox messages
 
 use chrono::{DateTime, Utc};
-use serde_json::Value;
-use sqlx::{FromRow, PgPool};
-use televent_core::models::OutboxStatus;
+use sqlx::PgPool;
+use televent_domain::OutboxPayload;
+#[cfg(test)]
+pub use televent_storage::outbox::OutboxStatus;
+use televent_storage::{
+    StorageError,
+    outbox::{OutboxMessage as StoredOutboxMessage, OutboxRepository, OutboxUpdate},
+};
+use thiserror::Error;
+use tracing::warn;
 use uuid::Uuid;
+
+#[derive(Debug, Error)]
+#[error("worker database error: {message}")]
+pub struct WorkerDbError {
+    message: String,
+}
+
+fn storage_to_worker(error: StorageError) -> WorkerDbError {
+    WorkerDbError {
+        message: error.to_string(),
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("invalid outbox message {id}: {message}")]
+pub struct OutboxDecodeError {
+    pub id: Uuid,
+    message: String,
+}
+
+impl OutboxDecodeError {
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TypedOutboxMessage {
+    pub id: Uuid,
+    pub payload: OutboxPayload,
+    pub retry_count: i32,
+}
+
+impl TryFrom<StoredOutboxMessage> for TypedOutboxMessage {
+    type Error = OutboxDecodeError;
+
+    fn try_from(message: StoredOutboxMessage) -> Result<Self, Self::Error> {
+        let id = message.id;
+        let retry_count = message.retry_count;
+        let payload = OutboxPayload::from_parts(&message.kind, message.payload).map_err(|err| {
+            OutboxDecodeError {
+                id,
+                message: err.to_string(),
+            }
+        })?;
+
+        Ok(Self {
+            id,
+            payload,
+            retry_count,
+        })
+    }
+}
 
 /// Result of processing a job
 #[derive(Debug, Clone)]
@@ -24,31 +85,31 @@ pub enum JobResult {
     },
 }
 
-/// Outbox message from database
-#[derive(Debug, Clone, FromRow)]
-pub struct OutboxMessage {
-    pub id: Uuid,
-    pub message_type: String,
-    pub payload: Value,
-    #[allow(dead_code)]
-    pub status: OutboxStatus,
-    pub retry_count: i32,
-    #[allow(dead_code)]
-    pub scheduled_at: DateTime<Utc>,
-    #[allow(dead_code)]
-    pub processed_at: Option<DateTime<Utc>>,
+#[derive(Debug, Clone, Default)]
+pub struct ClaimedOutboxBatch {
+    pub jobs: Vec<TypedOutboxMessage>,
+    pub failed_results: Vec<JobResult>,
+}
+
+impl ClaimedOutboxBatch {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.jobs.is_empty() && self.failed_results.is_empty()
+    }
 }
 
 /// Worker database handle
 #[derive(Clone)]
 pub struct WorkerDb {
-    pool: PgPool,
+    outbox: OutboxRepository,
 }
 
 impl WorkerDb {
     /// Create a new database handle
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            outbox: OutboxRepository::new(pool),
+        }
     }
 
     /// Fetch pending jobs and mark them as processing
@@ -57,207 +118,108 @@ impl WorkerDb {
     pub async fn fetch_pending_jobs(
         &self,
         batch_size: i64,
-    ) -> Result<Vec<OutboxMessage>, sqlx::Error> {
-        let messages = sqlx::query_as::<_, OutboxMessage>(
-            r#"
-            UPDATE outbox_messages
-            SET status = 'processing'
-            WHERE id IN (
-                SELECT id
-                FROM outbox_messages
-                WHERE status = 'pending'
-                  AND scheduled_at <= NOW()
-                ORDER BY scheduled_at ASC
-                LIMIT $1
-                FOR UPDATE SKIP LOCKED
-            )
-            RETURNING id, message_type, payload, status, retry_count, scheduled_at, processed_at
-            "#,
-        )
-        .bind(batch_size)
-        .fetch_all(&self.pool)
-        .await?;
+    ) -> Result<ClaimedOutboxBatch, WorkerDbError> {
+        let messages = self
+            .outbox
+            .claim_pending_jobs(batch_size)
+            .await
+            .map_err(storage_to_worker)?;
 
-        Ok(messages)
+        Ok(decode_claimed_jobs(messages))
     }
 
     /// Mark a message as completed
     #[cfg(test)]
-    pub async fn mark_completed(&self, message_id: Uuid) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"
-            UPDATE outbox_messages
-            SET status = 'completed',
-                processed_at = NOW()
-            WHERE id = $1
-            "#,
-        )
-        .bind(message_id)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
+    pub async fn mark_completed(&self, message_id: Uuid) -> Result<(), WorkerDbError> {
+        self.outbox
+            .mark_completed(message_id)
+            .await
+            .map_err(storage_to_worker)
     }
 
     /// Mark a message as failed with error message
     #[cfg(test)]
-    pub async fn mark_failed(&self, message_id: Uuid, error_msg: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"
-            UPDATE outbox_messages
-            SET status = 'failed',
-                processed_at = NOW(),
-                error_message = $2
-            WHERE id = $1
-            "#,
-        )
-        .bind(message_id)
-        .bind(error_msg)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
+    pub async fn mark_failed(
+        &self,
+        message_id: Uuid,
+        error_msg: &str,
+    ) -> Result<(), WorkerDbError> {
+        self.outbox
+            .mark_failed(message_id, error_msg)
+            .await
+            .map_err(storage_to_worker)
     }
 
     /// Reschedule a message with exponential backoff
     ///
-    /// Backoff formula: 2^retry_count minutes
+    /// Backoff formula: 2^(current_retry_count + 1) minutes
     #[cfg(test)]
     pub async fn reschedule_message(
         &self,
         message_id: Uuid,
         current_retry_count: i32,
         error_msg: &str,
-    ) -> Result<(), sqlx::Error> {
-        // Calculate backoff: 2^retry_count minutes (1m, 2m, 4m, 8m, 16m)
-        let backoff_minutes = 2_i64.pow((current_retry_count + 1) as u32);
-        let next_scheduled = Utc::now() + chrono::Duration::minutes(backoff_minutes);
-
-        sqlx::query(
-            r#"
-            UPDATE outbox_messages
-            SET status = 'pending',
-                retry_count = retry_count + 1,
-                scheduled_at = $2,
-                error_message = $3
-            WHERE id = $1
-            "#,
-        )
-        .bind(message_id)
-        .bind(next_scheduled)
-        .bind(error_msg)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
+    ) -> Result<(), WorkerDbError> {
+        self.outbox
+            .reschedule_message(message_id, current_retry_count, error_msg)
+            .await
+            .map_err(storage_to_worker)
     }
 
     /// Get count of pending messages (for monitoring)
-    pub async fn count_pending(&self) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT COUNT(*)
-            FROM outbox_messages
-            WHERE status = 'pending'
-            "#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(result)
+    pub async fn count_pending(&self) -> Result<i64, WorkerDbError> {
+        self.outbox.count_pending().await.map_err(storage_to_worker)
     }
 
     /// Bulk update jobs based on their processing results
-    pub async fn bulk_update_jobs(&self, results: Vec<JobResult>) -> Result<(), sqlx::Error> {
-        let mut completed_ids = Vec::new();
-
-        let mut failed_ids = Vec::new();
-        let mut failed_errors = Vec::new();
-
-        let mut reschedule_ids = Vec::new();
-        let mut reschedule_counts = Vec::new();
-        let mut reschedule_times = Vec::new();
-        let mut reschedule_errors = Vec::new();
-
-        for result in results {
-            match result {
-                JobResult::Completed(id) => completed_ids.push(id),
-                JobResult::Failed { id, error } => {
-                    failed_ids.push(id);
-                    failed_errors.push(error);
-                }
+    pub async fn bulk_update_jobs(&self, results: Vec<JobResult>) -> Result<(), WorkerDbError> {
+        let updates = results
+            .into_iter()
+            .map(|result| match result {
+                JobResult::Completed(id) => OutboxUpdate::Completed(id),
+                JobResult::Failed { id, error } => OutboxUpdate::Failed { id, error },
                 JobResult::Reschedule {
                     id,
                     retry_count,
                     scheduled_at,
                     error,
-                } => {
-                    reschedule_ids.push(id);
-                    reschedule_counts.push(retry_count);
-                    reschedule_times.push(scheduled_at);
-                    reschedule_errors.push(error);
-                }
+                } => OutboxUpdate::Reschedule {
+                    id,
+                    retry_count,
+                    scheduled_at,
+                    error,
+                },
+            })
+            .collect();
+
+        self.outbox
+            .apply_updates(updates)
+            .await
+            .map_err(storage_to_worker)
+    }
+}
+
+fn decode_claimed_jobs(messages: Vec<StoredOutboxMessage>) -> ClaimedOutboxBatch {
+    let mut batch = ClaimedOutboxBatch {
+        jobs: Vec::with_capacity(messages.len()),
+        failed_results: Vec::new(),
+    };
+
+    for message in messages {
+        let job_id = message.id;
+        match TypedOutboxMessage::try_from(message) {
+            Ok(job) => batch.jobs.push(job),
+            Err(err) => {
+                warn!("{}", err);
+                batch.failed_results.push(JobResult::Failed {
+                    id: job_id,
+                    error: err.message().to_string(),
+                });
             }
         }
-
-        let mut tx = self.pool.begin().await?;
-
-        if !completed_ids.is_empty() {
-            sqlx::query(
-                r#"
-                UPDATE outbox_messages
-                SET status = 'completed',
-                    processed_at = NOW()
-                WHERE id = ANY($1)
-                "#,
-            )
-            .bind(&completed_ids)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        if !failed_ids.is_empty() {
-            sqlx::query(
-                r#"
-                UPDATE outbox_messages AS m
-                SET status = 'failed',
-                    processed_at = NOW(),
-                    error_message = c.error
-                FROM UNNEST($1::uuid[], $2::text[]) AS c(id, error)
-                WHERE m.id = c.id
-                "#,
-            )
-            .bind(&failed_ids)
-            .bind(&failed_errors)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        if !reschedule_ids.is_empty() {
-            sqlx::query(
-                r#"
-                UPDATE outbox_messages AS m
-                SET status = 'pending',
-                    retry_count = c.retry_count,
-                    scheduled_at = c.scheduled_at,
-                    error_message = c.error
-                FROM UNNEST($1::uuid[], $2::int[], $3::timestamptz[], $4::text[])
-                AS c(id, retry_count, scheduled_at, error)
-                WHERE m.id = c.id
-                "#,
-            )
-            .bind(&reschedule_ids)
-            .bind(&reschedule_counts)
-            .bind(&reschedule_times)
-            .bind(&reschedule_errors)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        tx.commit().await?;
-
-        Ok(())
     }
+
+    batch
 }
 
 #[cfg(test)]
@@ -287,56 +249,79 @@ mod tests {
     }
 
     #[test]
-    fn test_outbox_message_has_required_traits() {
-        // Verify OutboxMessage derives required traits
+    fn test_typed_outbox_message_has_required_traits() {
+        // Verify worker-owned outbox messages have required traits
         fn assert_clone<T: Clone>() {}
         fn assert_debug<T: std::fmt::Debug>() {}
-        fn assert_from_row<T: sqlx::FromRow<'static, sqlx::postgres::PgRow>>() {}
+        assert_clone::<TypedOutboxMessage>();
+        assert_debug::<TypedOutboxMessage>();
+    }
 
-        assert_clone::<OutboxMessage>();
-        assert_debug::<OutboxMessage>();
-        assert_from_row::<OutboxMessage>();
+    #[test]
+    fn decode_claimed_jobs_marks_invalid_payload_failed() {
+        let id = Uuid::new_v4();
+        let message = StoredOutboxMessage {
+            id,
+            kind: "invite_notification".to_string(),
+            payload: serde_json::json!({"bad": true}),
+            status: OutboxStatus::Processing,
+            retry_count: 0,
+            scheduled_at: Utc::now(),
+            processed_at: None,
+        };
+
+        let batch = decode_claimed_jobs(vec![message]);
+
+        assert!(batch.jobs.is_empty());
+        assert_eq!(batch.failed_results.len(), 1);
+        match &batch.failed_results[0] {
+            JobResult::Failed { id: failed_id, .. } => assert_eq!(*failed_id, id),
+            other => panic!("expected failed result, got {other:?}"),
+        }
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_fetch_pending_jobs(pool: PgPool) -> sqlx::Result<()> {
+    async fn test_fetch_pending_jobs(pool: PgPool) -> anyhow::Result<()> {
         use serde_json::json;
         let db = WorkerDb::new(pool.clone());
 
         let id1 = Uuid::new_v4();
         sqlx::query(
             r#"
-            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-            VALUES ($1, 'test', $2, 'pending', 0, NOW() - INTERVAL '1 minute', NOW())
+            INSERT INTO outbox_messages (id, kind, payload, status, retry_count, scheduled_at, created_at)
+            VALUES ($1, 'telegram_notification', $2, 'pending', 0, NOW() - INTERVAL '1 minute', NOW())
             "#
         )
         .bind(id1)
-        .bind(json!({"foo": "bar"}))
+        .bind(json!({"telegram_id": 123, "message": "hello"}))
         .execute(&pool)
         .await?;
 
-        let jobs = db.fetch_pending_jobs(10).await?;
-        assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].payload["foo"], "bar");
-        assert_eq!(jobs[0].status, OutboxStatus::Processing);
+        let batch = db.fetch_pending_jobs(10).await?;
+        assert_eq!(batch.jobs.len(), 1);
+        assert!(batch.failed_results.is_empty());
+        assert!(matches!(
+            batch.jobs[0].payload,
+            OutboxPayload::TelegramNotification(_)
+        ));
 
         Ok(())
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_mark_completed(pool: PgPool) -> sqlx::Result<()> {
+    async fn test_mark_completed(pool: PgPool) -> anyhow::Result<()> {
         use serde_json::json;
         let db = WorkerDb::new(pool.clone());
         let id = Uuid::new_v4();
 
         sqlx::query(
             r#"
-            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-            VALUES ($1, 'test', $2, 'processing', 0, NOW(), NOW())
+            INSERT INTO outbox_messages (id, kind, payload, status, retry_count, scheduled_at, created_at)
+            VALUES ($1, 'telegram_notification', $2, 'processing', 0, NOW(), NOW())
             "#
         )
         .bind(id)
-        .bind(json!({}))
+        .bind(json!({"telegram_id": 123, "message": "hello"}))
         .execute(&pool)
         .await?;
 
@@ -353,19 +338,19 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_mark_failed(pool: PgPool) -> sqlx::Result<()> {
+    async fn test_mark_failed(pool: PgPool) -> anyhow::Result<()> {
         use serde_json::json;
         let db = WorkerDb::new(pool.clone());
         let id = Uuid::new_v4();
 
         sqlx::query(
             r#"
-            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-            VALUES ($1, 'test', $2, 'processing', 0, NOW(), NOW())
+            INSERT INTO outbox_messages (id, kind, payload, status, retry_count, scheduled_at, created_at)
+            VALUES ($1, 'telegram_notification', $2, 'processing', 0, NOW(), NOW())
             "#
         )
         .bind(id)
-        .bind(json!({}))
+        .bind(json!({"telegram_id": 123, "message": "hello"}))
         .execute(&pool)
         .await?;
 
@@ -383,19 +368,19 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_reschedule_message(pool: PgPool) -> sqlx::Result<()> {
+    async fn test_reschedule_message(pool: PgPool) -> anyhow::Result<()> {
         use serde_json::json;
         let db = WorkerDb::new(pool.clone());
         let id = Uuid::new_v4();
 
         sqlx::query(
             r#"
-            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-            VALUES ($1, 'test', $2, 'processing', 0, NOW(), NOW())
+            INSERT INTO outbox_messages (id, kind, payload, status, retry_count, scheduled_at, created_at)
+            VALUES ($1, 'telegram_notification', $2, 'processing', 0, NOW(), NOW())
             "#
         )
         .bind(id)
-        .bind(json!({}))
+        .bind(json!({"telegram_id": 123, "message": "hello"}))
         .execute(&pool)
         .await?;
 
@@ -413,19 +398,19 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_count_pending(pool: PgPool) -> sqlx::Result<()> {
+    async fn test_count_pending(pool: PgPool) -> anyhow::Result<()> {
         use serde_json::json;
         let db = WorkerDb::new(pool.clone());
 
         for _ in 0..3 {
             sqlx::query(
                 r#"
-                INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at, created_at)
-                VALUES ($1, 'test', $2, 'pending', 0, NOW(), NOW())
+                INSERT INTO outbox_messages (id, kind, payload, status, retry_count, scheduled_at, created_at)
+                VALUES ($1, 'telegram_notification', $2, 'pending', 0, NOW(), NOW())
                 "#
             )
             .bind(Uuid::new_v4())
-            .bind(json!({}))
+            .bind(json!({"telegram_id": 123, "message": "hello"}))
             .execute(&pool)
             .await?;
         }

@@ -1,24 +1,34 @@
+use api::{AppState, create_router};
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use tower::ServiceExt;
-use api::{create_router, AppState};
-use sqlx::PgPool;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-use urlencoding::encode;
 use chrono::Utc;
+use hmac::{Hmac, Mac};
 use serde_json::json;
+use sha2::Sha256;
+use sqlx::PgPool;
+use tower::ServiceExt;
+use urlencoding::encode;
 
 async fn setup_app_with_db() -> axum::Router {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let pool = PgPool::connect(&database_url).await.expect("Failed to connect to DB");
+    let pool = PgPool::connect(&database_url)
+        .await
+        .expect("Failed to connect to DB");
 
     let auth_cache = moka::future::Cache::builder().build();
 
     let state = AppState {
-        pool,
+        calendar_service: televent_application::CalendarService::new(
+            televent_storage::calendar::CalendarRepository::new(pool.clone()),
+        ),
+        device_service: televent_application::DeviceService::new(
+            televent_storage::device::DeviceRepository::new(pool.clone()),
+        ),
+        health_service: televent_application::HealthService::new(
+            televent_storage::health::HealthRepository::new(pool.clone()),
+        ),
         auth_cache,
         telegram_bot_token: "test_token".to_string(),
     };
@@ -33,7 +43,8 @@ fn generate_valid_auth_header(user_id: i64, bot_token: &str) -> String {
         "first_name": "Test",
         "last_name": "User",
         "username": "testuser"
-    }).to_string();
+    })
+    .to_string();
 
     let auth_date = Utc::now().timestamp().to_string();
 
@@ -67,7 +78,7 @@ fn generate_valid_auth_header(user_id: i64, bot_token: &str) -> String {
     );
 
     // Prefix expected by middleware
-    format!("twa-init-data {}", init_data)
+    format!("tma {}", init_data)
 }
 
 #[tokio::test]
@@ -75,14 +86,27 @@ async fn test_health_check_basic() {
     let pool = PgPool::connect_lazy("postgres://localhost/dummy").unwrap();
     let auth_cache = moka::future::Cache::builder().build();
     let state = AppState {
-        pool,
+        calendar_service: televent_application::CalendarService::new(
+            televent_storage::calendar::CalendarRepository::new(pool.clone()),
+        ),
+        device_service: televent_application::DeviceService::new(
+            televent_storage::device::DeviceRepository::new(pool.clone()),
+        ),
+        health_service: televent_application::HealthService::new(
+            televent_storage::health::HealthRepository::new(pool.clone()),
+        ),
         auth_cache,
         telegram_bot_token: "dummy".to_string(),
     };
     let app = create_router(state, "*");
 
     let response = app
-        .oneshot(Request::builder().uri("/healthz").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -94,14 +118,27 @@ async fn test_api_events_unauthorized() {
     let pool = PgPool::connect_lazy("postgres://localhost/dummy").unwrap();
     let auth_cache = moka::future::Cache::builder().build();
     let state = AppState {
-        pool,
+        calendar_service: televent_application::CalendarService::new(
+            televent_storage::calendar::CalendarRepository::new(pool.clone()),
+        ),
+        device_service: televent_application::DeviceService::new(
+            televent_storage::device::DeviceRepository::new(pool.clone()),
+        ),
+        health_service: televent_application::HealthService::new(
+            televent_storage::health::HealthRepository::new(pool.clone()),
+        ),
         auth_cache,
         telegram_bot_token: "dummy".to_string(),
     };
     let app = create_router(state, "*");
 
     let response = app
-        .oneshot(Request::builder().uri("/api/events").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/api/events")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -118,13 +155,14 @@ async fn test_api_events_flow() {
     let auth_header = generate_valid_auth_header(12345, "test_token");
 
     // 1. List events
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/events")
                 .header("Authorization", &auth_header)
                 .body(Body::empty())
-                .unwrap()
+                .unwrap(),
         )
         .await
         .unwrap();
@@ -134,13 +172,17 @@ async fn test_api_events_flow() {
     let event_body = json!({
         "uid": "test-uid-1",
         "summary": "Integration Test Event",
-        "start": "2024-01-01T10:00:00Z",
-        "end": "2024-01-01T11:00:00Z",
-        "is_all_day": false,
-        "timezone": "UTC"
-    }).to_string();
+        "timing": {
+            "kind": "timed",
+            "start": "2024-01-01T10:00:00Z",
+            "end": "2024-01-01T11:00:00Z",
+            "timezone": "UTC"
+        }
+    })
+    .to_string();
 
-    let response = app.clone()
+    let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -148,7 +190,7 @@ async fn test_api_events_flow() {
                 .header("Authorization", &auth_header)
                 .header("Content-Type", "application/json")
                 .body(Body::from(event_body))
-                .unwrap()
+                .unwrap(),
         )
         .await
         .unwrap();

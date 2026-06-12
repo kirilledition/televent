@@ -8,6 +8,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 use std::time::Duration;
 use tower::ServiceExt;
+use uuid::Uuid;
 
 async fn setup_user(pool: &PgPool) -> i64 {
     // 1. Create User
@@ -32,6 +33,22 @@ async fn setup_user(pool: &PgPool) -> i64 {
     .unwrap();
 
     telegram_id
+}
+
+async fn calendar_state(pool: &PgPool, telegram_id: i64) -> (i64, i64) {
+    sqlx::query_as("SELECT sync_token, ctag FROM users WHERE telegram_id = $1")
+        .bind(telegram_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn event_sync_version(pool: &PgPool, event_id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT sync_version FROM events WHERE id = $1")
+        .bind(event_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 use axum::extract::ConnectInfo;
@@ -109,7 +126,15 @@ async fn test_api_full_flow(pool: PgPool) {
         .build();
 
     let state = AppState {
-        pool: pool.clone(),
+        calendar_service: televent_application::CalendarService::new(
+            televent_storage::calendar::CalendarRepository::new(pool.clone()),
+        ),
+        device_service: televent_application::DeviceService::new(
+            televent_storage::device::DeviceRepository::new(pool.clone()),
+        ),
+        health_service: televent_application::HealthService::new(
+            televent_storage::health::HealthRepository::new(pool.clone()),
+        ),
         auth_cache,
         telegram_bot_token: bot_token.to_string(),
     };
@@ -123,10 +148,12 @@ async fn test_api_full_flow(pool: PgPool) {
         "summary": "API Test Event",
         "description": "Created via API",
         "location": "Internet",
-        "start": "2026-06-01T10:00:00Z",
-        "end": "2026-06-01T11:00:00Z",
-        "is_all_day": false,
-        "timezone": "UTC",
+        "timing": {
+            "kind": "timed",
+            "start": "2026-06-01T10:00:00Z",
+            "end": "2026-06-01T11:00:00Z",
+            "timezone": "UTC"
+        },
         "rrule": null
     });
 
@@ -157,6 +184,9 @@ async fn test_api_full_flow(pool: PgPool) {
         .unwrap();
     let created_event: Value = serde_json::from_slice(&body_bytes).unwrap();
     let event_id = created_event["id"].as_str().unwrap().to_string();
+    let event_uuid = Uuid::parse_str(&event_id).unwrap();
+    assert_eq!(calendar_state(&pool, telegram_id).await, (1, 1));
+    assert_eq!(event_sync_version(&pool, event_uuid).await, 1);
 
     // 1b. Create Event 2
     let create_body_2 = serde_json::json!({
@@ -164,10 +194,12 @@ async fn test_api_full_flow(pool: PgPool) {
         "summary": "API Test Event 2",
         "description": "Created via API 2",
         "location": "Internet 2",
-        "start": "2026-06-02T10:00:00Z",
-        "end": "2026-06-02T11:00:00Z",
-        "is_all_day": false,
-        "timezone": "UTC",
+        "timing": {
+            "kind": "timed",
+            "start": "2026-06-02T10:00:00Z",
+            "end": "2026-06-02T11:00:00Z",
+            "timezone": "UTC"
+        },
         "rrule": null
     });
     let response = app
@@ -181,6 +213,7 @@ async fn test_api_full_flow(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
+    assert_eq!(calendar_state(&pool, telegram_id).await, (2, 2));
 
     // 1c. Create Event 3
     let create_body_3 = serde_json::json!({
@@ -188,10 +221,12 @@ async fn test_api_full_flow(pool: PgPool) {
         "summary": "API Test Event 3",
         "description": "Created via API 3",
         "location": "Internet 3",
-        "start": "2026-06-03T10:00:00Z",
-        "end": "2026-06-03T11:00:00Z",
-        "is_all_day": false,
-        "timezone": "UTC",
+        "timing": {
+            "kind": "timed",
+            "start": "2026-06-03T10:00:00Z",
+            "end": "2026-06-03T11:00:00Z",
+            "timezone": "UTC"
+        },
         "rrule": null
     });
     let response = app
@@ -205,6 +240,7 @@ async fn test_api_full_flow(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
+    assert_eq!(calendar_state(&pool, telegram_id).await, (3, 3));
 
     // 2. List Events
     let response = app
@@ -263,6 +299,8 @@ async fn test_api_full_flow(pool: PgPool) {
         .unwrap();
     let updated_event: Value = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(updated_event["summary"], "Updated API Event");
+    assert_eq!(calendar_state(&pool, telegram_id).await, (4, 4));
+    assert_eq!(event_sync_version(&pool, event_uuid).await, 4);
 
     // 5. Delete Event
     let response = app
@@ -276,6 +314,16 @@ async fn test_api_full_flow(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(calendar_state(&pool, telegram_id).await, (5, 5));
+    let tombstone_sync_version: i64 = sqlx::query_scalar(
+        "SELECT sync_version FROM event_tombstones WHERE user_id = $1 AND uid = $2",
+    )
+    .bind(telegram_id)
+    .bind(event_uid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(tombstone_sync_version, 5);
 
     // 6. Verify Deletion
     let response = app
@@ -290,7 +338,7 @@ async fn test_api_full_flow(pool: PgPool) {
         .unwrap();
 
     // Should be Not Found (404) or Internal Server Error depending on implementation
-    // db::events::get_event calls fetch_optional or fetch_one?
+    // Fetching the deleted event should now return 404.
     // It calls fetch_one usually.
     // If we want it to be cleaner we should handle row not found in routes.
     // But currently, any error is 500 except specific ones.

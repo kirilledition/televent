@@ -1,7 +1,6 @@
 //! Televent API Server Library
 
 pub mod config;
-mod db;
 pub mod error;
 pub mod middleware;
 mod routes;
@@ -9,8 +8,7 @@ mod routes;
 use axum::extract::FromRef;
 use axum::{Router, middleware as axum_middleware};
 use moka::future::Cache;
-use sqlx::PgPool;
-use televent_core::models::UserId;
+use televent_application::{CalendarService, DeviceService, HealthService, UserId};
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
@@ -27,7 +25,9 @@ use utoipa_swagger_ui::SwaggerUi;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub pool: PgPool,
+    pub calendar_service: CalendarService,
+    pub device_service: DeviceService,
+    pub health_service: HealthService,
     pub auth_cache: Cache<(LoginId, String), UserId>,
     pub telegram_bot_token: String,
 }
@@ -49,17 +49,12 @@ pub struct AppState {
     ),
     components(
         schemas(
-            televent_core::models::UserId,
-            televent_core::models::Timezone,
-            televent_core::models::User,
-            televent_core::models::Event,
-            televent_core::models::EventStatus,
-            televent_core::models::EventAttendee,
-            televent_core::models::AttendeeRole,
-            televent_core::models::ParticipationStatus,
             routes::health::HealthResponse,
             routes::me::MeResponse,
             routes::events::CreateEventRequest,
+            routes::events::EventTimingRequest,
+            routes::events::EventStatus,
+            routes::events::EventResponse,
             routes::events::UpdateEventRequest,
             routes::events::ListEventsQuery,
             routes::calendars::CalendarInfo,
@@ -88,7 +83,7 @@ impl utoipa::Modify for SecurityAddon {
                 "telegram_auth",
                 utoipa::openapi::security::SecurityScheme::ApiKey(
                     utoipa::openapi::security::ApiKey::Header(
-                        utoipa::openapi::security::ApiKeyValue::new("x-telegram-init-data"),
+                        utoipa::openapi::security::ApiKeyValue::new("Authorization"),
                     ),
                 ),
             );
@@ -96,14 +91,40 @@ impl utoipa::Modify for SecurityAddon {
     }
 }
 
-impl FromRef<AppState> for PgPool {
+impl FromRef<AppState> for CalendarService {
     fn from_ref(state: &AppState) -> Self {
-        state.pool.clone()
+        state.calendar_service.clone()
+    }
+}
+
+impl FromRef<AppState> for DeviceService {
+    fn from_ref(state: &AppState) -> Self {
+        state.device_service.clone()
+    }
+}
+
+impl FromRef<AppState> for HealthService {
+    fn from_ref(state: &AppState) -> Self {
+        state.health_service.clone()
     }
 }
 
 /// Create the application router
 pub fn create_router(state: AppState, cors_origin: &str) -> Router {
+    let config = config::Config {
+        host: "0.0.0.0".to_string(),
+        port: 3000,
+        cors_allowed_origin: cors_origin.to_string(),
+        frontend_static_dir: None,
+        enable_swagger: false,
+    };
+
+    create_router_with_config(state, &config)
+}
+
+/// Create the application router from full runtime configuration.
+pub fn create_router_with_config(state: AppState, config: &config::Config) -> Router {
+    let cors_origin = &config.cors_allowed_origin;
     let cors = if cors_origin == "*" {
         CorsLayer::new()
             .allow_origin(Any)
@@ -126,9 +147,8 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
         }
     };
 
-    Router::new()
+    let mut router = Router::new()
         .merge(routes::health::routes())
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .nest(
             "/api",
             routes::events::routes()
@@ -167,13 +187,22 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
                 .layer(axum_middleware::from_fn(
                     crate::middleware::caldav_logging::caldav_logger,
                 )),
-        )
-        // Serve frontend static files with SPA fallback
-        .nest_service(
+        );
+
+    if config.enable_swagger {
+        router = router
+            .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
+    }
+
+    if let Some(static_dir) = &config.frontend_static_dir {
+        let index_path = std::path::Path::new(static_dir).join("index.html");
+        router = router.nest_service(
             "/app",
-            ServeDir::new("../frontend/out")
-                .not_found_service(ServeFile::new("../frontend/out/index.html")),
-        )
+            ServeDir::new(static_dir).not_found_service(ServeFile::new(index_path)),
+        );
+    }
+
+    router
         .layer(cors)
         .layer(axum_middleware::from_fn(
             crate::middleware::caldav_headers::add_caldav_headers,
@@ -235,7 +264,7 @@ pub fn create_router(state: AppState, cors_origin: &str) -> Router {
 /// * `state` - Application state containing database pool and caches
 /// * `config` - Server configuration
 pub async fn run_api(state: AppState, config: &config::Config) -> Result<(), std::io::Error> {
-    let app = create_router(state, &config.cors_allowed_origin);
+    let app = create_router_with_config(state, config);
     let addr = format!("{}:{}", config.host, config.port);
 
     tracing::info!("API server listening on {}", addr);
@@ -262,6 +291,7 @@ mod tests {
             .expect("Failed to serialize OpenAPI to JSON");
 
         let path = "../docs/openapi.json";
+        std::fs::create_dir_all("../docs").expect("Failed to create docs directory");
         let mut file = File::create(path).expect("Failed to create openapi.json");
         file.write_all(json.as_bytes())
             .expect("Failed to write openapi.json");
@@ -281,7 +311,15 @@ mod tests {
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/dummy").unwrap();
         let auth_cache = moka::future::Cache::builder().build();
         let state = AppState {
-            pool,
+            calendar_service: televent_application::CalendarService::new(
+                televent_storage::calendar::CalendarRepository::new(pool.clone()),
+            ),
+            device_service: televent_application::DeviceService::new(
+                televent_storage::device::DeviceRepository::new(pool.clone()),
+            ),
+            health_service: televent_application::HealthService::new(
+                televent_storage::health::HealthRepository::new(pool.clone()),
+            ),
             auth_cache,
             telegram_bot_token: "dummy".to_string(),
         };

@@ -7,6 +7,12 @@ import prettierConfig from 'eslint-config-prettier'
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    files: ['**/*.test.ts', '**/*.test.tsx'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
   prettierConfig,
   // Override default ignores of eslint-config-next.
   globalIgnores([

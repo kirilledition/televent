@@ -106,8 +106,7 @@ pub fn parse_event_message(text: &str) -> Result<ParsedEvent, ParseError> {
             || low.contains("h")
     };
 
-    let is_midnight =
-        start.with_timezone(&Local).time() == chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap();
+    let is_midnight = start.with_timezone(&Local).time() == chrono::NaiveTime::MIN;
     let is_all_day = !has_time_marker && is_midnight;
 
     // Line 3: Duration in minutes (optional, default: 60)

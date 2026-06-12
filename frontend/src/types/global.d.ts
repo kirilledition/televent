@@ -5,4 +5,12 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   type DateTime<_T> = string
   type Utc = unknown
+
+  interface Window {
+    Telegram?: {
+      WebApp?: {
+        initData?: string
+      }
+    }
+  }
 }

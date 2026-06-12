@@ -1,20 +1,20 @@
 use api::{AppState, create_router};
+use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use moka::future::Cache;
-use sqlx::{PgPool};
-use std::time::{Duration, Instant};
-use televent_core::models::UserId;
-use tower::ServiceExt;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+use moka::future::Cache;
+use sqlx::PgPool;
+use std::time::{Duration, Instant};
+use televent_domain::{UserId, internal_email_for_telegram_id};
+use tower::ServiceExt;
 
 #[sqlx::test(migrations = "../migrations")]
 async fn bench_caldav_put_attendees(pool: PgPool) {
     // 1. Setup Main User
     let user_id = UserId::new(1001);
-    sqlx::query("INSERT INTO users (telegram_id, telegram_username, timezone, sync_token, ctag) VALUES ($1, 'user_1001', 'UTC', '0', '0')")
-        .bind(user_id)
+    sqlx::query("INSERT INTO users (telegram_id, telegram_username, timezone, sync_token, ctag) VALUES ($1, 'user_1001', 'UTC', 0, 0)")
+        .bind(user_id.inner())
         .execute(&pool)
         .await
         .unwrap();
@@ -29,7 +29,7 @@ async fn bench_caldav_put_attendees(pool: PgPool) {
 
     sqlx::query("INSERT INTO device_passwords (id, user_id, password_hash, device_name) VALUES ($1, $2, $3, 'test_device')")
         .bind(uuid::Uuid::new_v4())
-        .bind(user_id)
+        .bind(user_id.inner())
         .bind(password_hash)
         .execute(&pool)
         .await
@@ -39,8 +39,8 @@ async fn bench_caldav_put_attendees(pool: PgPool) {
     let num_attendees = 50;
     for i in 0..num_attendees {
         let attendee_id = UserId::new(2000 + i as i64);
-        sqlx::query("INSERT INTO users (telegram_id, telegram_username, timezone, sync_token, ctag) VALUES ($1, $2, 'UTC', '0', '0')")
-            .bind(attendee_id)
+        sqlx::query("INSERT INTO users (telegram_id, telegram_username, timezone, sync_token, ctag) VALUES ($1, $2, 'UTC', 0, 0)")
+            .bind(attendee_id.inner())
             .bind(format!("user_{}", attendee_id))
             .execute(&pool)
             .await
@@ -53,7 +53,15 @@ async fn bench_caldav_put_attendees(pool: PgPool) {
         .build();
 
     let state = AppState {
-        pool: pool.clone(),
+        calendar_service: televent_application::CalendarService::new(
+            televent_storage::calendar::CalendarRepository::new(pool.clone()),
+        ),
+        device_service: televent_application::DeviceService::new(
+            televent_storage::device::DeviceRepository::new(pool.clone()),
+        ),
+        health_service: televent_application::HealthService::new(
+            televent_storage::health::HealthRepository::new(pool.clone()),
+        ),
         auth_cache,
         telegram_bot_token: "test_token".to_string(),
     };
@@ -63,9 +71,11 @@ async fn bench_caldav_put_attendees(pool: PgPool) {
     let mut attendees_ical = String::new();
     for i in 0..num_attendees {
         let attendee_id = UserId::new(2000 + i as i64);
-        // internal email format: user_<id>@televent.internal
-        // Actually I should check what televent_core::attendee::parse_internal_email expects
-        attendees_ical.push_str(&format!("ATTENDEE;CN=User {};RSVP=TRUE:mailto:user_{}@televent.internal\r\n", i, attendee_id));
+        attendees_ical.push_str(&format!(
+            "ATTENDEE;CN=User {};RSVP=TRUE:mailto:{}\r\n",
+            i,
+            internal_email_for_telegram_id(attendee_id.inner())
+        ));
     }
 
     let ical_body = format!(
@@ -88,14 +98,17 @@ async fn bench_caldav_put_attendees(pool: PgPool) {
     let encoded = STANDARD.encode(credentials.as_bytes());
 
     // 5. Run benchmark
-    println!("Starting benchmark for CalDAV PUT with {} attendees...", num_attendees);
+    println!(
+        "Starting benchmark for CalDAV PUT with {} attendees...",
+        num_attendees
+    );
     let start = Instant::now();
 
     let response = app
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/caldav/1001/bench-event-123.ics"))
+                .uri("/caldav/1001/bench-event-123.ics")
                 .header("Authorization", format!("Basic {}", encoded))
                 .header("Content-Type", "text/calendar")
                 .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
@@ -109,7 +122,10 @@ async fn bench_caldav_put_attendees(pool: PgPool) {
         .unwrap();
 
     let duration = start.elapsed();
-    println!("CalDAV PUT with {} attendees took: {:?}", num_attendees, duration);
+    println!(
+        "CalDAV PUT with {} attendees took: {:?}",
+        num_attendees, duration
+    );
 
     assert_eq!(response.status(), StatusCode::CREATED);
 }

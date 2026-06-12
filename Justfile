@@ -1,4 +1,6 @@
 # Default command shows all available commands
+root := justfile_directory()
+
 default:
     @just --list
 
@@ -10,108 +12,125 @@ default:
 setup-dev:
     @echo "Setting up development environment..."
     @echo "1. Starting Supabase..."
-    cd infrastructure && npx -y supabase start
+    cd {{root}}/infrastructure && npx -y supabase start
     @echo "2. Running migrations..."
-    cd backend && sqlx migrate run
+    cd {{root}}/backend && sqlx migrate run
     @echo "3. Building project..."
-    cd backend && cargo build --workspace
+    cd {{root}}/backend && cargo build --workspace
     @echo "✅ Setup complete! Run 'just run' to start the bot."
 
 # Start Supabase services
 db-start:
     @echo "Starting Supabase..."
-    cd infrastructure && npx -y supabase start
+    cd {{root}}/infrastructure && npx -y supabase start
     @echo "✅ Supabase is running"
 
 # Check PostgreSQL status
 # Check Supabase status
 db-status:
-    cd infrastructure && npx -y supabase status
+    cd {{root}}/infrastructure && npx -y supabase status
 
 # Stop PostgreSQL service
 # Stop Supabase services
 db-stop:
-    cd infrastructure && npx -y supabase stop
+    cd {{root}}/infrastructure && npx -y supabase stop
 
 # ==============================================
 # Run Services
 # ==============================================
 
-# Run unified server (all services in one process) - DEFAULT for MVP
+# Run unified server (API, bot, and worker in one Railway-ready process)
 run:
-    cd backend && API_PORT=3001 cargo run --bin televent
+    cd {{root}}/backend && API_PORT=3001 cargo run --bin televent
 
 # Run frontend dev server
 run-frontend:
-    cd frontend && pnpm dev
+    cd {{root}}/frontend && pnpm dev
 
-# Run all tests
+# Run fast backend tests that do not require DATABASE_URL
 test:
-    @echo "Running normal tests (libs, bins)..."
-    cd backend && cargo test --workspace --lib --bins
+    @echo "Running non-DB backend tests..."
+    cd {{root}}/backend && cargo test -p televent-domain --lib
+    cd {{root}}/backend && cargo test -p televent-application --lib
+    cd {{root}}/backend && cargo test -p api --lib
+    cd {{root}}/backend && cargo test -p bot --lib event_parser
+    cd {{root}}/backend && cargo test -p worker --lib decode_claimed_jobs_marks_invalid_payload_failed
     @echo "Running doc tests..."
-    cd backend && cargo test --workspace --doc
-    @echo "Running integration tests..."
-    cd backend && cargo test --workspace --tests
+    cd {{root}}/backend && cargo test --workspace --doc
+
+# Run the full backend test suite. Requires DATABASE_URL for sqlx::test cases.
+test-db:
+    @if [ -z "${DATABASE_URL:-}" ]; then echo "DATABASE_URL must be set for DB-backed tests"; exit 1; fi
+    cd {{root}}/backend && cargo test --workspace
 
 # Run tests with coverage report (HTML)
 test-coverage:
-    cd backend && cargo llvm-cov --workspace --html --output-dir ../logs/coverage/workspace
+    cd {{root}}/backend && cargo llvm-cov --workspace --html --output-dir ../logs/coverage/workspace
 
 # Run coverage for a specific crate
 test-crate-coverage crate:
-    cd backend && cargo llvm-cov -p {{crate}} --html --output-dir ../logs/coverage/{{crate}}
+    cd {{root}}/backend && cargo llvm-cov -p {{crate}} --html --output-dir ../logs/coverage/{{crate}}
     
 lint:
     @echo "=== Backend === "
     @echo "Checking code..."
-    cd backend && cargo check --workspace
+    cd {{root}}/backend && cargo check --workspace --tests
     @echo "Checking formatting..."
-    cd backend && cargo fmt --all
+    cd {{root}}/backend && cargo fmt --all --check
     @echo "Running clippy..."
-    cd backend && cargo clippy --allow-dirty --allow-staged --fix --workspace -- -D warnings
+    cd {{root}}/backend && cargo clippy --workspace --all-targets -- -D warnings
 
 # Lint frontend only
 lint-frontend:
-    cd frontend && pnpm lint
+    cd {{root}}/frontend && pnpm lint
+
+# Type-check frontend only
+typecheck-frontend:
+    cd {{root}}/frontend && pnpm typecheck
 
 # Format frontend only
 fmt-frontend:
-    cd frontend && pnpm format
+    cd {{root}}/frontend && pnpm format
+
+# Build the unified Railway Docker image
+build-docker:
+    docker build --pull --tag televent:ci {{root}}
 
 # Reset database (drop, create, migrate)
 # Reset database (Supabase db reset)
 db-reset:
     @echo "Resetting database..."
-    cd infrastructure && npx -y supabase db reset
+    cd {{root}}/infrastructure && npx -y supabase db reset
     @echo "Applying SQLx migrations..."
-    cd backend && sqlx migrate run
+    cd {{root}}/backend && sqlx migrate run
     @echo "✅ Database reset complete"
     
-# Generate TypeScript types from Rust models
+# Generate TypeScript types from API OpenAPI DTOs
 gen-types:
-    @echo "Generating TypeScript types..."
-    cd backend && typeshare . --lang=typescript --output-file=../frontend/src/types/schema.ts
+    @echo "Generating OpenAPI JSON..."
+    cd {{root}}/backend && cargo test -p api --lib tests::export_openapi_json -- --nocapture
+    @echo "Generating TypeScript API types..."
+    node {{root}}/frontend/scripts/generate-schema.mjs
     @echo "✅ Types generated to frontend/src/types/schema.ts"
 
 # Generate OpenAPI JSON
 gen-openapi:
     @echo "Generating OpenAPI JSON..."
-    cd backend && cargo test -p api --lib tests::export_openapi_json -- --nocapture
+    cd {{root}}/backend && cargo test -p api --lib tests::export_openapi_json -- --nocapture
     @echo "✅ OpenAPI JSON generated to docs/openapi.json"
 
 upgrade:
-    cd backend && cargo upgrade --incompatible --recursive
-    cd backend && cargo machete --fix --no-ignore
-    cd backend && cargo update
+    cd {{root}}/backend && cargo upgrade --incompatible --recursive
+    cd {{root}}/backend && cargo machete --fix --no-ignore
+    cd {{root}}/backend && cargo update
     
 # cargo msrv find --write-msrv --min 1.88
 
 # Upgrade frontend dependencies to bleeding edge
 upgrade-frontend:
     # 1. Upgrade (Equivalent to `cargo upgrade --incompatible`)
-    pnpm up -r --latest
+    cd {{root}}/frontend && pnpm up -r --latest
     # 2. Machete (Equivalent to `cargo machete`)
-    npx depcheck
+    cd {{root}}/frontend && npx depcheck
     # 3. Update (Equivalent to `cargo update`)
-    pnpm install
+    cd {{root}}/frontend && pnpm install

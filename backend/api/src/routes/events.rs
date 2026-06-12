@@ -1,6 +1,6 @@
 //! Event REST API endpoints
 
-use crate::{db, error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
+use crate::{error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
 use axum::{
     Extension, Json, Router,
     extract::{FromRef, Path, Query, State},
@@ -8,15 +8,14 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
 };
-use chrono::{DateTime, Utc};
-use serde::Deserialize;
-use sqlx::PgPool;
-use televent_core::models::{Event, EventStatus, Timezone};
-use televent_core::validation::{
-    MAX_DESCRIPTION_LENGTH, MAX_LOCATION_LENGTH, MAX_RRULE_LENGTH, MAX_SUMMARY_LENGTH,
-    MAX_UID_LENGTH, validate_length, validate_no_control_chars, validate_safe_multiline_text,
+use chrono::{DateTime, NaiveDate, Utc};
+use serde::{Deserialize, Deserializer, Serialize};
+use televent_application::{CalendarService, CreateEventCommand, EventView, UpdateEventCommand};
+use televent_domain::{
+    EventStatus as DomainEventStatus, EventTiming, MAX_DESCRIPTION_LENGTH, MAX_LOCATION_LENGTH,
+    MAX_RRULE_LENGTH, MAX_SUMMARY_LENGTH, MAX_UID_LENGTH, Timezone, validate_length,
+    validate_no_control_chars, validate_rrule, validate_safe_multiline_text,
 };
-use typeshare::typeshare;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -24,7 +23,6 @@ use uuid::Uuid;
 const MAX_EVENTS_LIMIT: i64 = 1000;
 
 /// Create event request
-#[typeshare]
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateEventRequest {
     /// iCalendar UID (stable across syncs)
@@ -37,19 +35,49 @@ pub struct CreateEventRequest {
     pub description: Option<String>,
     /// Event location
     pub location: Option<String>,
-    /// Start time (for timed events)
-    #[typeshare(serialized_as = "string")]
-    pub start: DateTime<Utc>,
-    /// End time (for timed events)
-    #[typeshare(serialized_as = "string")]
-    pub end: DateTime<Utc>,
-    /// Whether this is an all-day event
-    pub is_all_day: bool,
-    /// IANA timezone name
-    pub timezone: Timezone,
+    /// Event timing discriminator
+    pub timing: EventTimingRequest,
     /// RFC 5545 recurrence rule
     #[schema(example = "FREQ=WEEKLY;BYDAY=MO")]
     pub rrule: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EventTimingRequest {
+    Timed {
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        timezone: String,
+    },
+    AllDay {
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    },
+}
+
+impl EventTimingRequest {
+    fn into_domain(self) -> Result<EventTiming, ApiError> {
+        match self {
+            Self::Timed {
+                start,
+                end,
+                timezone,
+            } => Ok(EventTiming::Timed {
+                start,
+                end,
+                timezone: Timezone::parse(timezone)
+                    .map_err(|e| ApiError::BadRequest(e.to_string()))?,
+            }),
+            Self::AllDay {
+                start_date,
+                end_date,
+            } => Ok(EventTiming::AllDay {
+                start_date,
+                end_date,
+            }),
+        }
+    }
 }
 
 impl CreateEventRequest {
@@ -77,6 +105,7 @@ impl CreateEventRequest {
         if let Some(rrule) = &self.rrule {
             validate_length("RRule", rrule, MAX_RRULE_LENGTH).map_err(ApiError::BadRequest)?;
             validate_no_control_chars("RRule", rrule).map_err(ApiError::BadRequest)?;
+            validate_rrule(rrule).map_err(|err| ApiError::BadRequest(err.to_string()))?;
         }
 
         Ok(())
@@ -84,19 +113,17 @@ impl CreateEventRequest {
 }
 
 /// Update event request
-#[typeshare]
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateEventRequest {
     pub summary: Option<String>,
-    pub description: Option<String>,
-    pub location: Option<String>,
-    #[typeshare(serialized_as = "string")]
-    pub start: Option<DateTime<Utc>>,
-    #[typeshare(serialized_as = "string")]
-    pub end: Option<DateTime<Utc>>,
-    pub is_all_day: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_nullable_update")]
+    pub description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_update")]
+    pub location: Option<Option<String>>,
+    pub timing: Option<EventTimingRequest>,
     pub status: Option<EventStatus>,
-    pub rrule: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable_update")]
+    pub rrule: Option<Option<String>>,
 }
 
 impl UpdateEventRequest {
@@ -107,51 +134,146 @@ impl UpdateEventRequest {
             validate_no_control_chars("Summary", summary).map_err(ApiError::BadRequest)?;
         }
 
-        if let Some(description) = &self.description {
+        if let Some(Some(description)) = &self.description {
             validate_length("Description", description, MAX_DESCRIPTION_LENGTH)
                 .map_err(ApiError::BadRequest)?;
             validate_safe_multiline_text("Description", description)
                 .map_err(ApiError::BadRequest)?;
         }
 
-        if let Some(location) = &self.location {
+        if let Some(Some(location)) = &self.location {
             validate_length("Location", location, MAX_LOCATION_LENGTH)
                 .map_err(ApiError::BadRequest)?;
             validate_no_control_chars("Location", location).map_err(ApiError::BadRequest)?;
         }
 
-        if let Some(rrule) = &self.rrule {
+        if let Some(Some(rrule)) = &self.rrule {
             validate_length("RRule", rrule, MAX_RRULE_LENGTH).map_err(ApiError::BadRequest)?;
             validate_no_control_chars("RRule", rrule).map_err(ApiError::BadRequest)?;
+            validate_rrule(rrule).map_err(|err| ApiError::BadRequest(err.to_string()))?;
         }
 
         Ok(())
     }
 }
 
+fn deserialize_nullable_update<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum EventStatus {
+    Confirmed,
+    Tentative,
+    Cancelled,
+}
+
+impl EventStatus {
+    fn into_domain(self) -> DomainEventStatus {
+        match self {
+            Self::Confirmed => DomainEventStatus::Confirmed,
+            Self::Tentative => DomainEventStatus::Tentative,
+            Self::Cancelled => DomainEventStatus::Cancelled,
+        }
+    }
+}
+
+impl From<DomainEventStatus> for EventStatus {
+    fn from(value: DomainEventStatus) -> Self {
+        match value {
+            DomainEventStatus::Confirmed => Self::Confirmed,
+            DomainEventStatus::Tentative => Self::Tentative,
+            DomainEventStatus::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
 /// List events query parameters
-#[typeshare]
 #[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ListEventsQuery {
     /// Filter events starting after this time
-    #[typeshare(serialized_as = "string")]
     pub start: Option<DateTime<Utc>>,
     /// Filter events ending before this time
-    #[typeshare(serialized_as = "string")]
     pub end: Option<DateTime<Utc>>,
     /// Maximum number of events to return
     #[schema(default = 100)]
-    #[typeshare(serialized_as = "number")]
     pub limit: Option<i64>,
     /// Number of events to skip
     #[schema(default = 0)]
-    #[typeshare(serialized_as = "number")]
     pub offset: Option<i64>,
 }
 
-/// Event response (same as Event model)
-#[typeshare]
-pub type EventResponse = Event;
+/// Public REST event response.
+///
+/// This intentionally hides storage/sync internals such as ETag, sync version,
+/// DB timestamps, owner ID, and optimistic-locking version.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct EventResponse {
+    pub id: Uuid,
+    pub uid: String,
+    pub summary: String,
+    pub description: Option<String>,
+    pub location: Option<String>,
+    pub start: Option<DateTime<Utc>>,
+    pub end: Option<DateTime<Utc>>,
+    pub start_date: Option<NaiveDate>,
+    pub end_date: Option<NaiveDate>,
+    pub is_all_day: bool,
+    pub status: EventStatus,
+    pub timezone: String,
+    pub rrule: Option<String>,
+}
+
+impl From<EventView> for EventResponse {
+    fn from(event: EventView) -> Self {
+        let (start, end, start_date, end_date, is_all_day, timezone) = match event.timing {
+            EventTiming::Timed {
+                start,
+                end,
+                timezone,
+            } => (
+                Some(start),
+                Some(end),
+                None,
+                None,
+                false,
+                timezone.as_str().to_string(),
+            ),
+            EventTiming::AllDay {
+                start_date,
+                end_date,
+            } => (
+                None,
+                None,
+                Some(start_date),
+                Some(end_date),
+                true,
+                "UTC".to_string(),
+            ),
+        };
+
+        Self {
+            id: event.id,
+            uid: event.uid,
+            summary: event.summary,
+            description: event.description,
+            location: event.location,
+            start,
+            end,
+            start_date,
+            end_date,
+            is_all_day,
+            status: event.status.into(),
+            timezone,
+            rrule: event.rrule,
+        }
+    }
+}
 
 /// Create a new event
 #[utoipa::path(
@@ -169,39 +291,26 @@ pub type EventResponse = Event;
     )
 )]
 async fn create_event(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Json(req): Json<CreateEventRequest>,
 ) -> Result<Response, ApiError> {
     req.validate()?;
-    use crate::db::events::EventTiming;
+    let event = calendar
+        .create_event_view(CreateEventCommand {
+            user_id: auth_user.id,
+            username: auth_user.username,
+            uid: req.uid,
+            summary: req.summary,
+            description: req.description,
+            location: req.location,
+            timing: req.timing.into_domain()?,
+            status: DomainEventStatus::Confirmed,
+            rrule: req.rrule,
+        })
+        .await?;
 
-    let timing = if req.is_all_day {
-        EventTiming::AllDay {
-            date: req.start.date_naive(),
-            end_date: req.end.date_naive(),
-        }
-    } else {
-        EventTiming::Timed {
-            start: req.start,
-            end: req.end,
-        }
-    };
-
-    let event = db::events::create_event(
-        &pool,
-        auth_user.id,
-        req.uid,
-        req.summary,
-        req.description,
-        req.location,
-        timing,
-        req.timezone,
-        req.rrule,
-    )
-    .await?;
-
-    Ok((StatusCode::CREATED, Json(event)).into_response())
+    Ok((StatusCode::CREATED, Json(EventResponse::from(event))).into_response())
 }
 
 /// Get event by ID
@@ -222,20 +331,17 @@ async fn create_event(
     )
 )]
 async fn get_event(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Path(event_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let event = db::events::get_event(&pool, auth_user.id, event_id).await?;
-
     // Check content negotiation
     if let Some(accept) = headers.get(header::ACCEPT)
         && let Ok(accept_str) = accept.to_str()
         && accept_str.contains("text/calendar")
     {
-        let attendees = db::events::get_event_attendees(&pool, event_id).await?;
-        let ical = super::ical::event_to_ical(&event, &attendees)?;
+        let rendered = calendar.render_event_ical(auth_user.id, event_id).await?;
 
         return Ok((
             StatusCode::OK,
@@ -243,12 +349,14 @@ async fn get_event(
                 header::CONTENT_TYPE,
                 "text/calendar; charset=utf-8".to_string(),
             )],
-            ical,
+            rendered.body,
         )
             .into_response());
     }
 
-    Ok(Json(event).into_response())
+    let event = calendar.get_event_view(auth_user.id, event_id).await?;
+
+    Ok(Json(EventResponse::from(event)).into_response())
 }
 
 /// List events
@@ -266,7 +374,7 @@ async fn get_event(
     )
 )]
 async fn list_events(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Query(query): Query<ListEventsQuery>,
 ) -> Result<Json<Vec<EventResponse>>, ApiError> {
@@ -274,16 +382,16 @@ async fn list_events(
     let limit = query.limit.unwrap_or(100).clamp(1, MAX_EVENTS_LIMIT);
     let offset = query.offset.unwrap_or(0);
 
-    let events = db::events::list_events(
-        &pool,
-        auth_user.id,
-        query.start,
-        query.end,
-        Some(limit),
-        Some(offset),
-    )
-    .await?;
-    Ok(Json(events))
+    let events = calendar
+        .list_event_views(
+            auth_user.id,
+            query.start,
+            query.end,
+            Some(limit),
+            Some(offset),
+        )
+        .await?;
+    Ok(Json(events.into_iter().map(EventResponse::from).collect()))
 }
 
 /// Update event
@@ -306,51 +414,29 @@ async fn list_events(
     )
 )]
 async fn update_event(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Path(event_id): Path<Uuid>,
     Json(req): Json<UpdateEventRequest>,
 ) -> Result<Json<EventResponse>, ApiError> {
     req.validate()?;
 
-    // Get current event to determine how to set date fields
-    let current = db::events::get_event(&pool, auth_user.id, event_id).await?;
-    let is_all_day = req.is_all_day.unwrap_or(current.is_all_day);
-
-    // Determine start_date/end_date based on is_all_day
-    let (start, end, start_date, end_date) = if is_all_day {
-        // For all-day events, use date fields
-        let sd = req.start.map(|s| s.date_naive()).or(current.start_date);
-        let ed = req.end.map(|e| e.date_naive()).or(current.end_date);
-        (None, None, sd, ed)
-    } else {
-        // For timed events, use time fields
-        let s = req.start.or(current.start);
-        let e = req.end.or(current.end);
-        (s, e, None, None)
-    };
-
-    let mut conn = pool
-        .acquire()
-        .await
-        .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?;
-
-    let event = db::events::update_event(
-        &mut conn,
-        current,
-        req.summary,
-        req.description,
-        req.location,
-        start,
-        end,
-        start_date,
-        end_date,
-        req.is_all_day,
-        req.status,
-        req.rrule,
-    )
-    .await?;
-    Ok(Json(event))
+    let event = calendar
+        .update_event_view(UpdateEventCommand {
+            user_id: auth_user.id,
+            event_id,
+            summary: req.summary,
+            description: req.description,
+            location: req.location,
+            timing: req
+                .timing
+                .map(EventTimingRequest::into_domain)
+                .transpose()?,
+            status: req.status.map(EventStatus::into_domain),
+            rrule: req.rrule,
+        })
+        .await?;
+    Ok(Json(EventResponse::from(event)))
 }
 
 /// Delete event
@@ -358,7 +444,7 @@ async fn update_event(
     delete,
     path = "/events/{id}",
     responses(
-        (status = 201, description = "Event deleted successfully"),
+        (status = 204, description = "Event deleted successfully"),
         (status = 404, description = "Event not found"),
         (status = 401, description = "Unauthorized")
     ),
@@ -371,11 +457,11 @@ async fn update_event(
     )
 )]
 async fn delete_event_handler(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
     Path(event_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    db::events::delete_event(&pool, auth_user.id, event_id).await?;
+    calendar.delete_event_by_id(auth_user.id, event_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -383,7 +469,7 @@ async fn delete_event_handler(
 pub fn routes<S>() -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
-    PgPool: FromRef<S>,
+    CalendarService: FromRef<S>,
 {
     Router::new()
         .route("/events", post(create_event))
@@ -404,16 +490,18 @@ mod tests {
             "summary": "Test Event",
             "description": "Test Description",
             "location": "Test Location",
-            "start": "2026-01-18T10:00:00Z",
-            "end": "2026-01-18T11:00:00Z",
-            "is_all_day": false,
-            "timezone": "UTC",
+            "timing": {
+                "kind": "timed",
+                "start": "2026-01-18T10:00:00Z",
+                "end": "2026-01-18T11:00:00Z",
+                "timezone": "UTC"
+            },
             "rrule": null
         }"#;
 
         let req: CreateEventRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.summary, "Test Event");
-        assert_eq!(req.timezone.to_string(), "UTC");
+        assert!(matches!(req.timing, EventTimingRequest::Timed { .. }));
         assert_eq!(req.description, Some("Test Description".to_string()));
         assert!(req.rrule.is_none());
     }
@@ -427,7 +515,22 @@ mod tests {
         let req: UpdateEventRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.summary, Some("Updated Summary".to_string()));
         assert!(req.description.is_none());
-        assert!(req.start.is_none());
+        assert!(req.timing.is_none());
+    }
+
+    #[test]
+    fn test_update_event_request_nullable_fields_distinguish_null_from_missing() {
+        let json = r#"{
+            "description": null,
+            "location": "Room 1",
+            "rrule": null
+        }"#;
+
+        let req: UpdateEventRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.description, Some(None));
+        assert_eq!(req.location, Some(Some("Room 1".to_string())));
+        assert_eq!(req.rrule, Some(None));
+        assert!(req.summary.is_none());
     }
 
     #[test]
@@ -461,10 +564,11 @@ mod tests {
             summary: "Valid Summary".to_string(),
             description: Some("Valid Description".to_string()),
             location: Some("Valid Location".to_string()),
-            start: Utc::now(),
-            end: Utc::now(),
-            is_all_day: false,
-            timezone: televent_core::models::Timezone::default(),
+            timing: EventTimingRequest::Timed {
+                start: Utc::now(),
+                end: Utc::now(),
+                timezone: "UTC".to_string(),
+            },
             rrule: None,
         };
         assert!(req.validate().is_ok());
@@ -477,10 +581,11 @@ mod tests {
             summary: "Valid Summary".to_string(),
             description: None,
             location: None,
-            start: Utc::now(),
-            end: Utc::now(),
-            is_all_day: false,
-            timezone: televent_core::models::Timezone::default(),
+            timing: EventTimingRequest::Timed {
+                start: Utc::now(),
+                end: Utc::now(),
+                timezone: "UTC".to_string(),
+            },
             rrule: None,
         };
         assert!(req.validate().is_err());
@@ -490,10 +595,11 @@ mod tests {
             summary: "a".repeat(MAX_SUMMARY_LENGTH + 1),
             description: None,
             location: None,
-            start: Utc::now(),
-            end: Utc::now(),
-            is_all_day: false,
-            timezone: televent_core::models::Timezone::default(),
+            timing: EventTimingRequest::Timed {
+                start: Utc::now(),
+                end: Utc::now(),
+                timezone: "UTC".to_string(),
+            },
             rrule: None,
         };
         assert!(req.validate().is_err());
@@ -506,10 +612,11 @@ mod tests {
             summary: "Invalid\nSummary".to_string(),
             description: None,
             location: None,
-            start: Utc::now(),
-            end: Utc::now(),
-            is_all_day: false,
-            timezone: televent_core::models::Timezone::default(),
+            timing: EventTimingRequest::Timed {
+                start: Utc::now(),
+                end: Utc::now(),
+                timezone: "UTC".to_string(),
+            },
             rrule: None,
         };
         assert!(req.validate().is_err());
@@ -519,10 +626,11 @@ mod tests {
             summary: "Valid Summary".to_string(),
             description: Some("Valid\nDescription".to_string()),
             location: None,
-            start: Utc::now(),
-            end: Utc::now(),
-            is_all_day: false,
-            timezone: televent_core::models::Timezone::default(),
+            timing: EventTimingRequest::Timed {
+                start: Utc::now(),
+                end: Utc::now(),
+                timezone: "UTC".to_string(),
+            },
             rrule: None,
         };
         assert!(req.validate().is_ok());
@@ -532,10 +640,11 @@ mod tests {
             summary: "Valid Summary".to_string(),
             description: Some("Invalid\x07Description".to_string()),
             location: None,
-            start: Utc::now(),
-            end: Utc::now(),
-            is_all_day: false,
-            timezone: televent_core::models::Timezone::default(),
+            timing: EventTimingRequest::Timed {
+                start: Utc::now(),
+                end: Utc::now(),
+                timezone: "UTC".to_string(),
+            },
             rrule: None,
         };
         assert!(req.validate().is_err());
@@ -547,9 +656,7 @@ mod tests {
             summary: Some("a".repeat(MAX_SUMMARY_LENGTH + 1)),
             description: None,
             location: None,
-            start: None,
-            end: None,
-            is_all_day: None,
+            timing: None,
             status: None,
             rrule: None,
         };
@@ -559,13 +666,47 @@ mod tests {
             summary: Some("Valid".to_string()),
             description: None,
             location: None,
-            start: None,
-            end: None,
-            is_all_day: None,
+            timing: None,
             status: None,
             rrule: None,
         };
         assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn test_event_response_hides_storage_fields() {
+        let now = Utc::now();
+        let event = EventView {
+            id: Uuid::new_v4(),
+            uid: "uid-1".to_string(),
+            summary: "Public Event".to_string(),
+            description: None,
+            location: None,
+            timing: EventTiming::Timed {
+                start: now,
+                end: now + chrono::Duration::hours(1),
+                timezone: Timezone::utc(),
+            },
+            status: DomainEventStatus::Confirmed,
+            rrule: None,
+        };
+
+        let value = serde_json::to_value(EventResponse::from(event)).unwrap();
+        let object = value.as_object().unwrap();
+
+        for hidden_field in [
+            "user_id",
+            "version",
+            "sync_version",
+            "etag",
+            "created_at",
+            "updated_at",
+        ] {
+            assert!(
+                !object.contains_key(hidden_field),
+                "{hidden_field} leaked in EventResponse"
+            );
+        }
     }
 
     #[test]
@@ -575,11 +716,29 @@ mod tests {
             summary: "Valid Summary".to_string(),
             description: None,
             location: None,
-            start: Utc::now(),
-            end: Utc::now(),
-            is_all_day: false,
-            timezone: televent_core::models::Timezone::default(),
+            timing: EventTimingRequest::Timed {
+                start: Utc::now(),
+                end: Utc::now(),
+                timezone: "UTC".to_string(),
+            },
             rrule: Some("FREQ=DAILY\r\nATTENDEE:EVIL".to_string()),
+        };
+        assert!(req.validate().is_err());
+    }
+
+    #[test]
+    fn test_create_event_validation_invalid_rrule() {
+        let req = CreateEventRequest {
+            uid: "valid-uid".to_string(),
+            summary: "Valid Summary".to_string(),
+            description: None,
+            location: None,
+            timing: EventTimingRequest::Timed {
+                start: Utc::now(),
+                end: Utc::now(),
+                timezone: "UTC".to_string(),
+            },
+            rrule: Some("INVALID=TRUE".to_string()),
         };
         assert!(req.validate().is_err());
     }

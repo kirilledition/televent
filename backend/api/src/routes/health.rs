@@ -8,7 +8,7 @@ use axum::{
     routing::get,
 };
 use serde::Serialize;
-use sqlx::PgPool;
+use televent_application::HealthService;
 use utoipa::ToSchema;
 
 /// Health check response
@@ -34,10 +34,10 @@ pub struct HealthResponse {
     ),
     tag = "health"
 )]
-async fn health_check(State(pool): State<PgPool>) -> Response {
+async fn health_check(State(health): State<HealthService>) -> Response {
     // Check database connectivity
-    let db_status = match sqlx::query("SELECT 1").fetch_one(&pool).await {
-        Ok(_) => "healthy",
+    let db_status = match health.check_database().await {
+        Ok(()) => "healthy",
         Err(e) => {
             tracing::error!("Database health check failed: {}", e);
             "unhealthy"
@@ -67,7 +67,7 @@ async fn health_check(State(pool): State<PgPool>) -> Response {
 pub fn routes<S>() -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
-    PgPool: FromRef<S>,
+    HealthService: FromRef<S>,
 {
     Router::new().route("/health", get(health_check))
 }

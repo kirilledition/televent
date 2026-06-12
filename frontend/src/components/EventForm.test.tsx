@@ -18,7 +18,7 @@ vi.mock('next/navigation', () => ({
 
 // Mock API
 vi.mock('@/lib/api', async (importOriginal) => {
-  const actual = await importOriginal()
+  const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
     api: {
@@ -91,17 +91,17 @@ describe('EventForm', () => {
     const initialData = {
       id: '1',
       summary: 'Existing Event',
+      description: null,
+      location: null,
       start: '2023-10-01T10:00:00',
       end: '2023-10-01T11:00:00',
+      start_date: null,
+      end_date: null,
       is_all_day: false,
       timezone: 'UTC',
-      version: 1,
-      etag: '1',
-      created_at: '2023-09-01T00:00:00Z',
-      updated_at: '2023-09-01T00:00:00Z',
       status: 'Confirmed',
       uid: 'uid-1',
-      user_id: 'u1',
+      rrule: null,
     } as any
 
     ;(api.updateEvent as any).mockResolvedValue({})
@@ -124,6 +124,47 @@ describe('EventForm', () => {
         '1',
         expect.objectContaining({
           summary: 'Updated Event',
+        })
+      )
+    })
+  })
+
+  it('preserves an existing multi-day all-day span when updating', async () => {
+    const initialData = {
+      id: '1',
+      summary: 'Company Offsite',
+      description: null,
+      location: null,
+      start: null,
+      end: null,
+      start_date: '2023-10-01',
+      end_date: '2023-10-04',
+      is_all_day: true,
+      timezone: 'UTC',
+      status: 'Confirmed',
+      uid: 'uid-1',
+      rrule: null,
+    } as any
+
+    ;(api.updateEvent as any).mockResolvedValue({})
+
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <EventForm initialData={initialData} isEditing={true} />
+      </QueryClientProvider>
+    )
+
+    fireEvent.click(screen.getByText('Update Event'))
+
+    await waitFor(() => {
+      expect(api.updateEvent).toHaveBeenCalledWith(
+        '1',
+        expect.objectContaining({
+          timing: {
+            kind: 'all_day',
+            start_date: '2023-10-01',
+            end_date: '2023-10-04',
+          },
         })
       )
     })

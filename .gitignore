@@ -29,6 +29,7 @@ debug
 .env.staging
 .env.backup
 *.env.backup
+!.env.example
 
 # SQLx
 

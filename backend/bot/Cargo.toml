@@ -5,19 +5,16 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
+autobins = false
 
 [lib]
 name = "bot"
 path = "src/lib.rs"
 
-[[bin]]
-name = "bot"
-path = "src/main.rs"
-
 [dependencies]
 # Internal
-televent-core = { path = "../core" }
-televent-shared = { path = "../shared" }
+televent-application = { path = "../application" }
+televent-domain = { path = "../domain" }
 
 # Core
 tokio.workspace = true
@@ -28,9 +25,6 @@ uuid.workspace = true
 # Telegram bot
 teloxide.workspace = true
 
-# Database
-sqlx.workspace = true
-
 # Date/Time
 chrono.workspace = true
 chrono-english.workspace = true
@@ -38,13 +32,10 @@ chrono-english.workspace = true
 # Logging
 tracing.workspace = true
 
-# Security
-sha2.workspace = true
-argon2.workspace = true
-rand.workspace = true
 thiserror.workspace = true
 
 # iCalendar
 
 [dev-dependencies]
-teloxide_tests.workspace = true
+televent-storage = { path = "../storage" }
+sqlx.workspace = true

@@ -34,31 +34,31 @@ impl KeyExtractor for UserOrIpKeyExtractor {
             return Ok(RateLimitKey::User(*user_id));
         }
 
-        let headers = req.headers();
+        if trust_proxy_headers() {
+            let headers = req.headers();
 
-        // 1. Try X-Forwarded-For (standard for proxies like Nginx/Railway)
-        if let Some(header) = headers.get("x-forwarded-for")
-            && let Ok(val) = header.to_str()
-        {
-            // Security: Use the *last* valid IP in the list.
-            // X-Forwarded-For appends IPs: "Client, Proxy1, Proxy2".
-            // The last IP is the one that connected to the immediate trusted proxy (e.g. Railway LB).
-            // Taking the first IP allows spoofing (e.g., "SpoofedIP, RealIP").
-            if let Some(ip) = val
-                .split(',')
-                .rev()
-                .find_map(|s| s.trim().parse::<IpAddr>().ok())
+            // 1. Try X-Forwarded-For (standard for proxies like Nginx/Railway)
+            if let Some(header) = headers.get("x-forwarded-for")
+                && let Ok(val) = header.to_str()
+            {
+                // Security: Use the *last* valid IP in the list.
+                // X-Forwarded-For appends IPs: "Client, Proxy1, Proxy2".
+                if let Some(ip) = val
+                    .split(',')
+                    .rev()
+                    .find_map(|s| s.trim().parse::<IpAddr>().ok())
+                {
+                    return Ok(RateLimitKey::Ip(ip));
+                }
+            }
+
+            // 2. Try X-Real-IP (trusted proxy set header)
+            if let Some(header) = headers.get("x-real-ip")
+                && let Ok(val) = header.to_str()
+                && let Ok(ip) = val.trim().parse::<IpAddr>()
             {
                 return Ok(RateLimitKey::Ip(ip));
             }
-        }
-
-        // 2. Try X-Real-IP (trusted proxy set header)
-        if let Some(header) = headers.get("x-real-ip")
-            && let Ok(val) = header.to_str()
-            && let Ok(ip) = val.trim().parse::<IpAddr>()
-        {
-            return Ok(RateLimitKey::Ip(ip));
         }
 
         // 3. Fallback to direct connection IP
@@ -67,6 +67,29 @@ impl KeyExtractor for UserOrIpKeyExtractor {
         }
 
         Err(GovernorError::UnableToExtractKey)
+    }
+}
+
+fn trust_proxy_headers() -> bool {
+    #[cfg(test)]
+    {
+        true
+    }
+
+    #[cfg(not(test))]
+    {
+        if std::env::var("RAILWAY_ENVIRONMENT").is_ok() {
+            return true;
+        }
+
+        std::env::var("TRUST_PROXY_HEADERS")
+            .map(|value| {
+                matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false)
     }
 }
 

@@ -1,15 +1,44 @@
 //! iCalendar format serialization/deserialization
 //!
-//! Converts between our Event model and iCalendar (RFC 5545) format
+//! Converts between application calendar data and iCalendar (RFC 5545) format
 
 use chrono::{DateTime, Utc};
 use ical::parser::ical::component::IcalEvent;
-use televent_core::models::{Event, EventAttendee, EventStatus, ParticipationStatus};
+use televent_domain::{EventStatus, EventTiming, ParticipationStatus};
 
-use crate::error::ApiError;
+use crate::ApplicationError;
 
-/// Convert our Event model to iCalendar format
-pub fn event_to_ical(event: &Event, attendees: &[EventAttendee]) -> Result<String, ApiError> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IcalEventRender {
+    pub uid: String,
+    pub summary: String,
+    pub description: Option<String>,
+    pub location: Option<String>,
+    pub timing: EventTiming,
+    pub status: EventStatus,
+    pub rrule: Option<String>,
+    pub sequence: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IcalAttendeeRender {
+    pub email: String,
+    pub status: ParticipationStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IcalCalendarEventRender {
+    pub event: IcalEventRender,
+    pub attendees: Vec<IcalAttendeeRender>,
+}
+
+/// Convert application event data to iCalendar format.
+pub fn event_to_ical(
+    event: &IcalEventRender,
+    attendees: &[IcalAttendeeRender],
+) -> Result<String, ApplicationError> {
     let mut buf = String::with_capacity(512);
     event_to_ical_into(event, attendees, &mut buf)?;
     Ok(buf)
@@ -19,17 +48,71 @@ pub fn event_to_ical(event: &Event, attendees: &[EventAttendee]) -> Result<Strin
 ///
 /// This avoids allocating a new String for the result if a buffer is reused.
 pub fn event_to_ical_into(
-    event: &Event,
-    attendees: &[EventAttendee],
+    event: &IcalEventRender,
+    attendees: &[IcalAttendeeRender],
     buf: &mut String,
-) -> Result<(), ApiError> {
+) -> Result<(), ApplicationError> {
     let mut writer = FoldedWriter::new(buf);
+    write_calendar_header(&mut writer, None, None)?;
+    write_vevent(&mut writer, event, attendees)?;
+    writer.write_line("END:VCALENDAR")?;
 
+    Ok(())
+}
+
+/// Convert multiple events to a single iCalendar export.
+pub fn calendar_to_ical(
+    events: &[IcalCalendarEventRender],
+    calendar_name: Option<&str>,
+    calendar_description: Option<&str>,
+) -> Result<String, ApplicationError> {
+    let mut buf = String::with_capacity(events.len() * 512 + 256);
+    calendar_to_ical_into(events, calendar_name, calendar_description, &mut buf)?;
+    Ok(buf)
+}
+
+pub fn calendar_to_ical_into(
+    events: &[IcalCalendarEventRender],
+    calendar_name: Option<&str>,
+    calendar_description: Option<&str>,
+    buf: &mut String,
+) -> Result<(), ApplicationError> {
+    let mut writer = FoldedWriter::new(buf);
+    write_calendar_header(&mut writer, calendar_name, calendar_description)?;
+
+    for item in events {
+        write_vevent(&mut writer, &item.event, &item.attendees)?;
+    }
+
+    writer.write_line("END:VCALENDAR")?;
+
+    Ok(())
+}
+
+fn write_calendar_header(
+    writer: &mut FoldedWriter<'_>,
+    calendar_name: Option<&str>,
+    calendar_description: Option<&str>,
+) -> Result<(), ApplicationError> {
     writer.write_line("BEGIN:VCALENDAR")?;
     writer.write_line("VERSION:2.0")?;
     writer.write_line("PRODID:-//Televent//Televent//EN")?;
     writer.write_line("CALSCALE:GREGORIAN")?;
+    if let Some(name) = calendar_name {
+        writer.write_property("X-WR-CALNAME", name)?;
+    }
+    if let Some(description) = calendar_description {
+        writer.write_property("X-WR-CALDESC", description)?;
+    }
 
+    Ok(())
+}
+
+fn write_vevent(
+    writer: &mut FoldedWriter<'_>,
+    event: &IcalEventRender,
+    attendees: &[IcalAttendeeRender],
+) -> Result<(), ApplicationError> {
     writer.write_line("BEGIN:VEVENT")?;
 
     // UID
@@ -52,14 +135,19 @@ pub fn event_to_ical_into(
     }
 
     // Start and end times
-    if event.is_all_day {
-        // All-day events use DATE format (no time component)
-        if let Some(start_date) = event.start_date {
-            writer.write_date_property("DTSTART;VALUE=DATE", &start_date)?;
+    match &event.timing {
+        EventTiming::AllDay {
+            start_date,
+            end_date,
+        } => {
+            // All-day events use DATE format (no time component)
+            writer.write_date_property("DTSTART;VALUE=DATE", start_date)?;
+            writer.write_date_property("DTEND;VALUE=DATE", end_date)?;
         }
-    } else if let (Some(start), Some(end)) = (event.start, event.end) {
-        writer.write_datetime_property("DTSTART", &start)?;
-        writer.write_datetime_property("DTEND", &end)?;
+        EventTiming::Timed { start, end, .. } => {
+            writer.write_datetime_property("DTSTART", start)?;
+            writer.write_datetime_property("DTEND", end)?;
+        }
     }
 
     // Status
@@ -93,7 +181,7 @@ pub fn event_to_ical_into(
 
     // Sequence
     // Optimization: Avoid allocating string for integer
-    writer.write_int_property("SEQUENCE", event.version)?;
+    writer.write_int_property("SEQUENCE", event.sequence)?;
 
     // Created
     writer.write_datetime_property("CREATED", &event.created_at)?;
@@ -102,7 +190,6 @@ pub fn event_to_ical_into(
     writer.write_datetime_property("LAST-MODIFIED", &event.updated_at)?;
 
     writer.write_line("END:VEVENT")?;
-    writer.write_line("END:VCALENDAR")?;
 
     Ok(())
 }
@@ -116,21 +203,25 @@ impl<'a> FoldedWriter<'a> {
         Self { buf }
     }
 
-    fn write_line(&mut self, line: &str) -> Result<(), ApiError> {
+    fn write_line(&mut self, line: &str) -> Result<(), ApplicationError> {
         self.buf.push_str(line);
         self.buf.push_str("\r\n");
         Ok(())
     }
 
-    fn write_property(&mut self, name: &str, value: &str) -> Result<(), ApiError> {
+    fn write_property(&mut self, name: &str, value: &str) -> Result<(), ApplicationError> {
         self.write_property_impl(name, value, true)
     }
 
-    fn write_property_no_escape(&mut self, name: &str, value: &str) -> Result<(), ApiError> {
+    fn write_property_no_escape(
+        &mut self,
+        name: &str,
+        value: &str,
+    ) -> Result<(), ApplicationError> {
         self.write_property_impl(name, value, false)
     }
 
-    fn write_safe_property(&mut self, name: &str, value: &str) -> Result<(), ApiError> {
+    fn write_safe_property(&mut self, name: &str, value: &str) -> Result<(), ApplicationError> {
         // Optimization: Write directly to buffer without escaping or folding checks.
         // Use ONLY for values known to be safe (no control chars) and short enough to fit on a line.
         self.buf.push_str(name);
@@ -144,14 +235,14 @@ impl<'a> FoldedWriter<'a> {
         &mut self,
         name: &str,
         value: T,
-    ) -> Result<(), ApiError> {
+    ) -> Result<(), ApplicationError> {
         // Optimization: Write directly to buffer using write! macro to avoid allocation
         self.buf.push_str(name);
         self.buf.push(':');
 
         use std::fmt::Write;
         write!(self.buf, "{}", value)
-            .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+            .map_err(|e| ApplicationError::Internal(format!("Format error: {}", e)))?;
 
         self.buf.push_str("\r\n");
         Ok(())
@@ -161,7 +252,7 @@ impl<'a> FoldedWriter<'a> {
         &mut self,
         name: &str,
         datetime: &DateTime<Utc>,
-    ) -> Result<(), ApiError> {
+    ) -> Result<(), ApplicationError> {
         // Optimization: Write directly to buffer without folding checks for value
         // as we know the value is safe (YYYYMMDDTHHmmssZ = 16 chars)
         // and doesn't contain characters needing escaping.
@@ -172,7 +263,7 @@ impl<'a> FoldedWriter<'a> {
         use std::fmt::Write;
         // DelayedFormat implements Display
         write!(self.buf, "{}", datetime.format("%Y%m%dT%H%M%SZ"))
-            .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+            .map_err(|e| ApplicationError::Internal(format!("Format error: {}", e)))?;
 
         self.buf.push_str("\r\n");
         Ok(())
@@ -182,14 +273,14 @@ impl<'a> FoldedWriter<'a> {
         &mut self,
         name: &str,
         date: &chrono::NaiveDate,
-    ) -> Result<(), ApiError> {
+    ) -> Result<(), ApplicationError> {
         // Optimization: Write directly to buffer
         self.buf.push_str(name);
         self.buf.push(':');
 
         use std::fmt::Write;
         write!(self.buf, "{}", date.format("%Y%m%d"))
-            .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+            .map_err(|e| ApplicationError::Internal(format!("Format error: {}", e)))?;
 
         self.buf.push_str("\r\n");
         Ok(())
@@ -200,7 +291,7 @@ impl<'a> FoldedWriter<'a> {
         name: &str,
         value: &str,
         escape: bool,
-    ) -> Result<(), ApiError> {
+    ) -> Result<(), ApplicationError> {
         self.buf.push_str(name);
         self.buf.push(':');
 
@@ -270,7 +361,7 @@ pub fn ical_to_event_data(
         EventStatus,
         String,
     ),
-    ApiError,
+    ApplicationError,
 > {
     let mut uid = None;
     let mut summary = None;
@@ -303,10 +394,10 @@ pub fn ical_to_event_data(
                         if key == "VALUE" && values.iter().any(|v| v == "DATE") {
                             is_all_day = true;
                         }
-                        if key == "TZID" {
-                            if let Some(tzid) = values.first() {
-                                timezone = tzid.clone();
-                            }
+                        if key == "TZID"
+                            && let Some(tzid) = values.first()
+                        {
+                            timezone = tzid.clone();
                         }
                     }
                 }
@@ -317,7 +408,7 @@ pub fn ical_to_event_data(
             }
             "RRULE" => {
                 if value.contains('\r') || value.contains('\n') {
-                    return Err(ApiError::BadRequest(
+                    return Err(ApplicationError::BadRequest(
                         "RRULE cannot contain control characters".to_string(),
                     ));
                 }
@@ -336,15 +427,17 @@ pub fn ical_to_event_data(
     }
 
     // Validate required fields
-    let uid = uid.ok_or_else(|| ApiError::BadRequest("UID is required".to_string()))?;
+    let uid = uid.ok_or_else(|| ApplicationError::BadRequest("UID is required".to_string()))?;
     let summary = summary.unwrap_or_else(|| "Untitled Event".to_string());
     let dtstart_str =
-        dtstart.ok_or_else(|| ApiError::BadRequest("DTSTART is required".to_string()))?;
+        dtstart.ok_or_else(|| ApplicationError::BadRequest("DTSTART is required".to_string()))?;
 
     // Parse datetimes
     let start = parse_datetime(&dtstart_str, is_all_day)?;
     let end = if let Some(dtend_str) = dtend {
         parse_datetime(&dtend_str, is_all_day)?
+    } else if is_all_day {
+        start + chrono::Duration::days(1)
     } else {
         // Default to 1 hour duration
         start + chrono::Duration::hours(1)
@@ -414,25 +507,29 @@ fn unescape_text(s: &str) -> String {
 }
 
 /// Parse a datetime string, handling both DATE and DATE-TIME formats
-fn parse_datetime(value: &str, is_all_day: bool) -> Result<DateTime<Utc>, ApiError> {
+fn parse_datetime(value: &str, is_all_day: bool) -> Result<DateTime<Utc>, ApplicationError> {
     if is_all_day {
         // DATE format: YYYYMMDD
         let date = chrono::NaiveDate::parse_from_str(value, "%Y%m%d")
-            .map_err(|e| ApiError::BadRequest(format!("Invalid DATE format: {}", e)))?;
+            .map_err(|e| ApplicationError::BadRequest(format!("Invalid DATE format: {}", e)))?;
         let datetime = date
             .and_hms_opt(0, 0, 0)
-            .ok_or_else(|| ApiError::BadRequest("Invalid time components".to_string()))?;
+            .ok_or_else(|| ApplicationError::BadRequest("Invalid time components".to_string()))?;
         Ok(datetime.and_utc())
     } else {
         // DATE-TIME format: YYYYMMDDTHHmmssZ or YYYYMMDDTHHmmss
         if value.ends_with('Z') {
             let dt = chrono::NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%SZ")
                 .or_else(|_| chrono::NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S"))
-                .map_err(|e| ApiError::BadRequest(format!("Invalid DATE-TIME format: {}", e)))?;
+                .map_err(|e| {
+                    ApplicationError::BadRequest(format!("Invalid DATE-TIME format: {}", e))
+                })?;
             Ok(dt.and_utc())
         } else {
-            let dt = chrono::NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S")
-                .map_err(|e| ApiError::BadRequest(format!("Invalid DATE-TIME format: {}", e)))?;
+            let dt =
+                chrono::NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S").map_err(|e| {
+                    ApplicationError::BadRequest(format!("Invalid DATE-TIME format: {}", e))
+                })?;
             Ok(dt.and_utc())
         }
     }
@@ -441,38 +538,35 @@ fn parse_datetime(value: &str, is_all_day: bool) -> Result<DateTime<Utc>, ApiErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use televent_core::models::UserId;
-    use uuid::Uuid;
     use ical::parser::ical::component::IcalEvent;
     use ical::property::Property;
 
     // Helper to parse ICS string to IcalEvent
     fn parse_ics(ics: &str) -> IcalEvent {
-         let parser = ical::IcalParser::new(std::io::Cursor::new(ics));
-         let calendar = parser.into_iter().next().expect("No calendar").expect("Parse error");
-         calendar.events.into_iter().next().expect("No event")
+        let parser = ical::IcalParser::new(std::io::Cursor::new(ics));
+        let calendar = parser
+            .into_iter()
+            .next()
+            .expect("No calendar")
+            .expect("Parse error");
+        calendar.events.into_iter().next().expect("No event")
     }
 
-    fn create_test_event() -> Event {
-        use televent_core::models::Timezone;
+    fn create_test_event() -> IcalEventRender {
         let now = Utc::now();
-        Event {
-            id: Uuid::new_v4(),
-            user_id: UserId::new(123456789),
+        IcalEventRender {
             uid: "test-event-123".to_string(),
-            version: 1,
-            etag: "abc123".to_string(),
             summary: "Test Event".to_string(),
             description: Some("Test Description".to_string()),
             location: Some("Test Location".to_string()),
-            start: Some(now),
-            end: Some(now + chrono::Duration::hours(1)),
-            start_date: None,
-            end_date: None,
-            is_all_day: false,
+            timing: EventTiming::Timed {
+                start: now,
+                end: now + chrono::Duration::hours(1),
+                timezone: televent_domain::Timezone::utc(),
+            },
             rrule: None,
             status: EventStatus::Confirmed,
-            timezone: Timezone::default(),
+            sequence: 1,
             created_at: now,
             updated_at: now,
         }
@@ -498,9 +592,10 @@ mod tests {
     #[test]
     fn test_event_to_ical_all_day() {
         let mut event = create_test_event();
-        event.is_all_day = true;
-        event.start_date = Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
-        event.end_date = Some(chrono::NaiveDate::from_ymd_opt(2024, 1, 2).unwrap());
+        event.timing = EventTiming::AllDay {
+            start_date: chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end_date: chrono::NaiveDate::from_ymd_opt(2024, 1, 2).unwrap(),
+        };
 
         let attendees = vec![];
         let ical = event_to_ical(&event, &attendees).unwrap();
@@ -509,6 +604,43 @@ mod tests {
         assert!(ical.contains("UID:test-event-123"));
         // All-day events should have DATE value
         assert!(ical.contains("DTSTART;VALUE=DATE:20240101"));
+        assert!(ical.contains("DTEND;VALUE=DATE:20240102"));
+    }
+
+    #[test]
+    fn test_calendar_to_ical_multiple_events() {
+        let timed_event = create_test_event();
+        let mut all_day_event = create_test_event();
+        all_day_event.uid = "all-day-event".to_string();
+        all_day_event.summary = "All Day Event".to_string();
+        all_day_event.timing = EventTiming::AllDay {
+            start_date: chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end_date: chrono::NaiveDate::from_ymd_opt(2024, 1, 3).unwrap(),
+        };
+
+        let ical = calendar_to_ical(
+            &[
+                IcalCalendarEventRender {
+                    event: timed_event,
+                    attendees: vec![],
+                },
+                IcalCalendarEventRender {
+                    event: all_day_event,
+                    attendees: vec![],
+                },
+            ],
+            Some("Televent Calendar"),
+            Some("Exported from Televent Telegram Bot"),
+        )
+        .unwrap();
+
+        assert_eq!(ical.matches("BEGIN:VCALENDAR").count(), 1);
+        assert_eq!(ical.matches("BEGIN:VEVENT").count(), 2);
+        assert!(ical.contains("X-WR-CALNAME:Televent Calendar"));
+        assert!(ical.contains("X-WR-CALDESC:Exported from Televent Telegram Bot"));
+        assert!(ical.contains("SUMMARY:All Day Event"));
+        assert!(ical.contains("DTSTART;VALUE=DATE:20240101"));
+        assert!(ical.contains("DTEND;VALUE=DATE:20240103"));
     }
 
     #[test]
@@ -553,23 +685,13 @@ mod tests {
     fn test_event_to_ical_with_attendees() {
         let event = create_test_event();
         let attendees = vec![
-            EventAttendee {
-                event_id: event.id,
+            IcalAttendeeRender {
                 email: "test@example.com".to_string(),
-                user_id: None,
-                role: televent_core::models::AttendeeRole::Attendee,
                 status: ParticipationStatus::Accepted,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
             },
-            EventAttendee {
-                event_id: event.id,
+            IcalAttendeeRender {
                 email: "decliner@example.com".to_string(),
-                user_id: None,
-                role: televent_core::models::AttendeeRole::Attendee,
                 status: ParticipationStatus::Declined,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
             },
         ];
 
@@ -642,6 +764,25 @@ UID:all-day-event
 SUMMARY:All Day Event
 DTSTART;VALUE=DATE:20240101
 DTEND;VALUE=DATE:20240102
+END:VEVENT
+END:VCALENDAR"#;
+
+        let event = parse_ics(ical_str);
+        let (_, _, _, _, start, end, is_all_day, _, _, _) = ical_to_event_data(&event).unwrap();
+
+        assert!(is_all_day);
+        assert_eq!(start.format("%Y%m%d").to_string(), "20240101");
+        assert_eq!(end.format("%Y%m%d").to_string(), "20240102");
+    }
+
+    #[test]
+    fn test_ical_to_event_data_all_day_defaults_to_one_day() {
+        let ical_str = r#"BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:all-day-event-no-end
+SUMMARY:All Day Event
+DTSTART;VALUE=DATE:20240101
 END:VEVENT
 END:VCALENDAR"#;
 
@@ -782,8 +923,15 @@ END:VCALENDAR"#;
         let attendees = vec![];
         let ical = event_to_ical(&event, &attendees).unwrap();
 
-        assert!(!ical.contains("\rATTENDEE"), "Output contained raw CR injection: {}", ical);
-        assert!(ical.contains("SUMMARY:HelloATTENDEE"), "CR should be stripped");
+        assert!(
+            !ical.contains("\rATTENDEE"),
+            "Output contained raw CR injection: {}",
+            ical
+        );
+        assert!(
+            ical.contains("SUMMARY:HelloATTENDEE"),
+            "CR should be stripped"
+        );
     }
 
     #[test]
@@ -813,7 +961,7 @@ END:VCALENDAR"#;
         let result = ical_to_event_data(&event);
         assert!(result.is_err());
         match result {
-            Err(ApiError::BadRequest(msg)) => {
+            Err(ApplicationError::BadRequest(msg)) => {
                 assert_eq!(msg, "RRULE cannot contain control characters")
             }
             _ => panic!("Expected BadRequest error"),
@@ -851,5 +999,4 @@ END:VCALENDAR"#;
         // Should be sanitized (stripped CR)
         assert_eq!(summary, "BadSummary");
     }
-
 }

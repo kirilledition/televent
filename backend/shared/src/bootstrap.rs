@@ -1,6 +1,5 @@
 use anyhow::Result;
 use sqlx::postgres::PgPoolOptions;
-use televent_core::config::CoreConfig;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Initialize dotenvy
@@ -38,18 +37,18 @@ pub fn init_tracing(service_name: &str) -> Option<tracing_appender::non_blocking
 }
 
 /// Initialize database pool
-pub async fn init_db(config: &CoreConfig) -> Result<sqlx::PgPool> {
+pub async fn init_db(database_url: &str, max_connections: u32) -> Result<sqlx::PgPool> {
     let pool = PgPoolOptions::new()
-        .max_connections(config.db_max_connections)
+        .max_connections(max_connections)
         .acquire_timeout(std::time::Duration::from_secs(10))
         .idle_timeout(std::time::Duration::from_secs(300))
         .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
-        .connect(&config.database_url)
+        .connect(database_url)
         .await?;
 
     tracing::info!(
         "✓ Database pool established (max_connections: {})",
-        config.db_max_connections
+        max_connections
     );
 
     Ok(pool)

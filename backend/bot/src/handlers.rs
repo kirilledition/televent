@@ -6,6 +6,7 @@ use crate::db::BotDb;
 use crate::event_parser::{format_example, parse_event_message};
 use anyhow::Result;
 use chrono::{Duration, Utc};
+use televent_domain::internal_email_for_telegram_id;
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 use teloxide::utils::html::escape;
@@ -105,18 +106,22 @@ pub async fn handle_device(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
 
             match db.generate_device_password(telegram_id, &device_name).await {
                 Ok(password) => {
+                    let base_url = std::env::var("PUBLIC_BASE_URL")
+                        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+                    let caldav_url = format!("{}/caldav", base_url.trim_end_matches('/'));
                     let response = format!(
                         "✅ <b>Device Password Created!</b>\n\n\
                          🏷️ Device: {}\n\
                          🔑 Password: <code>{}</code>\n\n\
                          <b>CalDAV Setup:</b>\n\
-                         Server: <code>https://your-domain.com/caldav</code>\n\
+                         Server: <code>{}</code>\n\
                          Username: <code>{}</code>\n\
                          Password: Use the password above\n\n\
                          ⚠️ <b>Important:</b> Save this password securely! \
                          You won't be able to see it again.",
                         escape(&device_name),
                         password,
+                        escape(&caldav_url),
                         telegram_id
                     );
 
@@ -259,27 +264,27 @@ pub async fn handle_export(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("No user in message"))?;
     let telegram_id = user.id.0 as i64;
 
-    // Fetch all events for the user
-    let events = db.get_all_events_for_user(telegram_id).await?;
+    let export = db.export_calendar_ics(telegram_id).await?;
 
-    if events.is_empty() {
+    if export.event_count == 0 {
         bot.send_message(msg.chat.id, "📅 You don't have any events to export yet.")
             .await?;
         return Ok(());
     }
 
-    // Generate ICS content
-    let ics_content = generate_ics(&events);
-
     // Send as file
     let file =
-        teloxide::types::InputFile::memory(ics_content.into_bytes()).file_name("calendar.ics");
+        teloxide::types::InputFile::memory(export.body.into_bytes()).file_name("calendar.ics");
 
     bot.send_document(msg.chat.id, file)
         .caption("📤 Here is your calendar export.")
         .await?;
 
-    tracing::info!("User {} exported {} events", telegram_id, events.len());
+    tracing::info!(
+        "User {} exported {} events",
+        telegram_id,
+        export.event_count
+    );
 
     Ok(())
 }
@@ -386,7 +391,6 @@ pub async fn handle_cancel(bot: Bot, msg: Message) -> Result<()> {
 
 /// Handle the /invite command
 pub async fn handle_invite(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
-    use televent_core::attendee::generate_internal_email;
     use uuid::Uuid;
 
     let user = msg
@@ -446,7 +450,7 @@ pub async fn handle_invite(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         let username = invitee_str.trim_start_matches('@');
         match db.find_user_by_username(username).await? {
             Some(user_info) => (
-                generate_internal_email(televent_core::models::UserId::new(user_info.telegram_id)),
+                internal_email_for_telegram_id(user_info.telegram_id),
                 Some(user_info.telegram_id),
             ),
             None => {
@@ -472,24 +476,6 @@ pub async fn handle_invite(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         .await
     {
         Ok(_) => {
-            // Queue calendar invite message
-            let start = event_info.start.unwrap_or_else(|| {
-                event_info
-                    .start_date
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap()
-                    .and_utc()
-            });
-            db.queue_calendar_invite(
-                &invitee_email,
-                invitee_telegram_id,
-                &event_info.summary,
-                start,
-                event_info.location.as_deref(),
-            )
-            .await?;
-
             let success_msg = if invitee_telegram_id.is_some() {
                 format!(
                     "✅ Invited {} to event: <b>{}</b>\n\nThey will receive a Telegram notification.",
@@ -498,7 +484,7 @@ pub async fn handle_invite(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                 )
             } else {
                 format!(
-                    "✅ Invited {} to event: <b>{}</b>\n\n⚠️ External invites are logged but not sent in MVP mode.",
+                    "✅ Invited {} to event: <b>{}</b>\n\n⚠️ External email delivery is deferred.",
                     escape(invitee_str),
                     escape(&event_info.summary)
                 )
@@ -515,7 +501,7 @@ pub async fn handle_invite(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                 event_id
             );
         }
-        Err(sqlx::Error::RowNotFound) => {
+        Err(televent_application::ApplicationError::NotFound(_)) => {
             bot.send_message(
                 msg.chat.id,
                 format!("⚠️ {} is already invited to this event", invitee_str),
@@ -578,10 +564,9 @@ pub async fn handle_rsvp(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
             let start = invite.start.unwrap_or_else(|| {
                 invite
                     .start_date
-                    .unwrap()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap()
-                    .and_utc()
+                    .and_then(|date| date.and_hms_opt(0, 0, 0))
+                    .map(|date_time| date_time.and_utc())
+                    .unwrap_or_else(Utc::now)
             });
             let time_str = if invite.is_all_day {
                 "All Day".to_string()
@@ -651,24 +636,11 @@ pub async fn handle_rsvp(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
         }
     };
 
-    // Update RSVP status
-    match db.update_rsvp_status(event_id, telegram_id, status).await {
-        Ok(true) => {
-            // Get organizer to notify
-            if let Some(organizer_id) = db.get_event_organizer(event_id).await? {
-                // Get event info for notification
-                if let Some(event_info) = db.get_event_info(event_id, organizer_id).await? {
-                    // Queue notification to organizer
-                    db.queue_rsvp_notification(
-                        organizer_id,
-                        &username,
-                        &event_info.summary,
-                        status,
-                    )
-                    .await?;
-                }
-            }
-
+    match db
+        .confirm_rsvp_named(event_id, telegram_id, status, username.clone())
+        .await
+    {
+        Ok(()) => {
             let emoji = match status {
                 "ACCEPTED" => "✅",
                 "DECLINED" => "❌",
@@ -693,7 +665,7 @@ pub async fn handle_rsvp(bot: Bot, msg: Message, db: BotDb) -> Result<()> {
                 event_id
             );
         }
-        Ok(false) => {
+        Err(televent_application::ApplicationError::NotFound(_)) => {
             bot.send_message(msg.chat.id, "❌ Invitation not found")
                 .await?;
         }
@@ -933,152 +905,24 @@ pub async fn handle_callback_query(bot: Bot, q: CallbackQuery, db: BotDb) -> Res
     Ok(())
 }
 
-/// Generate ICS content from a list of events
-struct FoldedWriter<'a> {
-    buf: &'a mut String,
-}
-
-impl<'a> FoldedWriter<'a> {
-    fn new(buf: &'a mut String) -> Self {
-        Self { buf }
-    }
-
-    fn write_line(&mut self, line: &str) {
-        self.buf.push_str(line);
-        self.buf.push_str("\r\n");
-    }
-
-    fn write_property(&mut self, name: &str, value: &str) {
-        self.write_property_impl(name, value, true)
-    }
-
-    fn write_datetime_property(&mut self, name: &str, datetime: &chrono::DateTime<chrono::Utc>) {
-        self.buf.push_str(name);
-        self.buf.push(':');
-        // YYYYMMDDTHHmmssZ
-        let _ = std::fmt::write(self.buf, format_args!("{}", datetime.format("%Y%m%dT%H%M%SZ")));
-        self.buf.push_str("\r\n");
-    }
-
-    fn write_date_property(&mut self, name: &str, date: &chrono::NaiveDate) {
-        self.buf.push_str(name);
-        self.buf.push(':');
-        let _ = std::fmt::write(self.buf, format_args!("{}", date.format("%Y%m%d")));
-        self.buf.push_str("\r\n");
-    }
-
-    fn write_property_impl(&mut self, name: &str, value: &str, escape: bool) {
-        self.buf.push_str(name);
-        self.buf.push(':');
-
-        let mut current_line_len = name.len() + 1;
-
-        for c in value.chars() {
-            if c == '\r' { continue; } // Strip CR
-
-            let replacement = if escape {
-                match c {
-                    '\\' => Some("\\\\"),
-                    ';' => Some("\\;"),
-                    ',' => Some("\\,"),
-                    '\n' => Some("\\n"),
-                    _ => None,
-                }
-            } else {
-                None
-            };
-
-            if let Some(s) = replacement {
-                for rc in s.chars() {
-                    let len = rc.len_utf8();
-                    if current_line_len + len > 75 {
-                        self.buf.push_str("\r\n ");
-                        current_line_len = 1;
-                    }
-                    self.buf.push(rc);
-                    current_line_len += len;
-                }
-            } else {
-                let len = c.len_utf8();
-                if current_line_len + len > 75 {
-                    self.buf.push_str("\r\n ");
-                    current_line_len = 1;
-                }
-                self.buf.push(c);
-                current_line_len += len;
-            }
-        }
-        self.buf.push_str("\r\n");
-    }
-}
-
-/// Generate ICS content from a list of events
-fn generate_ics(events: &[crate::db::BotEvent]) -> String {
-    // Pre-allocate buffer: ~200 bytes per event is a reasonable guess
-    let mut buf = String::with_capacity(events.len() * 200 + 512);
-
-    let mut writer = FoldedWriter::new(&mut buf);
-
-    writer.write_line("BEGIN:VCALENDAR");
-    writer.write_line("VERSION:2.0");
-    writer.write_line("PRODID:-//Televent//Televent Bot//EN");
-    writer.write_line("CALSCALE:GREGORIAN");
-
-    // Original implementation set these properties via methods
-    // calendar.name("Televent Calendar").description("Exported from Televent Telegram Bot");
-    // These likely map to X-WR-CALNAME and X-WR-CALDESC
-    writer.write_line("X-WR-CALNAME:Televent Calendar");
-    writer.write_line("X-WR-CALDESC:Exported from Televent Telegram Bot");
-
-    for event in events {
-        writer.write_line("BEGIN:VEVENT");
-        writer.write_property("UID", &event.id.to_string());
-
-        // DTSTAMP required
-        writer.write_datetime_property("DTSTAMP", &chrono::Utc::now());
-
-        writer.write_property("SUMMARY", &event.summary);
-
-        if let Some(desc) = &event.description {
-            writer.write_property("DESCRIPTION", desc);
-        }
-        if let Some(loc) = &event.location {
-            writer.write_property("LOCATION", loc);
-        }
-
-        if event.is_all_day {
-            if let Some(start_date) = event.start_date {
-                // icalendar crate's all_day sets DTSTART;VALUE=DATE
-                writer.write_date_property("DTSTART;VALUE=DATE", &start_date);
-            }
-        } else {
-             if let Some(start) = event.start {
-                writer.write_datetime_property("DTSTART", &start);
-            }
-            if let Some(end) = event.end {
-                writer.write_datetime_property("DTEND", &end);
-            }
-        }
-
-        writer.write_line("END:VEVENT");
-    }
-
-    writer.write_line("END:VCALENDAR");
-
-    buf
-}
-
-
 #[cfg(test)]
 mod tests {
     use crate::commands::Command;
-    use crate::db::{BotDb, BotEvent};
-    use chrono::{TimeZone, Utc};
+    use crate::db::BotDb;
     use sqlx::PgPool;
+    use televent_application::{CalendarService, DeviceService};
     use teloxide::Bot;
     use teloxide::types::Message;
     use teloxide::utils::command::BotCommands;
-    use uuid::Uuid;
+
+    fn bot_db(pool: PgPool) -> BotDb {
+        BotDb::new(
+            CalendarService::new(televent_storage::calendar::CalendarRepository::new(
+                pool.clone(),
+            )),
+            DeviceService::new(televent_storage::device::DeviceRepository::new(pool)),
+        )
+    }
 
     #[test]
     fn test_command_descriptions() {
@@ -1089,37 +933,9 @@ mod tests {
         assert!(cmds_str.contains("list"), "Should contain /list command");
     }
 
-    #[test]
-    fn test_generate_ics() {
-        let start = Utc.with_ymd_and_hms(2023, 10, 27, 10, 0, 0).unwrap();
-        let end = Utc.with_ymd_and_hms(2023, 10, 27, 11, 0, 0).unwrap();
-
-        let event = BotEvent {
-            id: Uuid::new_v4(),
-            summary: "Test Event".to_string(),
-            start: Some(start),
-            end: Some(end),
-            start_date: None,
-            end_date: None,
-            is_all_day: false,
-            location: Some("Online".to_string()),
-            description: Some("Description".to_string()),
-        };
-
-        let ics = super::generate_ics(&[event]);
-
-        assert!(ics.contains("BEGIN:VCALENDAR"));
-        assert!(ics.contains("BEGIN:VEVENT"));
-        assert!(ics.contains("SUMMARY:Test Event"));
-        assert!(ics.contains("LOCATION:Online"));
-        assert!(ics.contains("DESCRIPTION:Description"));
-        assert!(ics.contains("END:VEVENT"));
-        assert!(ics.contains("END:VCALENDAR"));
-    }
-
     #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_start(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let bot = Bot::new("123:fake_token");
 
         let json = r#"{
@@ -1153,7 +969,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_text_message_create_event(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let bot = Bot::new("123:fake_token");
 
         let telegram_id = 123456789;
@@ -1192,7 +1008,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_list(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let bot = Bot::new("123:fake_token");
 
         let telegram_id = 987654321;
@@ -1257,7 +1073,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_export(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let bot = Bot::new("123:fake_token");
 
         let telegram_id = 222222222;
@@ -1308,7 +1124,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_device_add(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let bot = Bot::new("123:fake_token");
 
         let telegram_id = 333333333;
@@ -1346,7 +1162,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_device_list(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let bot = Bot::new("123:fake_token");
 
         let telegram_id = 444444444;
@@ -1438,7 +1254,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_invite(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let bot = Bot::new("123:fake_token");
 
         let organizer_id = 777777777;
@@ -1501,7 +1317,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_rsvp(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let bot = Bot::new("123:fake_token");
 
         let organizer_id = 999999999;
@@ -1590,7 +1406,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_text_message_invalid(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let bot = Bot::new("123:fake_token");
 
         let telegram_id = 1111111111;
@@ -1624,7 +1440,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_handle_text_message_with_location(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let bot = Bot::new("123:fake_token");
 
         let telegram_id = 1212121212;

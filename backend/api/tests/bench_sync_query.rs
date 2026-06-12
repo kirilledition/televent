@@ -12,15 +12,23 @@ async fn bench_sync_query(pool: PgPool) {
         .build();
 
     let state = AppState {
-        pool: pool.clone(),
+        calendar_service: televent_application::CalendarService::new(
+            televent_storage::calendar::CalendarRepository::new(pool.clone()),
+        ),
+        device_service: televent_application::DeviceService::new(
+            televent_storage::device::DeviceRepository::new(pool.clone()),
+        ),
+        health_service: televent_application::HealthService::new(
+            televent_storage::health::HealthRepository::new(pool.clone()),
+        ),
         auth_cache,
         telegram_bot_token: "test_token".to_string(),
     };
-    let _app = create_router(state, "*");
+    let _app = create_router(state, "http://localhost:3000");
 
     // Create user
     let user_id = 123456789i64;
-    sqlx::query("INSERT INTO users (telegram_id, telegram_username, sync_token) VALUES ($1, 'bench_user', '0')")
+    sqlx::query("INSERT INTO users (telegram_id, telegram_username, sync_token) VALUES ($1, 'bench_user', 0)")
         .bind(user_id)
         .execute(&pool)
         .await
@@ -58,13 +66,12 @@ async fn bench_sync_query(pool: PgPool) {
 
     // 1. Analyze Query Plan
     println!("--- EXPLAIN ANALYZE ---");
-    // This query MUST match the one in crates/api/src/db/events.rs:list_events_since_sync
-    // Current implementation uses ORDER BY version
+    // This query MUST match api/src/db/events.rs:list_events_since_sync.
     let query_str = r#"
         EXPLAIN ANALYZE SELECT * FROM events
         WHERE user_id = $1
-        AND version > $2
-        ORDER BY version ASC
+        AND sync_version > $2
+        ORDER BY sync_version ASC
     "#;
 
     // Use query_as not needed for EXPLAIN
@@ -75,7 +82,7 @@ async fn bench_sync_query(pool: PgPool) {
         .await
         .expect("Failed to run EXPLAIN ANALYZE");
 
-    println!("Query Plan (ORDER BY version):");
+    println!("Query Plan (ORDER BY sync_version):");
     for row in rows {
         let line: String = row.get(0);
         println!("{}", line);
@@ -92,8 +99,8 @@ async fn bench_sync_query(pool: PgPool) {
         r#"
         SELECT * FROM events
         WHERE user_id = $1
-        AND version > $2
-        ORDER BY version ASC
+        AND sync_version > $2
+        ORDER BY sync_version ASC
         "#,
     )
     .bind(user_id)

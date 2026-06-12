@@ -12,7 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 # Internal crates as libraries
-televent-core = { path = "../core" }
+televent-application = { path = "../application" }
+televent-storage = { path = "../storage" }
 api = { path = "../api" }
 bot = { path = "../bot" }
 worker = { path = "../worker" }

@@ -3,7 +3,6 @@
 //! This crate provides Telegram bot functionality for managing calendars.
 
 mod commands;
-mod config;
 pub mod db;
 mod event_parser;
 mod handlers;
@@ -11,7 +10,6 @@ mod handlers;
 use anyhow::Result;
 use commands::Command;
 use db::BotDb;
-use sqlx::PgPool;
 use teloxide::RequestError;
 use teloxide::dispatching::{HandlerExt, UpdateFilterExt, UpdateHandler};
 use teloxide::dptree;
@@ -41,12 +39,9 @@ pub fn build_handler_tree() -> UpdateHandler<RequestError> {
 /// It does not handle Ctrl+C signals - that should be handled by the caller.
 ///
 /// # Arguments
-/// * `pool` - Database connection pool
+/// * `bot_db` - Bot application-service facade
 /// * `bot_token` - Telegram bot token for authentication
-pub async fn run_bot(pool: PgPool, bot_token: String) -> Result<()> {
-    // Create database handle for bot
-    let bot_db = BotDb::new(pool);
-
+pub async fn run_bot(bot_db: BotDb, bot_token: String) -> Result<()> {
     // Initialize bot
     let bot = Bot::new(bot_token);
     tracing::info!("Bot initialized, starting dispatcher");

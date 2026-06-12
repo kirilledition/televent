@@ -1,7 +1,9 @@
 [workspace]
 resolver = "3"
 members = [
-    "core",
+    "domain",
+    "storage",
+    "application",
     "api",
     "bot",
     "worker",
@@ -28,12 +30,14 @@ uuid = { version = "1.20", features = ["v4", "serde"] }
 dotenvy = "0.15.7"
 
 # Database
-sqlx = { version = "0.8.6", features = [
+sqlx = { version = "0.8.6", default-features = false, features = [
     "runtime-tokio-rustls",
     "postgres",
     "uuid",
     "chrono",
     "json",
+    "macros",
+    "migrate",
 ] }
 
 # Web framework
@@ -43,7 +47,7 @@ tower-http = { version = "0.6.8", features = ["trace", "cors", "fs"] }
 tower_governor = "0.8.0"
 
 # Telegram bot
-teloxide = { version = "0.17", features = ["macros"] }
+teloxide = { version = "0.17", default-features = false, features = ["macros", "rustls"] }
 
 # Date/Time
 chrono = { version = "0.4.43", features = ["serde"] }
@@ -76,23 +80,12 @@ icalendar = "0.17.6"
 quick-xml = { version = "0.39.0", features = ["serialize"] }
 rrule = "0.14.0"
 
-# Email
-lettre = { version = "0.11.19", default-features = false, features = [
-    "tokio1-rustls-tls",
-    "builder",
-    "hostname",
-    "smtp-transport",
-    "pool",
-] }
-
-typeshare = "1.0.5"
 utoipa = { version = "5.4.0", features = ["uuid", "chrono"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 # Testing
 serial_test = "3.3.1"
-reqwest = { version = "0.13.2", features = ["json"] }
-teloxide_tests = "0.4.0"
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

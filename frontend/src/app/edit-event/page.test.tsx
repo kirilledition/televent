@@ -16,7 +16,7 @@ vi.mock('next/navigation', () => ({
 
 // Mock API
 vi.mock('@/lib/api', async (importOriginal) => {
-  const actual = await importOriginal()
+  const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
     api: {
@@ -61,17 +61,17 @@ describe('EditEventPage', () => {
     const mockEvent = {
       id: '1',
       summary: 'Test Event',
+      description: null,
+      location: null,
       start: '2023-10-01T10:00:00',
       end: '2023-10-01T11:00:00',
+      start_date: null,
+      end_date: null,
       is_all_day: false,
       timezone: 'UTC',
-      version: 1,
-      etag: '1',
-      created_at: '2023-09-01T00:00:00Z',
-      updated_at: '2023-09-01T00:00:00Z',
       status: 'Confirmed',
       uid: 'uid-1',
-      user_id: 'u1',
+      rrule: null,
     }
 
     ;(api.getEvent as any).mockResolvedValue(mockEvent)

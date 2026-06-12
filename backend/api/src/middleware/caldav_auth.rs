@@ -12,7 +12,7 @@ use axum::{
     response::Response,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use televent_core::models::UserId;
+use televent_application::UserId;
 use uuid::Uuid;
 
 /// Login identifier: either a numeric Telegram ID or a username (without @)
@@ -57,36 +57,23 @@ pub async fn caldav_basic_auth(
 
     // Look up user by login_id
     let user_id: Option<UserId> = match &login_id {
-        LoginId::TelegramId(tid) => {
-            sqlx::query_scalar("SELECT telegram_id FROM users WHERE telegram_id = $1")
-                .bind(tid)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
-        }
-        LoginId::Username(username) => sqlx::query_scalar(
-            "SELECT telegram_id FROM users WHERE lower(telegram_username) = lower($1)",
-        )
-        .bind(username)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?,
+        LoginId::TelegramId(tid) => state
+            .calendar_service
+            .get_user_identity_by_id(UserId::new(*tid))
+            .await?
+            .map(|user| user.id),
+        LoginId::Username(username) => state
+            .calendar_service
+            .get_user_identity_by_username(username)
+            .await?
+            .map(|user| user.id),
     };
 
-    // Get device passwords for this user
-    // Optimization: Limit to 10 devices to prevent DoS
-    // We order by last_used_at to prioritize active devices
-    let device_passwords: Vec<(Uuid, String)> = if let Some(uid) = user_id {
-        sqlx::query_as(
-            "SELECT id, password_hash FROM device_passwords \
-             WHERE user_id = $1 \
-             ORDER BY last_used_at DESC NULLS LAST, created_at DESC \
-             LIMIT 10",
-        )
-        .bind(uid)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| ApiError::Internal(format!("Database error: {e}")))?
+    let device_passwords = if let Some(uid) = user_id {
+        state
+            .device_service
+            .list_password_hashes_for_auth(uid)
+            .await?
     } else {
         Vec::new()
     };
@@ -98,10 +85,10 @@ pub async fn caldav_basic_auth(
     let mut verified_device_id: Option<Uuid> = None;
     let mut set = tokio::task::JoinSet::new();
 
-    for (device_id, hashed_password) in &device_passwords {
+    for device in &device_passwords {
         let password_clone = password.clone();
-        let hashed_password_clone = hashed_password.clone();
-        let device_id_clone = *device_id;
+        let hashed_password_clone = device.password_hash.clone();
+        let device_id_clone = device.id;
 
         set.spawn(async move {
             let matches = verify_password(password_clone, hashed_password_clone).await;
@@ -146,19 +133,13 @@ pub async fn caldav_basic_auth(
     let device_id = verified_device_id
         .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?;
 
-    // Safe to unwrap because if we found a device_id, we must have found a user_id
-    let user_id = user_id.expect("User ID missing for authenticated session");
+    let user_id = user_id.ok_or_else(|| {
+        ApiError::Internal("Authenticated device has no resolved user".to_string())
+    })?;
 
-    // Update last_used_at timestamp
-    sqlx::query("UPDATE device_passwords SET last_used_at = NOW() WHERE id = $1")
-        .bind(device_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::warn!("Failed to update last_used_at: {}", e);
-            // Don't fail the request if we can't update the timestamp
-        })
-        .ok();
+    if let Err(err) = state.device_service.record_device_used(device_id).await {
+        tracing::warn!("Failed to update last_used_at: {}", err);
+    }
 
     // Cache success
     state.auth_cache.insert((login_id, password), user_id).await;

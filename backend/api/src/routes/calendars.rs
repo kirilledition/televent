@@ -9,20 +9,18 @@ use axum::{
     routing::get,
 };
 use serde::Serialize;
-use sqlx::PgPool;
-use televent_core::models::{CALENDAR_COLOR, CALENDAR_NAME, UserId};
+use televent_application::CalendarService;
+use televent_domain::{CALENDAR_COLOR, CALENDAR_NAME};
 use utoipa::ToSchema;
 
-use crate::{db, error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
+use crate::{error::ApiError, middleware::telegram_auth::AuthenticatedTelegramUser};
 
 /// Calendar response (subset of User relevant to calendar functionality)
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CalendarInfo {
-    #[schema(value_type = String)]
-    pub id: UserId,
+    pub id: String,
     pub name: String,
     pub color: String,
-    pub sync_token: String,
 }
 
 /// List user's calendars
@@ -42,17 +40,17 @@ pub struct CalendarInfo {
     )
 )]
 async fn list_calendars(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Extension(auth_user): Extension<AuthenticatedTelegramUser>,
 ) -> Result<Json<Vec<CalendarInfo>>, ApiError> {
-    // Get or create user (user = calendar)
-    let user = db::users::get_or_create_user(&pool, auth_user.id.inner(), None).await?;
+    calendar
+        .ensure_user_setup(auth_user.id.inner(), auth_user.username.as_deref())
+        .await?;
 
     let calendar_info = CalendarInfo {
-        id: user.id,
+        id: auth_user.id.to_string(),
         name: CALENDAR_NAME.to_string(),
         color: CALENDAR_COLOR.to_string(),
-        sync_token: user.sync_token,
     };
 
     Ok(Json(vec![calendar_info]))
@@ -62,7 +60,25 @@ async fn list_calendars(
 pub fn routes<S>() -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
-    PgPool: FromRef<S>,
+    CalendarService: FromRef<S>,
 {
     Router::new().route("/calendars", get(list_calendars))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn calendar_info_hides_caldav_sync_token() {
+        let value = serde_json::to_value(CalendarInfo {
+            id: "123".to_string(),
+            name: CALENDAR_NAME.to_string(),
+            color: CALENDAR_COLOR.to_string(),
+        })
+        .unwrap();
+        let object = value.as_object().unwrap();
+
+        assert!(!object.contains_key("sync_token"));
+    }
 }

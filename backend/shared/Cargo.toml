@@ -7,7 +7,6 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-televent-core = { path = "../core" }
 sqlx.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

@@ -3,18 +3,27 @@ import { EventList } from './EventList'
 import { describe, it, expect, vi } from 'vitest'
 import { Event } from '@/types/event'
 
+function localDateString(offsetDays: number) {
+  const date = new Date()
+  date.setDate(date.getDate() + offsetDays)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 const mockEvents: Event[] = [
   {
     id: '1',
     title: 'Event 1',
-    date: new Date().toISOString().split('T')[0], // Today
+    date: localDateString(0),
     time: '10:00',
     description: 'Description 1',
   },
   {
     id: '2',
     title: 'Event 2',
-    date: new Date(Date.now() + 86400000).toISOString().split('T')[0], // Tomorrow
+    date: localDateString(1),
     time: '14:00',
   },
 ]

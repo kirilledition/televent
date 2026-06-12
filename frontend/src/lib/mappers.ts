@@ -11,14 +11,16 @@ import { format, differenceInMinutes } from 'date-fns'
 export function mapApiEventToUiEvent(apiEvent: EventResponse): UiEvent {
   // Some all-day events may have null start/end in the API response.
   // We defensively handle that here and treat all-day events specially.
-  const isAllDay: boolean = (apiEvent as any).is_all_day ?? false
+  const isAllDay = apiEvent.is_all_day
 
   const hasStart = apiEvent.start != null
   const hasEnd = apiEvent.end != null
 
   const startDate = hasStart
     ? new Date(apiEvent.start as unknown as string)
-    : null
+    : isAllDay && apiEvent.start_date
+      ? new Date(`${apiEvent.start_date}T00:00:00`)
+      : null
   const endDate = hasEnd ? new Date(apiEvent.end as unknown as string) : null
 
   const date = startDate ? format(startDate, 'yyyy-MM-dd') : ''
@@ -35,7 +37,7 @@ export function mapApiEventToUiEvent(apiEvent: EventResponse): UiEvent {
     // Format as HH:mm for display (empty for all-day events)
     time,
     duration,
-    location: apiEvent.location,
-    description: apiEvent.description,
+    location: apiEvent.location ?? undefined,
+    description: apiEvent.description ?? undefined,
   }
 }

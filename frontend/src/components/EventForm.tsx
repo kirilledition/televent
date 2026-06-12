@@ -6,13 +6,16 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   api,
   CreateEventRequest,
+  EventTimingRequest,
   UpdateEventRequest,
   EventResponse,
 } from '@/lib/api'
 import { Loader2 } from 'lucide-react'
 import {
   addMinutes,
+  addDays,
   format,
+  differenceInCalendarDays,
   differenceInMinutes,
   roundToNearestMinutes,
 } from 'date-fns'
@@ -29,6 +32,9 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
 
   // Initial values logic
   const initialStart = useMemo(() => {
+    if (initialData?.is_all_day && initialData.start_date) {
+      return new Date(`${initialData.start_date}T00:00:00`)
+    }
     if (initialData?.start) return new Date(initialData.start)
     // Round up to next 5 minutes
     return roundToNearestMinutes(new Date(), {
@@ -38,6 +44,9 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
   }, [initialData])
 
   const initialDuration = useMemo(() => {
+    if (initialData?.is_all_day) {
+      return 1440
+    }
     if (initialData?.start && initialData?.end) {
       return differenceInMinutes(
         new Date(initialData.end),
@@ -45,6 +54,24 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
       )
     }
     return 45 // Default duration
+  }, [initialData])
+
+  const initialAllDaySpanDays = useMemo(() => {
+    if (
+      initialData?.is_all_day &&
+      initialData.start_date &&
+      initialData.end_date
+    ) {
+      return Math.max(
+        1,
+        differenceInCalendarDays(
+          new Date(`${initialData.end_date}T00:00:00`),
+          new Date(`${initialData.start_date}T00:00:00`)
+        )
+      )
+    }
+
+    return 1
   }, [initialData])
 
   const [formData, setFormData] = useState({
@@ -109,14 +136,27 @@ export function EventForm({ initialData, isEditing = false }: EventFormProps) {
     const startDate = new Date(formData.start)
     const endDate = addMinutes(startDate, formData.duration)
 
+    const timing: EventTimingRequest = formData.is_all_day
+      ? {
+          kind: 'all_day',
+          start_date: format(startDate, 'yyyy-MM-dd'),
+          end_date: format(
+            addDays(startDate, initialAllDaySpanDays),
+            'yyyy-MM-dd'
+          ),
+        }
+      : {
+          kind: 'timed',
+          start: startDate.toISOString(),
+          end: endDate.toISOString(),
+          timezone: formData.timezone,
+        }
+
     const payload = {
       summary: formData.summary,
       description: formData.description,
       location: formData.location,
-      start: startDate.toISOString(),
-      end: endDate.toISOString(),
-      is_all_day: formData.is_all_day,
-      timezone: formData.timezone,
+      timing,
     }
 
     if (isEditing && initialData) {

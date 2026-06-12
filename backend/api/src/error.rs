@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
-use televent_core::CalendarError;
+use televent_application::ApplicationError;
 
 /// API error response
 #[derive(Debug, Serialize)]
@@ -64,42 +64,13 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// Convert CalendarError to ApiError
-impl From<CalendarError> for ApiError {
-    fn from(err: CalendarError) -> Self {
+impl From<ApplicationError> for ApiError {
+    fn from(err: ApplicationError) -> Self {
         match err {
-            CalendarError::EventNotFound(id) => {
-                ApiError::NotFound(format!("Event not found: {}", id))
-            }
-            CalendarError::VersionConflict { expected, actual } => ApiError::Conflict(format!(
-                "Version conflict: expected {}, got {}",
-                expected, actual
-            )),
-            CalendarError::InvalidRRule(msg) => {
-                ApiError::BadRequest(format!("Invalid recurrence rule: {}", msg))
-            }
-            CalendarError::InvalidTimezone(tz) => {
-                ApiError::BadRequest(format!("Invalid timezone: {}", tz))
-            }
-            CalendarError::InvalidEventData(msg) => ApiError::BadRequest(msg),
-        }
-    }
-}
-
-/// Convert sqlx errors to ApiError
-impl From<sqlx::Error> for ApiError {
-    fn from(err: sqlx::Error) -> Self {
-        match err {
-            sqlx::Error::RowNotFound => ApiError::NotFound("Resource not found".to_string()),
-            sqlx::Error::Database(db_err) => {
-                // Check for unique constraint violations
-                if let Some(constraint) = db_err.constraint() {
-                    ApiError::Conflict(format!("Constraint violation: {}", constraint))
-                } else {
-                    ApiError::Internal(format!("Database error: {}", db_err))
-                }
-            }
-            _ => ApiError::Internal(format!("Database error: {}", err)),
+            ApplicationError::NotFound(msg) => ApiError::NotFound(msg),
+            ApplicationError::BadRequest(msg) => ApiError::BadRequest(msg),
+            ApplicationError::Conflict(msg) => ApiError::Conflict(msg),
+            ApplicationError::Internal(msg) => ApiError::Internal(msg),
         }
     }
 }
@@ -107,7 +78,6 @@ impl From<sqlx::Error> for ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
 
     #[test]
     fn test_error_response_serialization() {
@@ -131,34 +101,5 @@ mod tests {
         let json = serde_json::to_string(&error).unwrap();
         assert!(json.contains("Forbidden"));
         assert!(!json.contains("details"));
-    }
-
-    #[test]
-    fn test_calendar_error_conversion() {
-        let event_id = Uuid::new_v4();
-        let err = CalendarError::EventNotFound(event_id);
-        let api_err: ApiError = err.into();
-
-        match api_err {
-            ApiError::NotFound(msg) => assert!(msg.contains(&event_id.to_string())),
-            _ => panic!("Expected NotFound error"),
-        }
-    }
-
-    #[test]
-    fn test_version_conflict_conversion() {
-        let err = CalendarError::VersionConflict {
-            expected: 5,
-            actual: 3,
-        };
-        let api_err: ApiError = err.into();
-
-        match api_err {
-            ApiError::Conflict(msg) => {
-                assert!(msg.contains("expected 5"));
-                assert!(msg.contains("got 3"));
-            }
-            _ => panic!("Expected Conflict error"),
-        }
     }
 }

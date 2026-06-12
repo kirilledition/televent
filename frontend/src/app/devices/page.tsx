@@ -14,7 +14,7 @@ import {
 } from '@telegram-apps/telegram-ui'
 import { backButton, hapticFeedback } from '@tma.js/sdk-react'
 import useSWR, { mutate } from 'swr'
-import { api, User, DeviceListItem, DevicePasswordResponse } from '@/lib/api'
+import { api, MeResponse, DeviceListItem, DevicePasswordResponse } from '@/lib/api'
 
 export default function DevicesPage() {
   const router = useRouter()
@@ -26,7 +26,7 @@ export default function DevicesPage() {
   const [isPasswordVisible, setIsPasswordVisible] = useState(false)
 
   // Fetch User & Devices (no userId needed - uses authenticated user)
-  const { data: user } = useSWR<User, Error>('user', () => api.getMe())
+  const { data: user } = useSWR<MeResponse, Error>('user', () => api.getMe())
   const { data: devices, isLoading } = useSWR<DeviceListItem[]>(
     user ? 'devices' : null,
     () => api.getDevices()

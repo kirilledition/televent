@@ -4,7 +4,9 @@ use chrono::Utc;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
-use televent_core::models::{Timezone, UserId};
+use std::env;
+use televent_application::UserId;
+use televent_domain::Timezone;
 
 // Constants
 const AUTH_HEADER_PREFIX: &str = "tma ";
@@ -61,12 +63,7 @@ pub fn validate_init_data(init_data: &str, bot_token: &str) -> Result<TelegramUs
         data_check_string.push_str(&parsed[*key]);
     }
 
-    // Determine if we should skip verification (dev bypass)
-    let mut skip_verification = false;
-    #[cfg(debug_assertions)]
-    if hash == "dev_bypass" {
-        skip_verification = true;
-    }
+    let skip_verification = dev_bypass_enabled(hash);
 
     if !skip_verification {
         // HMAC-SHA256 signature
@@ -91,11 +88,7 @@ pub fn validate_init_data(init_data: &str, bot_token: &str) -> Result<TelegramUs
 
     // Validate auth_date freshness
     if let Some(auth_date_str) = parsed.get("auth_date") {
-        let mut check_date = true;
-        #[cfg(debug_assertions)]
-        if hash == "dev_bypass" {
-            check_date = false;
-        }
+        let check_date = !dev_bypass_enabled(hash);
 
         if check_date {
             let auth_date = auth_date_str
@@ -125,6 +118,28 @@ pub fn validate_init_data(init_data: &str, bot_token: &str) -> Result<TelegramUs
     Ok(user)
 }
 
+fn dev_bypass_enabled(hash: &str) -> bool {
+    if hash != "dev_bypass" || !cfg!(debug_assertions) {
+        return false;
+    }
+
+    let app_env = env::var("APP_ENV")
+        .or_else(|_| env::var("RUST_ENV"))
+        .unwrap_or_else(|_| "development".to_string());
+    if app_env.eq_ignore_ascii_case("production") {
+        return false;
+    }
+
+    env::var("TELEGRAM_AUTH_DEV_BYPASS")
+        .map(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 /// Middleware to validate Telegram initData and inject TelegramUser into extensions
 pub async fn telegram_auth(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -150,13 +165,14 @@ pub async fn telegram_auth(
     let init_data = &auth_header[AUTH_HEADER_PREFIX.len()..];
     let user = validate_init_data(init_data, &state.telegram_bot_token)?;
 
-    // Get/Create User in DB
     let username = user.username.as_deref();
-    let db_user = crate::db::users::get_or_create_user(&state.pool, user.id, username)
+    let db_user = state
+        .calendar_service
+        .get_or_create_user(user.id, username)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get/create user: {:?}", e);
-            ApiError::Internal("Database error".into())
+            ApiError::from(e)
         })?;
 
     tracing::info!(
@@ -173,7 +189,7 @@ pub async fn telegram_auth(
     request.extensions_mut().insert(user);
     request.extensions_mut().insert(AuthenticatedTelegramUser {
         id: db_user.id,
-        username: db_user.telegram_username,
+        username: db_user.username,
         timezone: db_user.timezone,
     });
 

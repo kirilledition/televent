@@ -1,6 +1,8 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import CalendarPage from './page'
-import { describe, it, expect, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { api } from '@/lib/api'
 
 // Mock useRouter
 const mockPush = vi.fn()
@@ -10,44 +12,85 @@ vi.mock('next/navigation', () => ({
   }),
 }))
 
-describe('CalendarPage', () => {
-  it('renders correctly with dummy events', () => {
-    render(<CalendarPage />)
-    expect(screen.getByText('Calendar')).toBeInTheDocument()
-    expect(screen.getByText('New event')).toBeInTheDocument()
-    // Check if dummy events are rendered
-    expect(screen.getByText('Team Meeting')).toBeInTheDocument()
+vi.mock('@/lib/api', () => ({
+  api: {
+    getEvents: vi.fn(),
+    deleteEvent: vi.fn(),
+  },
+}))
+
+function renderPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
   })
 
-  it('navigates to create page on button click', () => {
-    render(<CalendarPage />)
-    fireEvent.click(screen.getByText('New event'))
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <CalendarPage />
+    </QueryClientProvider>
+  )
+}
+
+const event = {
+  id: '1',
+  uid: 'uid-1',
+  summary: 'Team Meeting',
+  description: null,
+  location: 'Conference Room',
+  start: '2026-01-01T10:00:00Z',
+  end: '2026-01-01T11:00:00Z',
+  start_date: null,
+  end_date: null,
+  is_all_day: false,
+  status: 'Confirmed',
+  timezone: 'UTC',
+  rrule: null,
+}
+
+describe('CalendarPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(api.getEvents as any).mockResolvedValue([event])
+    ;(api.deleteEvent as any).mockResolvedValue(undefined)
+  })
+
+  it('renders correctly with API events', async () => {
+    renderPage()
+    expect(await screen.findByText('Calendar')).toBeInTheDocument()
+    expect(await screen.findByText('New event')).toBeInTheDocument()
+    expect(await screen.findByText('Team Meeting')).toBeInTheDocument()
+  })
+
+  it('navigates to create page on button click', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByText('New event'))
     expect(mockPush).toHaveBeenCalledWith('/create')
   })
 
-  it('deletes an event locally', () => {
-    render(<CalendarPage />)
+  it('deletes an event via API', async () => {
+    renderPage()
 
-    // Mock window.confirm
-    vi.spyOn(window, 'confirm').mockImplementation(() => true)
-
-    const deleteBtns = screen.getAllByRole('button', { name: /Delete event/i })
-    const initialCount = deleteBtns.length
-
-    fireEvent.click(deleteBtns[0])
-
-    // Should be one less delete button
-    const newDeleteBtns = screen.getAllByRole('button', {
-      name: /Delete event/i,
+    const deleteBtn = await screen.findByRole('button', {
+      name: /Delete event: Team Meeting/i,
     })
-    expect(newDeleteBtns.length).toBe(initialCount - 1)
+
+    fireEvent.click(deleteBtn)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => {
+      expect(api.deleteEvent).toHaveBeenCalledWith('1')
+    })
   })
 
-  it('navigates to edit page when event is clicked', () => {
-    render(<CalendarPage />)
-    const eventItems = screen.getAllByRole('button', { name: /Edit event/i })
-    fireEvent.click(eventItems[0])
-    // The dummy event ID is '1'
-    expect(mockPush).toHaveBeenCalledWith('/event/1')
+  it('navigates to detail page when event is clicked', async () => {
+    renderPage()
+    const eventItem = await screen.findByRole('button', {
+      name: /Edit event: Team Meeting/i,
+    })
+    fireEvent.click(eventItem)
+    expect(mockPush).toHaveBeenCalledWith('/event-detail?id=1')
   })
 })

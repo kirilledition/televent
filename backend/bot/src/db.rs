@@ -2,44 +2,33 @@
 //!
 //! Handles all database queries needed by bot command handlers
 
-use chrono::{DateTime, Utc};
-use sqlx::{FromRow, PgPool, Row};
-use televent_core::models::UserId;
+use chrono::{DateTime, NaiveDate, Utc};
+use televent_application::{
+    ApplicationError, CalendarIcalExport, CalendarService, ConfirmRsvpCommand,
+    CreateDevicePasswordCommand, CreateEventCommand, DeviceService, EventView,
+    InviteAttendeeCommand, UserId,
+};
+use televent_domain::{
+    AttendeeRole, EventStatus as DomainEventStatus, EventTiming, ParticipationStatus, Timezone,
+};
 use uuid::Uuid;
-
-/// Generate a random alphanumeric password
-fn generate_random_password() -> String {
-    use rand::RngExt;
-
-    const CHARSET: &[u8] = b"0123456789\
-                             abcdefghijklmnopqrstuvwxyz\
-                             ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const PASSWORD_LEN: usize = 16;
-
-    let mut rng = rand::rng();
-    (0..PASSWORD_LEN)
-        .map(|_| {
-            let idx = rng.random_range(0..CHARSET.len());
-            CHARSET[idx] as char
-        })
-        .collect()
-}
 
 /// Bot database handle
 #[derive(Clone)]
 pub struct BotDb {
-    pool: PgPool,
+    calendar: CalendarService,
+    device: DeviceService,
 }
 
 /// Event data structure for bot display
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct BotEvent {
     pub id: Uuid,
     pub summary: String,
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
-    pub start_date: Option<chrono::NaiveDate>,
-    pub end_date: Option<chrono::NaiveDate>,
+    pub start_date: Option<NaiveDate>,
+    pub end_date: Option<NaiveDate>,
     pub is_all_day: bool,
     pub location: Option<String>,
     pub description: Option<String>,
@@ -51,8 +40,8 @@ impl BotEvent {
         if self.is_all_day {
             self.start_date
                 .and_then(|d| d.and_hms_opt(0, 0, 0))
-                .unwrap()
-                .and_utc()
+                .map(|date_time| date_time.and_utc())
+                .unwrap_or_else(Utc::now)
         } else {
             self.start.unwrap_or_else(Utc::now)
         }
@@ -80,7 +69,7 @@ impl BotEvent {
 }
 
 /// Device password information for display
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct DevicePasswordInfo {
     pub id: Uuid,
     pub name: String,
@@ -89,7 +78,7 @@ pub struct DevicePasswordInfo {
 }
 
 /// User information for lookups
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct UserInfo {
     pub telegram_id: i64,
     #[allow(dead_code)]
@@ -97,21 +86,38 @@ pub struct UserInfo {
 }
 
 /// Event information with ownership check
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct EventInfo {
     pub id: Uuid,
     pub summary: String,
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
-    pub start_date: Option<chrono::NaiveDate>,
-    pub end_date: Option<chrono::NaiveDate>,
+    pub start_date: Option<NaiveDate>,
+    pub end_date: Option<NaiveDate>,
     pub is_all_day: bool,
     pub location: Option<String>,
     pub user_id: UserId,
 }
 
+impl EventInfo {
+    fn from_event(event: EventView, user_id: UserId) -> Self {
+        let timing = timing_parts(&event.timing);
+        Self {
+            id: event.id,
+            summary: event.summary,
+            start: timing.start,
+            end: timing.end,
+            start_date: timing.start_date,
+            end_date: timing.end_date,
+            is_all_day: timing.is_all_day,
+            location: event.location,
+            user_id,
+        }
+    }
+}
+
 /// Pending invite information
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct PendingInvite {
     pub event_id: Uuid,
     pub summary: String,
@@ -123,7 +129,7 @@ pub struct PendingInvite {
 }
 
 /// Attendee information for display
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct AttendeeInfo {
     pub email: String,
     pub telegram_id: Option<i64>,
@@ -134,8 +140,8 @@ pub struct AttendeeInfo {
 
 impl BotDb {
     /// Create a new database handle
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(calendar: CalendarService, device: DeviceService) -> Self {
+        Self { calendar, device }
     }
 
     /// Get events for a user within a date range
@@ -144,56 +150,49 @@ impl BotDb {
         telegram_id: i64,
         start_range: DateTime<Utc>,
         end_range: DateTime<Utc>,
-    ) -> Result<Vec<BotEvent>, sqlx::Error> {
-        let start_date = start_range.date_naive();
-        let end_date = end_range.date_naive();
+    ) -> Result<Vec<BotEvent>, ApplicationError> {
+        let events = self
+            .calendar
+            .list_event_views(
+                UserId::new(telegram_id),
+                Some(start_range),
+                Some(end_range),
+                None,
+                None,
+            )
+            .await?;
 
-        // Query both timed and all-day events
-        let events = sqlx::query_as::<_, BotEvent>(
-            r#"
-            SELECT id, summary, start, "end", start_date, end_date, is_all_day, location, description
-            FROM events
-            WHERE user_id = $1
-              AND (
-                  (is_all_day = false AND start >= $2 AND start < $3)
-                  OR 
-                  (is_all_day = true AND start_date >= $4 AND start_date < $5)
-              )
-              AND status != 'CANCELLED'
-            ORDER BY COALESCE(start, (start_date AT TIME ZONE 'UTC')) ASC
-            "#,
-        )
-        .bind(telegram_id)
-        .bind(start_range)
-        .bind(end_range)
-        .bind(start_date)
-        .bind(end_date)
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(events)
+        Ok(events
+            .into_iter()
+            .filter(|event| event.status != DomainEventStatus::Cancelled)
+            .map(BotEvent::from_event)
+            .collect())
     }
 
     /// Get all events for a user (for export)
     pub async fn get_all_events_for_user(
         &self,
         telegram_id: i64,
-    ) -> Result<Vec<BotEvent>, sqlx::Error> {
-        // Query events directly by user_id
-        let events = sqlx::query_as::<_, BotEvent>(
-            r#"
-            SELECT id, summary, start, "end", start_date, end_date, is_all_day, location, description
-            FROM events
-            WHERE user_id = $1
-              AND status != 'CANCELLED'
-            ORDER BY COALESCE(start, (start_date AT TIME ZONE 'UTC')) ASC
-            "#,
-        )
-        .bind(telegram_id)
-        .fetch_all(&self.pool)
-        .await?;
+    ) -> Result<Vec<BotEvent>, ApplicationError> {
+        let events = self
+            .calendar
+            .list_event_views(UserId::new(telegram_id), None, None, None, None)
+            .await?;
 
-        Ok(events)
+        Ok(events
+            .into_iter()
+            .filter(|event| event.status != DomainEventStatus::Cancelled)
+            .map(BotEvent::from_event)
+            .collect())
+    }
+
+    pub async fn export_calendar_ics(
+        &self,
+        telegram_id: i64,
+    ) -> Result<CalendarIcalExport, ApplicationError> {
+        self.calendar
+            .export_calendar_ical(UserId::new(telegram_id))
+            .await
     }
 
     /// Ensure user exists (user = calendar in new schema)
@@ -201,22 +200,8 @@ impl BotDb {
         &self,
         telegram_id: i64,
         username: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        // Create user if doesn't exist - user now IS the calendar
-        sqlx::query(
-            r#"
-            INSERT INTO users (telegram_id, telegram_username, timezone, sync_token, ctag)
-            VALUES ($1, $2, 'UTC', '1', gen_random_uuid()::text)
-            ON CONFLICT (telegram_id) DO UPDATE SET
-                telegram_username = COALESCE(EXCLUDED.telegram_username, users.telegram_username)
-            "#,
-        )
-        .bind(telegram_id)
-        .bind(username)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
+    ) -> Result<(), ApplicationError> {
+        self.calendar.ensure_user_setup(telegram_id, username).await
     }
 
     /// Generate a new device password for a user
@@ -224,66 +209,38 @@ impl BotDb {
         &self,
         telegram_id: i64,
         device_name: &str,
-    ) -> Result<String, sqlx::Error> {
-        // Ensure user exists first
-        self.ensure_user_setup(telegram_id, None).await?;
+    ) -> Result<String, ApplicationError> {
+        let device = self
+            .device
+            .create_device_password(CreateDevicePasswordCommand {
+                user_id: UserId::new(telegram_id),
+                username: None,
+                name: device_name.to_string(),
+            })
+            .await?;
 
-        // Generate random password (16 characters, alphanumeric) before any await
-        let password = generate_random_password();
-
-        // Hash password with Argon2id
-        use argon2::{
-            Argon2,
-            password_hash::{PasswordHasher, SaltString},
-        };
-
-        // Offload blocking Argon2 hashing to a worker thread
-        let password_clone = password.clone();
-        let password_hash = tokio::task::spawn_blocking(move || {
-            let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
-            let argon2 = Argon2::default();
-            argon2
-                .hash_password(password_clone.as_bytes(), &salt)
-                .map(|h| h.to_string())
-                .map_err(|_| sqlx::Error::Decode("Failed to hash password".into()))
-        })
-        .await
-        .map_err(|e| sqlx::Error::Decode(format!("Task join error: {}", e).into()))??;
-
-        // Store device password - user_id is now telegram_id
-        sqlx::query(
-            r#"
-            INSERT INTO device_passwords (id, user_id, password_hash, device_name)
-            VALUES (gen_random_uuid(), $1, $2, $3)
-            "#,
-        )
-        .bind(telegram_id)
-        .bind(password_hash)
-        .bind(device_name)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(password)
+        Ok(device.password)
     }
 
     /// List all device passwords for a user
     pub async fn list_device_passwords(
         &self,
         telegram_id: i64,
-    ) -> Result<Vec<DevicePasswordInfo>, sqlx::Error> {
-        let devices = sqlx::query_as::<_, DevicePasswordInfo>(
-            r#"
-            SELECT id, device_name as name, created_at, last_used_at
-            FROM device_passwords
-            WHERE user_id = $1
-            ORDER BY created_at DESC
-            "#,
-        )
-        .bind(telegram_id)
-        .fetch_all(&self.pool)
-        .await?;
+    ) -> Result<Vec<DevicePasswordInfo>, ApplicationError> {
+        let devices = self
+            .device
+            .list_device_passwords(UserId::new(telegram_id))
+            .await?;
 
-        Ok(devices)
+        Ok(devices
+            .into_iter()
+            .map(|device| DevicePasswordInfo {
+                id: device.id,
+                name: device.name,
+                created_at: device.created_at,
+                last_used_at: device.last_used_at,
+            })
+            .collect())
     }
 
     /// Revoke (delete) a device password
@@ -291,39 +248,26 @@ impl BotDb {
         &self,
         telegram_id: i64,
         device_id: Uuid,
-    ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            r#"
-            DELETE FROM device_passwords
-            WHERE id = $1 AND user_id = $2
-            "#,
-        )
-        .bind(device_id)
-        .bind(telegram_id)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(result.rows_affected() > 0)
+    ) -> Result<bool, ApplicationError> {
+        self.device
+            .revoke_device_password(UserId::new(telegram_id), device_id)
+            .await
     }
 
     /// Find user by Telegram username
     pub async fn find_user_by_username(
         &self,
         username: &str,
-    ) -> Result<Option<UserInfo>, sqlx::Error> {
+    ) -> Result<Option<UserInfo>, ApplicationError> {
         let username_param = username.trim_start_matches('@');
-        let user = sqlx::query_as::<_, UserInfo>(
-            r#"
-            SELECT telegram_id, telegram_username
-            FROM users
-            WHERE lower(telegram_username) = lower($1)
-            "#,
-        )
-        .bind(username_param)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(user)
+        Ok(self
+            .calendar
+            .get_user_identity_by_username(username_param)
+            .await?
+            .map(|user| UserInfo {
+                telegram_id: user.id.inner(),
+                telegram_username: user.username,
+            }))
     }
 
     /// Get event info and verify ownership
@@ -331,23 +275,18 @@ impl BotDb {
         &self,
         event_id: Uuid,
         telegram_id: i64,
-    ) -> Result<Option<EventInfo>, sqlx::Error> {
-        let event = sqlx::query_as::<_, EventInfo>(
-            r#"
-            SELECT id, summary, start, "end", start_date, end_date, is_all_day, location, user_id
-            FROM events
-            WHERE id = $1 AND user_id = $2
-            "#,
-        )
-        .bind(event_id)
-        .bind(telegram_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(event)
+    ) -> Result<Option<EventInfo>, ApplicationError> {
+        match self
+            .calendar
+            .get_event_view(UserId::new(telegram_id), event_id)
+            .await
+        {
+            Ok(event) => Ok(Some(EventInfo::from_event(event, UserId::new(telegram_id)))),
+            Err(ApplicationError::NotFound(_)) => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 
-    /// Invite attendee to an event
     /// Invite attendee to an event
     pub async fn invite_attendee(
         &self,
@@ -355,247 +294,122 @@ impl BotDb {
         email: &str,
         user_id: Option<i64>,
         role: &str,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"
-            INSERT INTO event_attendees (event_id, email, user_id, role, status)
-            VALUES ($1, $2, $3, $4::text::attendee_role, 'NEEDS-ACTION')
-            ON CONFLICT (event_id, email) DO NOTHING
-            "#,
-        )
-        .bind(event_id)
-        .bind(email)
-        .bind(user_id)
-        .bind(role)
-        .execute(&self.pool)
-        .await?;
+    ) -> Result<(), ApplicationError> {
+        let organizer_user_id = self
+            .get_event_organizer(event_id)
+            .await?
+            .ok_or_else(|| ApplicationError::NotFound(event_id.to_string()))?;
 
-        Ok(())
+        self.calendar
+            .invite_attendee(InviteAttendeeCommand {
+                organizer_user_id: UserId::new(organizer_user_id),
+                event_id,
+                email: email.to_string(),
+                attendee_user_id: user_id.map(UserId::new),
+                role: match role {
+                    "ORGANIZER" => AttendeeRole::Organizer,
+                    _ => AttendeeRole::Attendee,
+                },
+            })
+            .await
     }
 
-    /// Update RSVP status for an attendee
     /// Update RSVP status for an attendee (simple update)
     pub async fn update_rsvp_status(
         &self,
         event_id: Uuid,
         user_id: i64,
         status: &str,
-    ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query(
-            r#"
-            UPDATE event_attendees
-            SET status = $3::text::attendee_status, updated_at = NOW()
-            WHERE event_id = $1 AND user_id = $2
-            "#,
-        )
-        .bind(event_id)
-        .bind(user_id)
-        .bind(status)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(result.rows_affected() > 0)
+    ) -> Result<bool, ApplicationError> {
+        self.confirm_rsvp(event_id, user_id, status).await?;
+        Ok(true)
     }
 
-    /// Confirm RSVP status (transactional)
-    ///
-    /// Updates:
-    /// 1. event_attendees status
-    /// 2. events version (incremented) -> to trigger CalDAV sync for organizer
-    /// 3. users ctag (new UUID) -> to trigger CalDAV sync for organizer
+    /// Confirm RSVP status through the application transaction.
     pub async fn confirm_rsvp(
         &self,
         event_id: Uuid,
         user_id: i64,
         status: &str,
-    ) -> Result<(), sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
+    ) -> Result<(), ApplicationError> {
+        self.confirm_rsvp_named(event_id, user_id, status, format!("User_{}", user_id))
+            .await
+    }
 
-        // 1. Update attendee status
-        let result = sqlx::query(
-            r#"
-            UPDATE event_attendees
-            SET status = $3::text::attendee_status, updated_at = NOW()
-            WHERE event_id = $1 AND user_id = $2
-            "#,
-        )
-        .bind(event_id)
-        .bind(user_id)
-        .bind(status)
-        .execute(&mut *tx)
-        .await?;
+    pub async fn confirm_rsvp_named(
+        &self,
+        event_id: Uuid,
+        user_id: i64,
+        status: &str,
+        attendee_name: String,
+    ) -> Result<(), ApplicationError> {
+        let status = ParticipationStatus::parse(status).ok_or_else(|| {
+            ApplicationError::BadRequest(format!("Invalid RSVP status: {status}"))
+        })?;
 
-        if result.rows_affected() == 0 {
-            return Err(sqlx::Error::RowNotFound);
-        }
-
-        // 2. Update event version (triggers sync for organizer)
-        let event_row = sqlx::query(
-            r#"
-            UPDATE events
-            SET version = version + 1, updated_at = NOW()
-            WHERE id = $1
-            RETURNING user_id
-            "#,
-        )
-        .bind(event_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        if let Some(row) = event_row {
-            let organizer_id: i64 = row.try_get("user_id")?;
-
-            // 3. Update organizer's ctag
-            sqlx::query(
-                r#"
-                UPDATE users
-                SET ctag = gen_random_uuid()::text, updated_at = NOW()
-                WHERE telegram_id = $1
-                "#,
-            )
-            .bind(organizer_id)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        tx.commit().await?;
-
-        Ok(())
+        self.calendar
+            .confirm_rsvp(ConfirmRsvpCommand {
+                event_id,
+                attendee_user_id: UserId::new(user_id),
+                status,
+                attendee_name,
+            })
+            .await
     }
 
     /// Get pending invites for a user
     pub async fn get_pending_invites(
         &self,
         telegram_id: i64,
-    ) -> Result<Vec<PendingInvite>, sqlx::Error> {
-        let invites = sqlx::query_as::<_, PendingInvite>(
-            r#"
-            SELECT e.id AS event_id, e.summary, e.start, e.start_date, e.is_all_day, e.location,
-                   u.telegram_username AS organizer_username
-            FROM event_attendees ea
-            JOIN events e ON ea.event_id = e.id
-            JOIN users u ON e.user_id = u.telegram_id
-            WHERE ea.user_id = $1
-              AND ea.status = 'NEEDS-ACTION'
-            ORDER BY COALESCE(e.start, (e.start_date AT TIME ZONE 'UTC')) ASC
-            "#,
-        )
-        .bind(telegram_id)
-        .fetch_all(&self.pool)
-        .await?;
+    ) -> Result<Vec<PendingInvite>, ApplicationError> {
+        let invites = self
+            .calendar
+            .list_pending_invites(UserId::new(telegram_id))
+            .await?;
 
-        Ok(invites)
+        Ok(invites
+            .into_iter()
+            .map(|invite| PendingInvite {
+                event_id: invite.event_id,
+                summary: invite.summary,
+                start: invite.start,
+                start_date: invite.start_date,
+                is_all_day: invite.is_all_day,
+                location: invite.location,
+                organizer_username: invite.organizer_username,
+            })
+            .collect())
     }
 
     /// Get all attendees for an event
     pub async fn get_event_attendees(
         &self,
         event_id: Uuid,
-    ) -> Result<Vec<AttendeeInfo>, sqlx::Error> {
-        let attendees = sqlx::query_as::<_, AttendeeInfo>(
-            r#"
-            SELECT ea.email, ea.user_id as telegram_id, ea.role::text as role, ea.status::text as status,
-                   u.telegram_username
-            FROM event_attendees ea
-            LEFT JOIN users u ON ea.user_id = u.telegram_id
-            WHERE ea.event_id = $1
-            ORDER BY
-                CASE ea.role::text
-                    WHEN 'ORGANIZER' THEN 0
-                    ELSE 1
-                END,
-                ea.created_at ASC
-            "#,
-        )
-        .bind(event_id)
-        .fetch_all(&self.pool)
-        .await?;
+    ) -> Result<Vec<AttendeeInfo>, ApplicationError> {
+        let attendees = self.calendar.list_attendees_for_display(event_id).await?;
 
-        Ok(attendees)
+        Ok(attendees
+            .into_iter()
+            .map(|attendee| AttendeeInfo {
+                email: attendee.email,
+                telegram_id: attendee.telegram_id,
+                role: attendee.role.as_sql().to_string(),
+                status: attendee.status.as_sql().to_string(),
+                telegram_username: attendee.telegram_username,
+            })
+            .collect())
     }
 
     /// Get event organizer's telegram_id
-    pub async fn get_event_organizer(&self, event_id: Uuid) -> Result<Option<i64>, sqlx::Error> {
-        let row = sqlx::query(
-            r#"
-            SELECT user_id as telegram_id
-            FROM events
-            WHERE id = $1
-            "#,
-        )
-        .bind(event_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        match row {
-            Some(r) => {
-                let tid: i64 = r.try_get("telegram_id")?;
-                Ok(Some(tid))
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Queue calendar invite message for processing
-    pub async fn queue_calendar_invite(
+    pub async fn get_event_organizer(
         &self,
-        recipient_email: &str,
-        recipient_telegram_id: Option<i64>,
-        event_summary: &str,
-        event_start: DateTime<Utc>,
-        event_location: Option<&str>,
-    ) -> Result<Uuid, sqlx::Error> {
-        use serde_json::json;
-
-        let payload = json!({
-            "recipient_email": recipient_email,
-            "recipient_telegram_id": recipient_telegram_id,
-            "event_summary": event_summary,
-            "event_start": event_start.to_rfc3339(),
-            "event_location": event_location,
-        });
-
-        let row = sqlx::query(
-            r#"
-            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at)
-            VALUES (gen_random_uuid(), 'calendar_invite', $1, 'pending', 0, NOW())
-            RETURNING id
-            "#,
-        )
-        .bind(payload)
-        .fetch_one(&self.pool)
-        .await?;
-
-        row.try_get("id")
-    }
-
-    /// Queue RSVP notification to event organizer
-    pub async fn queue_rsvp_notification(
-        &self,
-        organizer_telegram_id: i64,
-        attendee_name: &str,
-        event_summary: &str,
-        rsvp_status: &str,
-    ) -> Result<Uuid, sqlx::Error> {
-        use serde_json::json;
-
-        let payload = json!({
-            "telegram_id": organizer_telegram_id,
-            "message": format!("📅 {} {} your invite to: {}", attendee_name, rsvp_status, event_summary),
-        });
-
-        let row = sqlx::query(
-            r#"
-            INSERT INTO outbox_messages (id, message_type, payload, status, retry_count, scheduled_at)
-            VALUES (gen_random_uuid(), 'telegram_notification', $1, 'pending', 0, NOW())
-            RETURNING id
-            "#,
-        )
-        .bind(payload)
-        .fetch_one(&self.pool)
-        .await?;
-
-        row.try_get("id")
+        event_id: Uuid,
+    ) -> Result<Option<i64>, ApplicationError> {
+        Ok(self
+            .calendar
+            .get_event_owner_id(event_id)
+            .await?
+            .map(UserId::inner))
     }
 
     /// Create a new event
@@ -609,69 +423,91 @@ impl BotDb {
         location: Option<&str>,
         timing: crate::event_parser::ParsedTiming,
         timezone: &str,
-    ) -> Result<BotEvent, sqlx::Error> {
-        use sha2::{Digest, Sha256};
-
-        // Ensure user exists
-        self.ensure_user_setup(telegram_id, None).await?;
-
-        let (start, end, start_date, end_date, is_all_day) = match timing {
+    ) -> Result<BotEvent, ApplicationError> {
+        let domain_timing = match timing {
             crate::event_parser::ParsedTiming::Timed {
                 start,
                 duration_minutes,
             } => {
                 let end = start + chrono::Duration::minutes(i64::from(duration_minutes));
-                (Some(start), Some(end), None, None, false)
+                EventTiming::Timed {
+                    start,
+                    end,
+                    timezone: Timezone::parse(timezone.to_string()).unwrap_or_default(),
+                }
             }
             crate::event_parser::ParsedTiming::AllDay { date } => {
                 let end_date = date + chrono::Duration::days(1);
-                (None, None, Some(date), Some(end_date), true)
+                EventTiming::AllDay {
+                    start_date: date,
+                    end_date,
+                }
             }
         };
 
-        // Generate ETag (SHA256 of event data)
-        let etag_data = format!(
-            "{}|{}|{}|{}|{:?}|{:?}|{:?}|{:?}|{}|Confirmed|",
-            uid,
-            summary,
-            description.unwrap_or(""),
-            location.unwrap_or(""),
-            start,
-            end,
+        let event = self
+            .calendar
+            .create_event_view(CreateEventCommand {
+                user_id: UserId::new(telegram_id),
+                username: None,
+                uid: uid.to_string(),
+                summary: summary.to_string(),
+                description: description.map(str::to_string),
+                location: location.map(str::to_string),
+                timing: domain_timing,
+                status: DomainEventStatus::Confirmed,
+                rrule: None,
+            })
+            .await?;
+
+        Ok(BotEvent::from_event(event))
+    }
+}
+
+impl BotEvent {
+    fn from_event(event: EventView) -> Self {
+        let timing = timing_parts(&event.timing);
+        Self {
+            id: event.id,
+            summary: event.summary,
+            start: timing.start,
+            end: timing.end,
+            start_date: timing.start_date,
+            end_date: timing.end_date,
+            is_all_day: timing.is_all_day,
+            location: event.location,
+            description: event.description,
+        }
+    }
+}
+
+struct TimingParts {
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
+    start_date: Option<NaiveDate>,
+    end_date: Option<NaiveDate>,
+    is_all_day: bool,
+}
+
+fn timing_parts(timing: &EventTiming) -> TimingParts {
+    match timing {
+        EventTiming::Timed { start, end, .. } => TimingParts {
+            start: Some(*start),
+            end: Some(*end),
+            start_date: None,
+            end_date: None,
+            is_all_day: false,
+        },
+        EventTiming::AllDay {
             start_date,
             end_date,
-            is_all_day
-        );
-        let hash = Sha256::digest(etag_data.as_bytes());
-        let etag = format!("{:x}", hash);
-
-        // Insert event - user_id is telegram_id directly
-        let event = sqlx::query_as::<_, BotEvent>(
-            r#"
-            INSERT INTO events (
-                user_id, uid, summary, description, location,
-                start, "end", start_date, end_date, is_all_day, status, timezone, etag
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'CONFIRMED', $11, $12)
-            RETURNING id, summary, start, "end", start_date, end_date, is_all_day, location, description
-            "#,
-        )
-        .bind(telegram_id)
-        .bind(uid)
-        .bind(summary)
-        .bind(description)
-        .bind(location)
-        .bind(start)
-        .bind(end)
-        .bind(start_date)
-        .bind(end_date)
-        .bind(is_all_day)
-        .bind(timezone)
-        .bind(etag)
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(event)
+        } => TimingParts {
+            start: None,
+            end: None,
+            start_date: Some(*start_date),
+            end_date: Some(*end_date),
+            is_all_day: true,
+        },
     }
 }
 
@@ -679,10 +515,20 @@ impl BotDb {
 mod tests {
     use super::*;
     use chrono::Duration;
+    use sqlx::PgPool;
+
+    fn bot_db(pool: PgPool) -> BotDb {
+        BotDb::new(
+            CalendarService::new(televent_storage::calendar::CalendarRepository::new(
+                pool.clone(),
+            )),
+            DeviceService::new(televent_storage::device::DeviceRepository::new(pool)),
+        )
+    }
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_user_setup(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let telegram_id = 1001;
 
         // Ensure user is set up
@@ -696,7 +542,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_event_lifecycle(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let telegram_id = 1002;
         db.ensure_user_setup(telegram_id, None)
             .await
@@ -763,7 +609,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_device_password_management(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let telegram_id = 1003;
         db.ensure_user_setup(telegram_id, None)
             .await
@@ -774,7 +620,7 @@ mod tests {
             .generate_device_password(telegram_id, "Test Device")
             .await
             .expect("Generate failed");
-        assert_eq!(password.len(), 16);
+        assert_eq!(password.len(), 24);
 
         // List passwords
         let devices = db
@@ -808,7 +654,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_invites_and_rsvps(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool);
         let organizer_id = 1004;
         let attendee_id = 1005;
 
@@ -840,15 +686,14 @@ mod tests {
             .expect("Create event failed");
 
         // Invite attendee
-        let _invite_id = db
-            .invite_attendee(
-                event.id,
-                "attendee@example.com",
-                Some(attendee_id),
-                "ATTENDEE",
-            )
-            .await
-            .expect("Invite failed");
+        db.invite_attendee(
+            event.id,
+            "attendee@example.com",
+            Some(attendee_id),
+            "ATTENDEE",
+        )
+        .await
+        .expect("Invite failed");
 
         // Check pending invites
         let pending = db
@@ -895,7 +740,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn test_confirm_rsvp_transaction(pool: PgPool) {
-        let db = BotDb::new(pool);
+        let db = bot_db(pool.clone());
         let organizer_id = 2004;
         let attendee_id = 2005;
 
@@ -931,11 +776,16 @@ mod tests {
             .expect("Invite failed");
 
         // Get initial values
-        let (initial_ctag, initial_version): (String, i32) = sqlx::query_as(
-            "SELECT u.ctag, e.version FROM users u JOIN events e ON u.telegram_id = e.user_id WHERE e.id = $1"
+        let (initial_sync_token, initial_ctag, initial_version, initial_sync_version): (
+            i64,
+            i64,
+            i32,
+            i64,
+        ) = sqlx::query_as(
+            "SELECT u.sync_token, u.ctag, e.version, e.sync_version FROM users u JOIN events e ON u.telegram_id = e.user_id WHERE e.id = $1"
         )
         .bind(event.id)
-        .fetch_one(&db.pool)
+        .fetch_one(&pool)
         .await
         .unwrap();
 
@@ -945,19 +795,34 @@ mod tests {
             .expect("confirm_rsvp failed");
 
         // Verify updates
-        let (new_ctag, new_version): (String, i32) = sqlx::query_as(
-            "SELECT u.ctag, e.version FROM users u JOIN events e ON u.telegram_id = e.user_id WHERE e.id = $1"
-        )
+        let (new_sync_token, new_ctag, new_version, new_sync_version): (i64, i64, i32, i64) =
+            sqlx::query_as(
+                "SELECT u.sync_token, u.ctag, e.version, e.sync_version FROM users u JOIN events e ON u.telegram_id = e.user_id WHERE e.id = $1"
+            )
         .bind(event.id)
-        .fetch_one(&db.pool)
+        .fetch_one(&pool)
         .await
         .unwrap();
 
-        assert_ne!(initial_ctag, new_ctag, "CTAG should have changed");
+        assert_eq!(
+            initial_ctag, initial_sync_token,
+            "Initial CTAG should track sync token"
+        );
+        assert_eq!(
+            new_sync_token,
+            initial_sync_token + 1,
+            "Sync token should increment exactly once"
+        );
+        assert_eq!(new_ctag, new_sync_token, "CTAG should track sync token");
         assert_eq!(
             new_version,
             initial_version + 1,
             "Version should have incremented"
+        );
+        assert_eq!(
+            new_sync_version,
+            initial_sync_version + 1,
+            "Event sync_version should match the one calendar sync bump"
         );
 
         // Verify attendee status
@@ -970,8 +835,8 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_user_lookup_and_outbox(pool: PgPool) {
-        let db = BotDb::new(pool);
+    async fn test_user_lookup(pool: PgPool) {
+        let db = bot_db(pool);
         let telegram_id = 1006;
         let username = "someuser";
 
@@ -986,26 +851,6 @@ mod tests {
             .expect("Lookup failed");
         assert!(user.is_some());
         assert_eq!(user.unwrap().telegram_id, telegram_id);
-
-        // Queue invite
-        let invite_msg_id = db
-            .queue_calendar_invite(
-                "test@test.com",
-                Some(telegram_id),
-                "Event",
-                Utc::now(),
-                None,
-            )
-            .await
-            .expect("Queue invite");
-        assert!(!invite_msg_id.is_nil());
-
-        // Queue notification
-        let notif_msg_id = db
-            .queue_rsvp_notification(telegram_id, "Attendee", "Event", "ACCEPTED")
-            .await
-            .expect("Queue notif");
-        assert!(!notif_msg_id.is_nil());
     }
 
     #[test]

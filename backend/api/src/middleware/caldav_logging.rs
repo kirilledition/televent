@@ -73,7 +73,7 @@ pub async fn caldav_logger(req: Request, next: Next) -> Response {
                     "Failed to buffer response body for logging"
                 );
                 Bytes::new()
-            },
+            }
         };
 
         return Response::from_parts(parts, Body::from(bytes));

@@ -7,10 +7,11 @@ use quick_xml::Reader;
 use quick_xml::Writer;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use std::io::Cursor;
-use televent_core::models::{CALENDAR_NAME, Event as CalEvent, User};
-// use uuid::Uuid;
+use televent_application::{
+    CalDavCalendarState, CalDavEventMetadata, CalDavEventResource, CalDavTombstone,
+};
+use televent_domain::CALENDAR_NAME;
 
-use super::ical;
 use crate::error::ApiError;
 
 /// Maximum number of hrefs allowed in a calendar-multiget report
@@ -170,10 +171,10 @@ fn parse_caldav_datetime(s: &str) -> Option<DateTime<Utc>> {
         .map(|dt| dt.and_utc())
 }
 
-/// Generate CalDAV multistatus response for REPORT calendar-query
+/// Generate CalDAV multistatus response for REPORT calendar-query.
 pub fn generate_calendar_query_response(
     user_identifier: &str,
-    events: &[CalEvent],
+    events: &[CalDavEventResource],
 ) -> Result<String, ApiError> {
     // Pre-allocate buffer: ~512 bytes per event to minimize reallocations
     let capacity = events.len() * 512 + 1024;
@@ -193,14 +194,9 @@ pub fn generate_calendar_query_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
-    // Reusable buffer for iCalendar data
-    let mut ical_buf = String::with_capacity(1024);
-
     // Write response for each event with calendar-data
     for event in events {
-        ical_buf.clear();
-        ical::event_to_ical_into(event, &[], &mut ical_buf)?;
-        write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
+        write_event_with_data(&mut writer, user_identifier, event)?;
     }
 
     // </multistatus>
@@ -212,14 +208,15 @@ pub fn generate_calendar_query_response(
     String::from_utf8(result).map_err(|e| ApiError::Internal(format!("UTF-8 error: {}", e)))
 }
 
-/// Generate CalDAV multistatus response for REPORT sync-collection
+/// Generate CalDAV multistatus response for REPORT sync-collection.
 pub fn generate_sync_collection_response(
     user_identifier: &str,
-    user: &User,
-    events: &[CalEvent],
+    calendar: &CalDavCalendarState,
+    events: &[CalDavEventResource],
+    tombstones: &[CalDavTombstone],
 ) -> Result<String, ApiError> {
     // Pre-allocate buffer: ~512 bytes per event to minimize reallocations
-    let capacity = events.len() * 512 + 1024;
+    let capacity = (events.len() + tombstones.len()) * 512 + 1024;
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::with_capacity(capacity)), b' ', 2);
 
     // XML declaration
@@ -236,14 +233,13 @@ pub fn generate_sync_collection_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
-    // Reusable buffer for iCalendar data
-    let mut ical_buf = String::with_capacity(1024);
-
     // Write response for changed/new events with calendar-data
     for event in events {
-        ical_buf.clear();
-        ical::event_to_ical_into(event, &[], &mut ical_buf)?;
-        write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
+        write_event_with_data(&mut writer, user_identifier, event)?;
+    }
+
+    for tombstone in tombstones {
+        write_tombstone_response(&mut writer, user_identifier, tombstone)?;
     }
 
     // <sync-token> - use write! to avoid allocation
@@ -253,7 +249,7 @@ pub fn generate_sync_collection_response(
         write!(
             sync_token_buf,
             "http://televent.app/sync/{}",
-            user.sync_token
+            calendar.sync_token
         )
         .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
         writer
@@ -276,10 +272,30 @@ pub fn generate_sync_collection_response(
     String::from_utf8(result).map_err(|e| ApiError::Internal(format!("UTF-8 error: {}", e)))
 }
 
-/// Generate CalDAV multistatus response for REPORT calendar-multiget
+fn write_tombstone_response(
+    writer: &mut Writer<Cursor<Vec<u8>>>,
+    user_identifier: &str,
+    tombstone: &CalDavTombstone,
+) -> Result<(), ApiError> {
+    use std::fmt::Write;
+
+    let mut buf = String::with_capacity(128);
+
+    write_start_tag(writer, "d:response")?;
+
+    write!(buf, "/caldav/{}/{}.ics", user_identifier, tombstone.uid)
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write_string_tag(writer, "d:href", &buf)?;
+
+    write_string_tag(writer, "d:status", "HTTP/1.1 404 Not Found")?;
+
+    write_end_tag(writer, "d:response")
+}
+
+/// Generate CalDAV multistatus response for REPORT calendar-multiget.
 pub fn generate_calendar_multiget_response(
     user_identifier: &str,
-    events: &[CalEvent],
+    events: &[CalDavEventResource],
 ) -> Result<String, ApiError> {
     // Pre-allocate buffer: ~512 bytes per event to minimize reallocations
     let capacity = events.len() * 512 + 1024;
@@ -299,21 +315,9 @@ pub fn generate_calendar_multiget_response(
         .write_event(Event::Start(multistatus))
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
-    // Reusable buffer for iCalendar data
-    let mut ical_buf = String::with_capacity(1024);
-
     // Write response for each event with calendar-data
     for event in events {
-        ical_buf.clear();
-        match ical::event_to_ical_into(event, &[], &mut ical_buf) {
-            Ok(()) => {
-                write_event_with_data(&mut writer, user_identifier, event, &ical_buf)?;
-            }
-            Err(e) => {
-                tracing::warn!("Failed to generate iCalendar for {}: {:?}", event.uid, e);
-                continue;
-            }
-        }
+        write_event_with_data(&mut writer, user_identifier, event)?;
     }
 
     // </multistatus>
@@ -373,8 +377,7 @@ fn write_http_date(buf: &mut String, dt: DateTime<Utc>) -> Result<(), std::fmt::
 fn write_event_with_data(
     writer: &mut Writer<Cursor<Vec<u8>>>,
     user_identifier: &str,
-    event: &CalEvent,
-    ical_data: &str,
+    event: &CalDavEventResource,
 ) -> Result<(), ApiError> {
     use std::fmt::Write;
 
@@ -413,7 +416,7 @@ fn write_event_with_data(
     write_string_tag(writer, "d:getlastmodified", &buf)?;
 
     // <calendar-data>
-    write_string_tag(writer, "cal:calendar-data", ical_data)?;
+    write_string_tag(writer, "cal:calendar-data", &event.calendar_data)?;
 
     // </prop>
     write_end_tag(writer, "d:prop")?;
@@ -431,8 +434,8 @@ fn write_event_with_data(
 /// Generate CalDAV multistatus response for PROPFIND
 pub fn generate_propfind_multistatus(
     user_identifier: &str,
-    user: &User,
-    events: &[CalEvent],
+    calendar: &CalDavCalendarState,
+    events: &[CalDavEventMetadata],
     depth: &str,
 ) -> Result<String, ApiError> {
     // Pre-allocate buffer if we are returning events (Depth: 1)
@@ -458,7 +461,7 @@ pub fn generate_propfind_multistatus(
         .map_err(|e| ApiError::Internal(format!("XML write error: {}", e)))?;
 
     // Calendar collection response (user = calendar)
-    write_calendar_response(&mut writer, user_identifier, user)?;
+    write_calendar_response(&mut writer, user_identifier, calendar)?;
 
     // Event responses (only for Depth: 1)
     if depth == "1" {
@@ -482,7 +485,7 @@ pub fn generate_propfind_multistatus(
 fn write_calendar_response(
     writer: &mut Writer<Cursor<Vec<u8>>>,
     user_identifier: &str,
-    user: &User,
+    calendar: &CalDavCalendarState,
 ) -> Result<(), ApiError> {
     use std::fmt::Write;
 
@@ -514,11 +517,14 @@ fn write_calendar_response(
     write_string_tag(writer, "d:displayname", CALENDAR_NAME)?;
 
     // <getctag>
-    write_string_tag(writer, "cal:getctag", &user.ctag)?;
+    buf.clear();
+    write!(buf, "{}", calendar.ctag)
+        .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
+    write_string_tag(writer, "cal:getctag", &buf)?;
 
     // <sync-token> (RFC 6578) - reuse buffer
     buf.clear();
-    write!(buf, "http://televent.app/sync/{}", user.sync_token)
+    write!(buf, "http://televent.app/sync/{}", calendar.sync_token)
         .map_err(|e| ApiError::Internal(format!("Format error: {}", e)))?;
     write_string_tag(writer, "d:sync-token", &buf)?;
 
@@ -589,7 +595,7 @@ fn write_calendar_response(
 fn write_event_response(
     writer: &mut Writer<Cursor<Vec<u8>>>,
     user_identifier: &str,
-    event: &CalEvent,
+    event: &CalDavEventMetadata,
 ) -> Result<(), ApiError> {
     use std::fmt::Write;
 
@@ -682,53 +688,41 @@ fn write_empty_tag<W: std::io::Write>(writer: &mut Writer<W>, tag: &str) -> Resu
 mod tests {
     use super::*;
     use chrono::{Datelike, Utc};
-    use televent_core::models::{EventStatus, Timezone, UserId};
-    use uuid::Uuid;
 
-    // Test helper: create a User fixture
-    fn test_user() -> User {
+    fn test_calendar_state() -> CalDavCalendarState {
+        CalDavCalendarState {
+            sync_token: 1,
+            ctag: 123456,
+        }
+    }
+
+    fn test_event_metadata(uid: &str) -> CalDavEventMetadata {
         let now = Utc::now();
-        User {
-            id: UserId::new(123456789),
-            telegram_username: Some("testuser".to_string()),
-            timezone: Timezone::default(),
-            sync_token: "1".to_string(),
-            ctag: "123456".to_string(),
-            created_at: now,
+        CalDavEventMetadata {
+            uid: uid.to_string(),
+            etag: "abc123".to_string(),
             updated_at: now,
         }
     }
 
-    // Test helper: create an Event fixture
-    fn test_event(uid: &str) -> CalEvent {
-        let now = Utc::now();
-        CalEvent {
-            id: Uuid::new_v4(),
-            user_id: UserId::new(123456789),
-            uid: uid.to_string(),
-            version: 1,
-            etag: "abc123".to_string(),
-            summary: "Test Event".to_string(),
-            description: None,
-            location: None,
-            start: Some(now),
-            end: Some(now),
-            start_date: None,
-            end_date: None,
-            is_all_day: false,
-            rrule: None,
-            status: EventStatus::Confirmed,
-            timezone: Timezone::default(),
-            created_at: now,
-            updated_at: now,
+    fn test_event_resource(uid: &str) -> CalDavEventResource {
+        let metadata = test_event_metadata(uid);
+        CalDavEventResource {
+            uid: metadata.uid.clone(),
+            etag: metadata.etag,
+            updated_at: metadata.updated_at,
+            calendar_data: format!(
+                "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:{}\r\nSUMMARY:Test Event\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+                metadata.uid
+            ),
         }
     }
 
     #[test]
     fn test_generate_propfind_depth_0() {
-        let user = test_user();
+        let calendar = test_calendar_state();
 
-        let xml = generate_propfind_multistatus("testuser", &user, &[], "0").unwrap();
+        let xml = generate_propfind_multistatus("testuser", &calendar, &[], "0").unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -741,10 +735,10 @@ mod tests {
 
     #[test]
     fn test_generate_propfind_depth_1() {
-        let user = test_user();
-        let event = test_event("test-event-1");
+        let calendar = test_calendar_state();
+        let event = test_event_metadata("test-event-1");
 
-        let xml = generate_propfind_multistatus("testuser", &user, &[event], "1").unwrap();
+        let xml = generate_propfind_multistatus("testuser", &calendar, &[event], "1").unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -757,11 +751,12 @@ mod tests {
 
     #[test]
     fn test_xml_structure_valid() {
-        let mut user = test_user();
-        user.sync_token = "0".to_string();
-        user.ctag = "0".to_string();
+        let calendar = CalDavCalendarState {
+            sync_token: 0,
+            ctag: 0,
+        };
 
-        let xml = generate_propfind_multistatus("testuser", &user, &[], "0").unwrap();
+        let xml = generate_propfind_multistatus("testuser", &calendar, &[], "0").unwrap();
 
         // Check XML declaration
         assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"utf-8\"?>"));
@@ -876,7 +871,7 @@ mod tests {
 
     #[test]
     fn test_generate_calendar_query_response() {
-        let event = test_event("event-123");
+        let event = test_event_resource("event-123");
         let xml = generate_calendar_query_response("testuser", &[event]).unwrap();
 
         assert!(xml.contains("<?xml"));
@@ -890,16 +885,14 @@ mod tests {
 
     #[test]
     fn test_generate_sync_collection_response_with_changes() {
-        let mut user = test_user();
-        user.sync_token = "55".to_string();
-        user.ctag = "ctag-123".to_string();
-
-        let mut event = test_event("changed-event");
-        event.version = 2;
+        let calendar = CalDavCalendarState {
+            sync_token: 55,
+            ctag: 123,
+        };
+        let mut event = test_event_resource("changed-event");
         event.etag = "new-etag".to_string();
-        event.summary = "Updated Event".to_string();
 
-        let xml = generate_sync_collection_response("testuser", &user, &[event]).unwrap();
+        let xml = generate_sync_collection_response("testuser", &calendar, &[event], &[]).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -913,10 +906,12 @@ mod tests {
 
     #[test]
     fn test_generate_sync_collection_response_empty() {
-        let mut user = test_user();
-        user.sync_token = "100".to_string();
+        let calendar = CalDavCalendarState {
+            sync_token: 100,
+            ctag: 123,
+        };
 
-        let xml = generate_sync_collection_response("testuser", &user, &[]).unwrap();
+        let xml = generate_sync_collection_response("testuser", &calendar, &[], &[]).unwrap();
 
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("multistatus"));
@@ -927,6 +922,24 @@ mod tests {
     }
 
     #[test]
+    fn test_generate_sync_collection_response_with_tombstone() {
+        let calendar = CalDavCalendarState {
+            sync_token: 101,
+            ctag: 123,
+        };
+        let tombstone = CalDavTombstone {
+            uid: "deleted-event".to_string(),
+        };
+
+        let xml =
+            generate_sync_collection_response("testuser", &calendar, &[], &[tombstone]).unwrap();
+
+        assert!(xml.contains("deleted-event.ics"));
+        assert!(xml.contains("HTTP/1.1 404 Not Found"));
+        assert!(xml.contains("/sync/101"));
+    }
+
+    #[test]
     #[ignore] // benchmark
     fn test_benchmark_generate_calendar_query_response() {
         let count = 2000;
@@ -934,9 +947,8 @@ mod tests {
 
         for i in 0..count {
             let uid = format!("event-{}", i);
-            let mut event = test_event(&uid);
+            let mut event = test_event_resource(&uid);
             event.etag = format!("etag-{}", i);
-            event.summary = format!("Event {}", i);
 
             events.push(event);
         }

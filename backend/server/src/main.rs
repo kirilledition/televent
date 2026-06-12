@@ -22,21 +22,16 @@ async fn main() -> Result<()> {
     tracing::info!("✓ Configuration loaded");
 
     // Create shared database pool with explicit configuration
-    let max_connections = std::env::var("DATABASE_MAX_CONNECTIONS")
-        .unwrap_or_else(|_| "50".to_string())
-        .parse()
-        .unwrap_or(50);
-
     let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(max_connections)
+        .max_connections(config.runtime.db_max_connections)
         .acquire_timeout(std::time::Duration::from_secs(10))
         .idle_timeout(std::time::Duration::from_secs(300))
         .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
-        .connect(&config.core.database_url)
+        .connect(&config.runtime.database_url)
         .await?;
     tracing::info!(
         "✓ Database pool established (max_connections: {})",
-        max_connections
+        config.runtime.db_max_connections
     );
 
     // Run migrations ONCE
@@ -47,24 +42,50 @@ async fn main() -> Result<()> {
     let shutdown = CancellationToken::new();
 
     // Spawn all services
-    let api_handle = spawn_api(pool.clone(), config.clone(), shutdown.clone());
-    let bot_handle = spawn_bot(pool.clone(), config.clone(), shutdown.clone());
-    let worker_handle = spawn_worker(pool.clone(), config.clone(), shutdown.clone());
+    let mut api_handle = spawn_api(pool.clone(), config.clone(), shutdown.clone());
+    let mut bot_handle = spawn_bot(pool.clone(), config.clone(), shutdown.clone());
+    let mut worker_handle = spawn_worker(pool.clone(), config.clone(), shutdown.clone());
 
     tracing::info!("✓ All services started");
 
-    // Wait for shutdown signal
-    wait_for_shutdown().await;
-    tracing::info!("📡 Shutdown signal received");
+    tokio::select! {
+        _ = wait_for_shutdown() => {
+            tracing::info!("📡 Shutdown signal received");
+            shutdown.cancel();
+            let _ = tokio::join!(api_handle, bot_handle, worker_handle);
+            tracing::info!("✓ All services stopped gracefully");
+            Ok(())
+        }
+        result = &mut api_handle => {
+            shutdown.cancel();
+            let _ = tokio::join!(bot_handle, worker_handle);
+            service_exit_error("API", result)
+        }
+        result = &mut bot_handle => {
+            shutdown.cancel();
+            let _ = tokio::join!(api_handle, worker_handle);
+            service_exit_error("bot", result)
+        }
+        result = &mut worker_handle => {
+            shutdown.cancel();
+            let _ = tokio::join!(api_handle, bot_handle);
+            service_exit_error("worker", result)
+        }
+    }
+}
 
-    // Cancel all services
-    shutdown.cancel();
-
-    // Wait for graceful shutdown
-    let _ = tokio::join!(api_handle, bot_handle, worker_handle);
-
-    tracing::info!("✓ All services stopped gracefully");
-    Ok(())
+fn service_exit_error(
+    service_name: &str,
+    result: Result<Result<()>, tokio::task::JoinError>,
+) -> Result<()> {
+    match result {
+        Ok(Ok(())) => Err(anyhow::anyhow!(
+            "{} service exited unexpectedly",
+            service_name
+        )),
+        Ok(Err(e)) => Err(anyhow::anyhow!("{} service failed: {}", service_name, e)),
+        Err(e) => Err(anyhow::anyhow!("{} task join failed: {}", service_name, e)),
+    }
 }
 
 fn spawn_api(
@@ -79,9 +100,17 @@ fn spawn_api(
             .build();
 
         let state = api::AppState {
-            pool,
+            calendar_service: televent_application::CalendarService::new(
+                televent_storage::calendar::CalendarRepository::new(pool.clone()),
+            ),
+            device_service: televent_application::DeviceService::new(
+                televent_storage::device::DeviceRepository::new(pool.clone()),
+            ),
+            health_service: televent_application::HealthService::new(
+                televent_storage::health::HealthRepository::new(pool.clone()),
+            ),
             auth_cache,
-            telegram_bot_token: config.core.telegram_bot_token.clone(),
+            telegram_bot_token: config.runtime.telegram_bot_token.clone(),
         };
         let api_config = config.to_api_config();
 
@@ -104,10 +133,18 @@ fn spawn_bot(
     shutdown: CancellationToken,
 ) -> tokio::task::JoinHandle<Result<()>> {
     tokio::spawn(async move {
-        let bot_token = config.core.telegram_bot_token.clone();
+        let bot_token = config.runtime.telegram_bot_token.clone();
+        let bot_db = bot::db::BotDb::new(
+            televent_application::CalendarService::new(
+                televent_storage::calendar::CalendarRepository::new(pool.clone()),
+            ),
+            televent_application::DeviceService::new(
+                televent_storage::device::DeviceRepository::new(pool.clone()),
+            ),
+        );
 
         tokio::select! {
-            result = bot::run_bot(pool, bot_token) => {
+            result = bot::run_bot(bot_db, bot_token) => {
                 tracing::error!("Bot service exited: {:?}", result);
                 result
             }
@@ -125,10 +162,14 @@ fn spawn_worker(
     shutdown: CancellationToken,
 ) -> tokio::task::JoinHandle<Result<()>> {
     tokio::spawn(async move {
-        let bot = teloxide::Bot::new(&config.core.telegram_bot_token);
+        let bot = teloxide::Bot::new(&config.runtime.telegram_bot_token);
         let worker_config = config.to_worker_config();
+        let db = worker::WorkerDb::new(pool.clone());
+        let calendar = televent_application::CalendarService::new(
+            televent_storage::calendar::CalendarRepository::new(pool.clone()),
+        );
 
-        worker::run_worker(pool, bot, worker_config, Some(shutdown)).await
+        worker::run_worker(db, calendar, bot, worker_config, Some(shutdown)).await
     })
 }
 
@@ -166,9 +207,14 @@ fn init_tracing() -> Result<Option<tracing_appender::non_blocking::WorkerGuard>>
         .with(env_filter)
         .with(stdout_layer);
 
+    let running_on_railway = std::env::var("RAILWAY_ENVIRONMENT").is_ok();
+    let production = std::env::var("APP_ENV")
+        .or_else(|_| std::env::var("RUST_ENV"))
+        .map(|v| v.eq_ignore_ascii_case("production"))
+        .unwrap_or(false);
     let enable_file_logging = std::env::var("ENABLE_FILE_LOGGING")
         .map(|v| v.to_lowercase() != "false" && v != "0")
-        .unwrap_or(true);
+        .unwrap_or(!running_on_railway && !production);
 
     if enable_file_logging {
         let now = chrono::Local::now().format("%y-%m-%d-%H-%M-%S").to_string();

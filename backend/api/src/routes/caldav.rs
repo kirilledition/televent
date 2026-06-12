@@ -12,18 +12,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::any,
 };
-use sqlx::PgPool;
-use televent_core::models::{User, UserId};
+use televent_application::{CalDavUser, CalendarService, UserId};
 
-use crate::db;
 use crate::error::ApiError;
-use crate::routes::{caldav_xml, ical as ical_route};
-use televent_core::attendee;
-use televent_core::models::ParticipationStatus;
-use televent_core::validation::{
-    MAX_DESCRIPTION_LENGTH, MAX_LOCATION_LENGTH, MAX_RRULE_LENGTH, MAX_SUMMARY_LENGTH,
-    MAX_UID_LENGTH, validate_length, validate_no_control_chars, validate_safe_multiline_text,
-};
+use crate::routes::{caldav_ical, caldav_xml};
 
 /// CalDAV OPTIONS handler
 ///
@@ -52,13 +44,13 @@ async fn caldav_options() -> Response {
 /// - Depth: 0 - Calendar metadata only
 /// - Depth: 1 - Calendar metadata + event list (hrefs)
 async fn caldav_propfind(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Path(user_identifier): Path<String>,
     auth_user_id: UserId,
     headers: HeaderMap,
     _body: Body,
 ) -> Result<Response, ApiError> {
-    let user = resolve_user(&pool, &user_identifier).await?;
+    let user = resolve_user(&calendar, &user_identifier).await?;
 
     if user.id != auth_user_id {
         return Err(ApiError::Forbidden);
@@ -79,14 +71,20 @@ async fn caldav_propfind(
 
     // Get events if depth is 1
     let events = if depth == "1" {
-        db::events::list_events(&pool, user.id, None, None, None, None).await?
+        calendar
+            .list_caldav_event_metadata(user.id, None, None)
+            .await?
     } else {
         Vec::new()
     };
 
     // Generate XML response
-    let response_xml =
-        caldav_xml::generate_propfind_multistatus(&user_identifier, &user, &events, depth)?;
+    let response_xml = caldav_xml::generate_propfind_multistatus(
+        &user_identifier,
+        &user.calendar,
+        &events,
+        depth,
+    )?;
 
     Ok((
         StatusCode::MULTI_STATUS,
@@ -100,11 +98,11 @@ async fn caldav_propfind(
 ///
 /// Returns a single event in iCalendar format
 async fn caldav_get_event(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Path((user_identifier, event_uid)): Path<(String, String)>,
     auth_user_id: UserId,
 ) -> Result<Response, ApiError> {
-    let user = resolve_user(&pool, &user_identifier).await?;
+    let user = resolve_user(&calendar, &user_identifier).await?;
 
     if user.id != auth_user_id {
         return Err(ApiError::Forbidden);
@@ -112,25 +110,19 @@ async fn caldav_get_event(
 
     tracing::debug!("GET event {} for user {}", event_uid, user.id);
 
-    // Look up event by UID
-    let event = db::events::get_event_by_uid(&pool, user.id, &event_uid)
+    let rendered = calendar
+        .render_event_ical_by_uid(user.id, &event_uid)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Event not found: {}", event_uid)))?;
-
-    // List attendees
-    let attendees = db::events::get_event_attendees(&pool, event.id).await?;
-
-    // Convert to iCalendar format
-    let ical = ical_route::event_to_ical(&event, &attendees)?;
 
     // Return with proper headers
     Ok((
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "text/calendar; charset=utf-8"),
-            (header::ETAG, &format!("\"{}\"", event.etag)),
+            (header::ETAG, &format!("\"{}\"", rendered.etag)),
         ],
-        ical,
+        rendered.body,
     )
         .into_response())
 }
@@ -145,13 +137,13 @@ const MAX_MULTIGET_HREFS: usize = 200;
 ///
 /// Creates or updates an event from iCalendar data
 async fn caldav_put_event(
-    State(pool): State<PgPool>,
+    State(calendar_service): State<CalendarService>,
     Path((user_identifier, event_uid)): Path<(String, String)>,
     auth_user_id: UserId,
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, ApiError> {
-    let user = resolve_user(&pool, &user_identifier).await?;
+    let user = resolve_user(&calendar_service, &user_identifier).await?;
 
     if user.id != auth_user_id {
         return Err(ApiError::Forbidden);
@@ -166,193 +158,27 @@ async fn caldav_put_event(
     let ical_str = String::from_utf8(body_bytes.to_vec())
         .map_err(|e| ApiError::BadRequest(format!("Invalid UTF-8: {}", e)))?;
 
-    // Parse iCalendar using ical crate
-    let parser = ical::IcalParser::new(std::io::Cursor::new(&ical_str));
-    let calendar = parser
-        .into_iter()
-        .next()
-        .ok_or_else(|| ApiError::BadRequest("Empty calendar".to_string()))?
-        .map_err(|e| ApiError::BadRequest(format!("Failed to parse calendar: {}", e)))?;
+    let parsed_event = caldav_ical::parse_put_event(&ical_str, &event_uid, user.id)?;
 
-    let event = calendar
-        .events
-        .first()
-        .ok_or_else(|| ApiError::BadRequest("No event found in calendar".to_string()))?;
-
-    // Extract basic properties using the parsed event
-    let (uid, summary, description, location, start, end, is_all_day, rrule, status, timezone) =
-        ical_route::ical_to_event_data(event)?;
-
-    // Validate inputs
-    validate_length("UID", &uid, MAX_UID_LENGTH).map_err(ApiError::BadRequest)?;
-    validate_no_control_chars("UID", &uid).map_err(ApiError::BadRequest)?;
-
-    validate_length("Summary", &summary, MAX_SUMMARY_LENGTH).map_err(ApiError::BadRequest)?;
-    validate_no_control_chars("Summary", &summary).map_err(ApiError::BadRequest)?;
-
-    if let Some(desc) = &description {
-        validate_length("Description", desc, MAX_DESCRIPTION_LENGTH)
-            .map_err(ApiError::BadRequest)?;
-        validate_safe_multiline_text("Description", desc).map_err(ApiError::BadRequest)?;
-    }
-
-    if let Some(loc) = &location {
-        validate_length("Location", loc, MAX_LOCATION_LENGTH).map_err(ApiError::BadRequest)?;
-        validate_no_control_chars("Location", loc).map_err(ApiError::BadRequest)?;
-    }
-
-    if let Some(r) = &rrule {
-        validate_length("RRule", r, MAX_RRULE_LENGTH).map_err(ApiError::BadRequest)?;
-        validate_no_control_chars("RRule", r).map_err(ApiError::BadRequest)?;
-    }
-
-    // Check if UID matches the URL
-    if uid != event_uid {
-        return Err(ApiError::BadRequest(format!(
-            "UID mismatch: {} != {}",
-            uid, event_uid
-        )));
-    }
-
-    // Start transaction
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
-
-    // Check if event already exists
-    let existing = db::events::get_event_by_uid(&mut *tx, user.id, &uid).await?;
-
-    let (status_code, etag, event_id) = if let Some(existing_event) = existing {
-        // Check If-Match header for optimistic locking (RFC 4791)
-        if let Some(if_match) = headers.get(header::IF_MATCH) {
-            let requested_etag = if_match
+    let expected_etag = headers
+        .get(header::IF_MATCH)
+        .map(|value| {
+            value
                 .to_str()
-                .map_err(|_| ApiError::BadRequest("Invalid If-Match header".to_string()))?;
-            let current_etag = format!("\"{}\"", existing_event.etag);
-            if requested_etag != current_etag && requested_etag != "*" {
-                return Err(ApiError::Conflict(format!(
-                    "ETag mismatch: {} != {}",
-                    requested_etag, current_etag
-                )));
-            }
-        }
+                .map(str::to_string)
+                .map_err(|_| ApiError::BadRequest("Invalid If-Match header".to_string()))
+        })
+        .transpose()?;
 
-        // Update existing event
-        let updated = db::events::update_event(
-            &mut tx,
-            existing_event,
-            Some(summary),
-            description,
-            location,
-            if is_all_day { None } else { Some(start) },
-            if is_all_day { None } else { Some(end) },
-            if is_all_day {
-                Some(start.date_naive())
-            } else {
-                None
-            },
-            if is_all_day {
-                Some(end.date_naive())
-            } else {
-                None
-            },
-            Some(is_all_day),
-            Some(status),
-            rrule,
-        )
+    let result = calendar_service
+        .put_event_by_uid(parsed_event.into_put_command(user.id, expected_etag))
         .await?;
-        (StatusCode::NO_CONTENT, updated.etag, updated.id)
+    let status_code = if result.created {
+        StatusCode::CREATED
     } else {
-        // Create new event
-        use crate::db::events::EventTiming;
-        use televent_core::models::Timezone;
-
-        let timing = if is_all_day {
-            EventTiming::AllDay {
-                date: start.date_naive(),
-                end_date: end.date_naive(),
-            }
-        } else {
-            EventTiming::Timed { start, end }
-        };
-
-        // Parse timezone (default to UTC if invalid)
-        let tz = Timezone::parse(&timezone).unwrap_or_default();
-
-        let created = db::events::create_event(
-            &mut *tx,
-            user.id,
-            uid.to_string(),
-            summary,
-            description,
-            location,
-            timing,
-            tz,
-            rrule,
-        )
-        .await?;
-        (StatusCode::CREATED, created.etag, created.id)
+        StatusCode::NO_CONTENT
     };
-
-    // Process Attendees in bulk
-    let mut internal_attendees = std::collections::HashMap::new();
-    for property in &event.properties {
-        if property.name == "ATTENDEE"
-            && let Some(value) = &property.value
-        {
-            // value is usually "mailto:email@example.com"
-            let email = value.trim_start_matches("mailto:");
-            if let Some(internal_user_id) = attendee::parse_internal_email(email) {
-                // Skip self
-                if internal_user_id != user.id {
-                    // Collect unique attendees by email
-                    internal_attendees.insert(
-                        email.to_string(),
-                        (internal_user_id, ParticipationStatus::NeedsAction),
-                    );
-                }
-            }
-        }
-    }
-
-    if !internal_attendees.is_empty() {
-        let attendees_to_upsert = internal_attendees
-            .into_iter()
-            .map(|(email, (uid, status))| (uid, email, status))
-            .collect();
-
-        let upsert_results = db::events::upsert_event_attendees_bulk(
-            &mut *tx,
-            event_id,
-            attendees_to_upsert,
-        )
-        .await?;
-
-        let mut notifications = Vec::new();
-        for res in upsert_results {
-            if res.is_new {
-                notifications.push((
-                    "invite_notification",
-                    serde_json::json!({
-                        "event_id": event_id,
-                        "target_user_id": res.user_id
-                    }),
-                ));
-            }
-        }
-
-        if !notifications.is_empty() {
-            db::events::create_outbox_messages_bulk(&mut *tx, notifications).await?;
-        }
-    }
-
-    // Increment sync token
-    let _new_sync_token = db::users::increment_sync_token_tx(&mut tx, user.id).await?;
-
-    tx.commit()
-        .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+    let etag = result.etag;
 
     Ok((status_code, [(header::ETAG, format!("\"{}\"", etag))], "").into_response())
 }
@@ -361,12 +187,12 @@ async fn caldav_put_event(
 ///
 /// Handles calendar-query and sync-collection reports (RFC 4791, RFC 6578)
 async fn caldav_report(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Path(user_identifier): Path<String>,
     auth_user_id: UserId,
     body: Body,
 ) -> Result<Response, ApiError> {
-    let user = resolve_user(&pool, &user_identifier).await?;
+    let user = resolve_user(&calendar, &user_identifier).await?;
 
     if user.id != auth_user_id {
         return Err(ApiError::Forbidden);
@@ -397,8 +223,9 @@ async fn caldav_report(
 
     match report_type {
         caldav_xml::ReportType::CalendarQuery { start, end } => {
-            // Query events with optional time range
-            let events = db::events::list_events(&pool, user.id, start, end, None, None).await?;
+            let events = calendar
+                .list_caldav_event_resources(user.id, start, end)
+                .await?;
 
             tracing::info!(
                 "CalendarQuery: returning {} events (range: {:?} to {:?})",
@@ -423,39 +250,27 @@ async fn caldav_report(
                 .into_response())
         }
         caldav_xml::ReportType::SyncCollection { sync_token } => {
-            // Parse sync token to get last known state
-            let last_sync_token = sync_token
-                .as_ref()
-                .and_then(|s: &String| s.rsplit('/').next())
-                .and_then(|s: &str| s.parse::<i64>().ok())
-                .unwrap_or(0);
+            let resource_changes = calendar
+                .list_caldav_sync_changes(user.id, sync_token.as_deref())
+                .await?;
 
             tracing::info!(
-                "SyncCollection: sync_token={:?}, parsed={}",
+                "SyncCollection: sync_token={:?}, parsed={}, returning {} events, user sync_token={}",
                 sync_token,
-                last_sync_token
+                resource_changes.last_sync_token,
+                resource_changes.events.len(),
+                user.calendar.sync_token
             );
 
-            // Get events modified since last sync
-            // For now, if sync_token is 0 or missing, return all events
-            let events = if last_sync_token == 0 {
-                db::events::list_events(&pool, user.id, None, None, None, None).await?
-            } else {
-                db::events::list_events_since_sync(&pool, user.id, last_sync_token).await?
-            };
-
-            tracing::info!(
-                "SyncCollection: returning {} events, user sync_token={}",
-                events.len(),
-                user.sync_token
-            );
-
-            // Fetch deleted events
-            let response_xml =
-                caldav_xml::generate_sync_collection_response(&user_identifier, &user, &events)?;
+            let response_xml = caldav_xml::generate_sync_collection_response(
+                &user_identifier,
+                &user.calendar,
+                &resource_changes.events,
+                &resource_changes.tombstones,
+            )?;
 
             // Log the actual XML response for debugging
-            if !events.is_empty() {
+            if !resource_changes.events.is_empty() {
                 tracing::info!(
                     "SyncCollection XML response (first 2000 chars):\n{}",
                     &response_xml.chars().take(2000).collect::<String>()
@@ -484,17 +299,15 @@ async fn caldav_report(
             // Optimized to minimize allocations
             let requested_uids = extract_uids_from_hrefs(&hrefs);
 
-            // Fetch events by UIDs in batch
             let uid_strs: Vec<&str> = requested_uids.iter().map(|s| s.as_ref()).collect();
-            let fetched_events = db::events::get_events_by_uids(&pool, user.id, &uid_strs).await?;
+            let events = calendar
+                .list_caldav_event_resources_by_uids(user.id, &uid_strs)
+                .await?;
 
             let response_xml =
-                caldav_xml::generate_calendar_multiget_response(&user_identifier, &fetched_events)?;
+                caldav_xml::generate_calendar_multiget_response(&user_identifier, &events)?;
 
-            tracing::info!(
-                "CalendarMultiget: returning {} events",
-                fetched_events.len()
-            );
+            tracing::info!("CalendarMultiget: returning {} events", events.len());
 
             Ok((
                 StatusCode::MULTI_STATUS,
@@ -510,12 +323,12 @@ async fn caldav_report(
 ///
 /// Deletes an event
 async fn caldav_delete_event(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Path((user_identifier, event_uid)): Path<(String, String)>,
     auth_user_id: UserId,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let user = resolve_user(&pool, &user_identifier).await?;
+    let user = resolve_user(&calendar, &user_identifier).await?;
 
     if user.id != auth_user_id {
         return Err(ApiError::Forbidden);
@@ -523,66 +336,36 @@ async fn caldav_delete_event(
 
     tracing::debug!("DELETE event {} for user {}", event_uid, user.id);
 
-    // Check If-Match header for ETag (optional but recommended)
-    if let Some(if_match) = headers.get(header::IF_MATCH) {
-        let requested_etag = if_match
-            .to_str()
-            .map_err(|_| ApiError::BadRequest("Invalid If-Match header".to_string()))?;
+    let expected_etag = headers
+        .get(header::IF_MATCH)
+        .map(|value| {
+            value
+                .to_str()
+                .map(str::to_string)
+                .map_err(|_| ApiError::BadRequest("Invalid If-Match header".to_string()))
+        })
+        .transpose()?;
 
-        // Get current event to check ETag
-        if let Some(event) = db::events::get_event_by_uid(&pool, user.id, &event_uid).await? {
-            let current_etag = format!("\"{}\"", event.etag);
-            if requested_etag != current_etag && requested_etag != "*" {
-                return Err(ApiError::Conflict(format!(
-                    "ETag mismatch: {} != {}",
-                    requested_etag, current_etag
-                )));
-            }
-        }
-    }
-
-    // Perform deletion and sync token increment in a transaction
-    // This ensures the trigger in database captures the NEW sync token
-    let mut tx = pool.begin().await?;
-
-    // Increment sync token first so the deletion picks up the new token
-    let _new_sync_token = db::users::increment_sync_token_tx(&mut tx, user.id).await?;
-
-    // Delete event
-    let deleted = db::events::delete_event_by_uid_tx(&mut tx, user.id, &event_uid).await?;
-
-    if !deleted {
-        return Err(ApiError::NotFound(format!(
-            "Event not found: {}",
-            event_uid
-        )));
-    }
-
-    tx.commit().await?;
+    calendar
+        .delete_event_by_uid(user.id, &event_uid, expected_etag)
+        .await?;
 
     Ok((StatusCode::NO_CONTENT, "").into_response())
 }
 
-/// Resolve user identifier (numeric ID or username) to User
+/// Resolve user identifier (numeric ID or username) to CalDAV user projection.
 ///
 /// The identifier can be:
 /// - A numeric Telegram ID (e.g., "123456789")
 /// - A Telegram username (e.g., "myusername")
-async fn resolve_user(pool: &PgPool, identifier: &str) -> Result<User, ApiError> {
-    // Try as numeric ID first
-    if let Ok(telegram_id) = identifier.parse::<i64>() {
-        let user = db::users::get_user_by_id(pool, UserId::new(telegram_id))
-            .await?
-            .ok_or_else(|| ApiError::NotFound(format!("User not found: {identifier}")))?;
-        return Ok(user);
-    }
-
-    // Try as username
-    let user = db::users::get_user_by_username(pool, identifier)
+async fn resolve_user(
+    calendar: &CalendarService,
+    identifier: &str,
+) -> Result<CalDavUser, ApiError> {
+    calendar
+        .resolve_caldav_user(identifier)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("User not found: {identifier}")))?;
-
-    Ok(user)
+        .ok_or_else(|| ApiError::NotFound(format!("User not found: {identifier}")))
 }
 
 /// Helper to extract UIDs from hrefs optimally
@@ -626,7 +409,7 @@ fn extract_uids_from_hrefs(hrefs: &[String]) -> Vec<Cow<'_, str>> {
 pub fn routes<S>() -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
-    PgPool: FromRef<S>,
+    CalendarService: FromRef<S>,
 {
     Router::new()
         // Calendar collection endpoints
@@ -637,7 +420,7 @@ where
 
 /// Main CalDAV collection handler
 async fn caldav_handler(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Extension(auth_user_id): Extension<UserId>,
     Path(user_identifier): Path<String>,
     headers: HeaderMap,
@@ -649,7 +432,7 @@ async fn caldav_handler(
         "OPTIONS" => Ok(caldav_options().await),
         "PROPFIND" => {
             caldav_propfind(
-                State(pool),
+                State(calendar),
                 Path(user_identifier),
                 auth_user_id,
                 headers,
@@ -657,7 +440,7 @@ async fn caldav_handler(
             )
             .await
         }
-        "REPORT" => caldav_report(State(pool), Path(user_identifier), auth_user_id, body).await,
+        "REPORT" => caldav_report(State(calendar), Path(user_identifier), auth_user_id, body).await,
         _ => Err(ApiError::BadRequest(format!(
             "Method {} not supported for calendar collection",
             method
@@ -667,7 +450,7 @@ async fn caldav_handler(
 
 /// Event resource handler
 async fn event_handler(
-    State(pool): State<PgPool>,
+    State(calendar): State<CalendarService>,
     Extension(auth_user_id): Extension<UserId>,
     Path((user_identifier, event_uid_raw)): Path<(String, String)>,
     headers: HeaderMap,
@@ -683,7 +466,7 @@ async fn event_handler(
     match method {
         Method::GET => {
             caldav_get_event(
-                State(pool),
+                State(calendar),
                 Path((user_identifier, event_uid)),
                 auth_user_id,
             )
@@ -691,7 +474,7 @@ async fn event_handler(
         }
         Method::PUT => {
             caldav_put_event(
-                State(pool),
+                State(calendar),
                 Path((user_identifier, event_uid)),
                 auth_user_id,
                 headers,
@@ -701,7 +484,7 @@ async fn event_handler(
         }
         Method::DELETE => {
             caldav_delete_event(
-                State(pool),
+                State(calendar),
                 Path((user_identifier, event_uid)),
                 auth_user_id,
                 headers,
@@ -770,9 +553,8 @@ mod tests {
         }
 
         // uid 5 should be owned (because of decoding)
-        match uids[4] {
-            Cow::Borrowed(_) => panic!("uid 5 should be owned"),
-            Cow::Owned(_) => {} // OK
+        if let Cow::Borrowed(_) = uids[4] {
+            panic!("uid 5 should be owned");
         }
     }
 }

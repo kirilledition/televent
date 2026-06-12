@@ -5,19 +5,17 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
+autobins = false
 
 [lib]
 name = "worker"
 path = "src/lib.rs"
 
-[[bin]]
-name = "worker"
-path = "src/main.rs"
-
 [dependencies]
 # Internal
-televent-core = { path = "../core" }
-televent-shared = { path = "../shared" }
+televent-application = { path = "../application" }
+televent-domain = { path = "../domain" }
+televent-storage = { path = "../storage" }
 
 # Core
 tokio.workspace = true
@@ -26,9 +24,6 @@ anyhow.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
-
-# Email
-lettre.workspace = true
 
 # Database
 sqlx.workspace = true

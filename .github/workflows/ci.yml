@@ -29,13 +29,48 @@ jobs:
         with:
           workspaces: backend
 
+      - name: Check
+        working-directory: backend
+        run: cargo check --workspace --tests
+
       - name: Check Formatting
         working-directory: backend
         run: cargo fmt --all --check
 
       - name: Clippy
         working-directory: backend
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  contract:
+    name: API Contract
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Regenerate OpenAPI and frontend schema
+        run: |
+          cd backend
+          cargo test -p api --lib tests::export_openapi_json -- --nocapture
+          cd ..
+          node frontend/scripts/generate-schema.mjs
+
+      - name: Check generated schema is committed
+        run: git diff --exit-code -- backend/docs/openapi.json frontend/src/types/schema.ts
 
   test:
     name: Run Tests
@@ -48,9 +83,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -67,19 +99,53 @@ jobs:
         run: supabase start
 
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli --no-default-features --features native-tls,postgres
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
 
       - name: Run Migrations
         working-directory: backend
         run: sqlx migrate run
 
-      - name: Generate code coverage
+      - name: Run backend tests
         working-directory: backend
-        run: cargo llvm-cov --workspace --codecov --output-path codecov.json
+        run: cargo test --workspace
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: backend/codecov.json
-          fail_ci_if_error: true
+          node-version: 22
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test run
+
+      - name: Build
+        run: pnpm build
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build unified Railway image
+        run: docker build --pull --tag televent:ci .

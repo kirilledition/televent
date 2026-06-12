@@ -6,8 +6,8 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use moka::future::Cache;
 use sqlx::{PgPool, Row};
 use std::time::Duration;
-use televent_core::attendee::generate_internal_email;
-use televent_core::models::UserId;
+use televent_application::ConfirmRsvpCommand;
+use televent_domain::{ParticipationStatus, UserId, internal_email_for_telegram_id};
 use tower::ServiceExt;
 
 /// Integration test for the complete invite flow
@@ -38,9 +38,9 @@ async fn test_invite_flow_end_to_end(pool: PgPool) {
     // Create User A (Organizer)
     sqlx::query(
         "INSERT INTO users (telegram_id, telegram_username, timezone, sync_token, ctag) 
-         VALUES ($1, 'user_a', 'UTC', '0', '0')",
+         VALUES ($1, 'user_a', 'UTC', 0, 0)",
     )
-    .bind(user_a_id)
+    .bind(user_a_id.inner())
     .execute(&pool)
     .await
     .unwrap();
@@ -48,9 +48,9 @@ async fn test_invite_flow_end_to_end(pool: PgPool) {
     // Create User B (Attendee)
     sqlx::query(
         "INSERT INTO users (telegram_id, telegram_username, timezone, sync_token, ctag) 
-         VALUES ($1, 'user_b', 'UTC', '0', '0')",
+         VALUES ($1, 'user_b', 'UTC', 0, 0)",
     )
-    .bind(user_b_id)
+    .bind(user_b_id.inner())
     .execute(&pool)
     .await
     .unwrap();
@@ -69,7 +69,7 @@ async fn test_invite_flow_end_to_end(pool: PgPool) {
          VALUES ($1, $2, $3, 'test_device')",
     )
     .bind(uuid::Uuid::new_v4())
-    .bind(user_a_id)
+    .bind(user_a_id.inner())
     .bind(password_hash)
     .execute(&pool)
     .await
@@ -84,15 +84,24 @@ async fn test_invite_flow_end_to_end(pool: PgPool) {
         .time_to_live(Duration::from_secs(300))
         .build();
 
+    let calendar_service = televent_application::CalendarService::new(
+        televent_storage::calendar::CalendarRepository::new(pool.clone()),
+    );
     let state = AppState {
-        pool: pool.clone(),
+        calendar_service: calendar_service.clone(),
+        device_service: televent_application::DeviceService::new(
+            televent_storage::device::DeviceRepository::new(pool.clone()),
+        ),
+        health_service: televent_application::HealthService::new(
+            televent_storage::health::HealthRepository::new(pool.clone()),
+        ),
         auth_cache,
         telegram_bot_token: "test_token".to_string(),
     };
     let app = create_router(state, "*");
 
     // Generate internal email for User B
-    let internal_email = generate_internal_email(user_b_id);
+    let internal_email = internal_email_for_telegram_id(user_b_id.inner());
 
     // Create ICS with attendee (using same format as existing ical_to_event_data tests)
     let ical_body = format!(
@@ -155,7 +164,7 @@ async fn test_invite_flow_end_to_end(pool: PgPool) {
          WHERE event_id = $1 AND user_id = $2",
     )
     .bind(event_id)
-    .bind(user_b_id)
+    .bind(user_b_id.inner())
     .fetch_optional(&pool)
     .await
     .unwrap();
@@ -179,10 +188,12 @@ async fn test_invite_flow_end_to_end(pool: PgPool) {
     // =============================================================================
 
     let message = sqlx::query(
-        "SELECT id, payload, status::text AS status FROM outbox_messages 
-         WHERE message_type = 'invite_notification' 
-         ORDER BY created_at DESC 
-         LIMIT 1",
+        r#"
+        SELECT id, payload, status::text AS status FROM outbox_messages
+        WHERE kind = 'invite_notification'
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
     )
     .fetch_optional(&pool)
     .await
@@ -233,52 +244,15 @@ async fn test_invite_flow_end_to_end(pool: PgPool) {
     // Step 6: Simulate Bot Callback - User B accepts invite
     // =============================================================================
 
-    // Replicate bot's confirm_rsvp logic inline
-    let mut tx = pool.begin().await.unwrap();
-
-    // 1. Update attendee status
-    let result = sqlx::query(
-        "UPDATE event_attendees
-         SET status = $3::text::attendee_status, updated_at = NOW()
-         WHERE event_id = $1 AND user_id = $2",
-    )
-    .bind(event_id)
-    .bind(1002_i64)
-    .bind("ACCEPTED")
-    .execute(&mut *tx)
-    .await
-    .unwrap();
-
-    assert!(result.rows_affected() > 0, "Should update attendee status");
-
-    // 2. Update event version (triggers sync for organizer)
-    let event_row = sqlx::query(
-        "UPDATE events
-         SET version = version + 1, updated_at = NOW()
-         WHERE id = $1
-         RETURNING user_id",
-    )
-    .bind(event_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .unwrap();
-
-    if let Some(row) = event_row {
-        let organizer_id: i64 = row.get("user_id");
-
-        // 3. Update organizer's ctag
-        sqlx::query(
-            "UPDATE users
-             SET ctag = gen_random_uuid()::text, updated_at = NOW()
-             WHERE telegram_id = $1",
-        )
-        .bind(organizer_id)
-        .execute(&mut *tx)
+    calendar_service
+        .confirm_rsvp(ConfirmRsvpCommand {
+            event_id,
+            attendee_user_id: user_b_id,
+            status: ParticipationStatus::Accepted,
+            attendee_name: "User B".to_string(),
+        })
         .await
         .unwrap();
-    }
-
-    tx.commit().await.unwrap();
 
     // =============================================================================
     // Step 7: Assert event_attendees status is ACCEPTED
@@ -289,7 +263,7 @@ async fn test_invite_flow_end_to_end(pool: PgPool) {
          WHERE event_id = $1 AND user_id = $2",
     )
     .bind(event_id)
-    .bind(user_b_id)
+    .bind(user_b_id.inner())
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -308,6 +282,55 @@ async fn test_invite_flow_end_to_end(pool: PgPool) {
         .unwrap();
     let version: i32 = updated_event.get("version");
     assert!(version > 1, "Event version should be incremented");
+
+    let updated_organizer =
+        sqlx::query("SELECT sync_token, ctag FROM users WHERE telegram_id = $1")
+            .bind(user_a_id.inner())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let organizer_sync_token: i64 = updated_organizer.get("sync_token");
+    let organizer_ctag: i64 = updated_organizer.get("ctag");
+    assert!(
+        organizer_sync_token > 0,
+        "Organizer sync token should be incremented"
+    );
+    assert_eq!(
+        organizer_ctag, organizer_sync_token,
+        "Organizer ctag should track sync token"
+    );
+
+    let rsvp_message = sqlx::query(
+        r#"
+        SELECT payload, status::text AS status FROM outbox_messages
+        WHERE kind = 'rsvp_notification'
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(&pool)
+    .await
+    .unwrap();
+    assert!(
+        rsvp_message.is_some(),
+        "RSVP notification outbox message should exist"
+    );
+    let rsvp_message_row = rsvp_message.unwrap();
+    let rsvp_payload: serde_json::Value = rsvp_message_row.get("payload");
+    let rsvp_status: String = rsvp_message_row.get("status");
+    assert_eq!(
+        rsvp_status, "pending",
+        "RSVP notification should be pending"
+    );
+    assert_eq!(
+        rsvp_payload["organizer_telegram_id"],
+        user_a_id.inner(),
+        "RSVP notification should target the organizer"
+    );
+    assert_eq!(
+        rsvp_payload["rsvp_status"], "Accepted",
+        "RSVP notification should record the accepted status"
+    );
 
     // =============================================================================
     // Step 8: API GET - Retrieve event as User A

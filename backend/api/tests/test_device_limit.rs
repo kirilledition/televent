@@ -8,13 +8,16 @@ use moka::future::Cache;
 use sha2::Sha256;
 use sqlx::PgPool;
 use std::time::Duration;
-use televent_core::models::UserId;
+use televent_domain::UserId;
 use tower::ServiceExt; // for oneshot
 use urlencoding::encode;
 
 // Helper to generate valid init data (same as in telegram_auth.rs tests)
 fn generate_init_data(user_id: i64, bot_token: &str) -> String {
-    let user_json = format!(r#"{{"id":{},"first_name":"Test","last_name":"User"}}"#, user_id);
+    let user_json = format!(
+        r#"{{"id":{},"first_name":"Test","last_name":"User"}}"#,
+        user_id
+    );
     let auth_date = chrono::Utc::now().timestamp().to_string();
 
     let params = vec![
@@ -68,8 +71,8 @@ async fn test_device_limit_enforcement(pool: PgPool) {
     let user_id = UserId::new(123456789);
 
     // Create user in DB
-    sqlx::query("INSERT INTO users (telegram_id, telegram_username, timezone, sync_token, ctag) VALUES ($1, 'test_user', 'UTC', '0', '0')")
-        .bind(user_id)
+    sqlx::query("INSERT INTO users (telegram_id, telegram_username, timezone, sync_token, ctag) VALUES ($1, 'test_user', 'UTC', 0, 0)")
+        .bind(user_id.inner())
         .execute(&pool)
         .await
         .unwrap();
@@ -80,7 +83,15 @@ async fn test_device_limit_enforcement(pool: PgPool) {
     let token = "test_token";
 
     let state = AppState {
-        pool,
+        calendar_service: televent_application::CalendarService::new(
+            televent_storage::calendar::CalendarRepository::new(pool.clone()),
+        ),
+        device_service: televent_application::DeviceService::new(
+            televent_storage::device::DeviceRepository::new(pool.clone()),
+        ),
+        health_service: televent_application::HealthService::new(
+            televent_storage::health::HealthRepository::new(pool.clone()),
+        ),
         auth_cache,
         telegram_bot_token: token.to_string(),
     };
@@ -97,7 +108,8 @@ async fn test_device_limit_enforcement(pool: PgPool) {
         let req_body = format!(r#"{{"name": "Device {}"}}"#, i);
 
         // We must clone app for each request because oneshot consumes it
-        let response = app.clone()
+        let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -111,10 +123,19 @@ async fn test_device_limit_enforcement(pool: PgPool) {
             .unwrap();
 
         if i < 10 {
-            assert_eq!(response.status(), StatusCode::CREATED, "Failed to create device {}", i);
+            assert_eq!(
+                response.status(),
+                StatusCode::CREATED,
+                "Failed to create device {}",
+                i
+            );
         } else {
             // The 11th device creation (i=10) MUST fail with 400 Bad Request
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "Should fail on 11th device creation");
+            assert_eq!(
+                response.status(),
+                StatusCode::BAD_REQUEST,
+                "Should fail on 11th device creation"
+            );
         }
     }
 }
